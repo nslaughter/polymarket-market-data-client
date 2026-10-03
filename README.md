@@ -53,13 +53,21 @@ behavior it lacks. The scope covers market selection, event handling,
 connection lifecycle, recovery, and the handoff into the consuming
 application.
 
+The market WebSocket uses an application-level heartbeat: the client sends the
+text frame `PING` every 10 seconds, and the server replies with `PONG`
+([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
+checked October 3, 2026). The documentation does not say what the server does
+when the heartbeat stops, so how long the client waits for `PONG` before
+treating the connection as interrupted is a design choice. That timeout will
+be documented and checked against the live service.
+
 ## How the client will recover and report its state
 
 1. Resolve the selected markets to the identifiers the source requires, and
    record the desired subscriptions independently of any connection.
 2. Connect and subscribe. Establish initial application state using the
    source's verified snapshot and update behavior before reporting readiness.
-3. When a closed connection or missed heartbeat reveals an interruption, mark
+3. When a closed connection or a missing `PONG` reveals an interruption, mark
    the affected state uncertain and record the last confirmed activity and the
    time the interruption was detected.
 4. Reconnect under a bounded retry policy that supports cancellation, restore
@@ -108,7 +116,7 @@ events, and continuous operation.
   research example runs.
 - Initial and recovered states from a deterministic source fixture match
   independently prepared expectations.
-- Checks exercise disconnection, a missing heartbeat, subscription
+- Checks exercise disconnection, a missing `PONG`, subscription
   restoration and changes, unfamiliar events, and a slow consumer. They assert
   when the client becomes uncertain and when it may report readiness again.
 - A limited live run is recorded separately, with its client version,
