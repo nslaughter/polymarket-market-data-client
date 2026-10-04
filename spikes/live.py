@@ -10,6 +10,7 @@ the reproductions write and re-read.
 """
 
 import asyncio
+import gzip
 import json
 import platform
 import subprocess
@@ -82,9 +83,11 @@ class Recorder:
 
 
 def load(paths: list[str]) -> list[dict]:
+    """Read captures, plain or gzip-compressed (.gz)."""
     records = []
     for p in paths:
-        records.extend(json.loads(line) for line in open(p))
+        with (gzip.open(p, "rt") if str(p).endswith(".gz") else open(p)) as f:
+            records.extend(json.loads(line) for line in f)
     return records
 
 
@@ -234,7 +237,11 @@ def how_closed(records: list[dict], conn: str) -> str:
     return "closed by the server without a close frame"
 
 
+VERDICTS: list[tuple[str, str]] = []  # every verdict printed, for check_evidence.py
+
+
 def verdict(name: str, outcome: str, why: str, path: Path | str | list) -> None:
+    VERDICTS.append((name, outcome))
     paths = path if isinstance(path, list) else [path]
     print(f"\n{name}: {outcome}\n  {why}")
     for p in paths:
