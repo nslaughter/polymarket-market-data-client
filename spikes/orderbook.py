@@ -26,14 +26,19 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 
-def book_hash(book: dict) -> str:
-    """Hash a REST-shaped book dict (its own `hash` field is ignored)."""
+def hashed_text(book: dict) -> str:
+    """The JSON text the hash covers, from a REST-shaped book dict."""
     obj = {"market": book["market"], "asset_id": book["asset_id"],
            "timestamp": book["timestamp"], "hash": "", "bids": book["bids"],
            "asks": book["asks"], "min_order_size": book["min_order_size"],
            "tick_size": book["tick_size"], "neg_risk": book["neg_risk"],
            "last_trade_price": book["last_trade_price"]}
-    return hashlib.sha1(json.dumps(obj, separators=(",", ":")).encode()).hexdigest()
+    return json.dumps(obj, separators=(",", ":"))
+
+
+def book_hash(book: dict) -> str:
+    """Hash a REST-shaped book dict (its own `hash` field is ignored)."""
+    return hashlib.sha1(hashed_text(book).encode()).hexdigest()
 
 
 def ltp_text(price: str) -> str:
@@ -74,6 +79,20 @@ class Book:
 
     def hash(self, timestamp: str, last_trade_price: str) -> str:
         return book_hash(self.as_rest(timestamp, last_trade_price))
+
+    def any_trade_price(self, timestamp: str, want: str) -> str | None:
+        """Find a last trade price, on a 0.001 grid, that gives this hash.
+
+        A match still confirms every level exactly; only the trade price is
+        treated as unknown.
+        """
+        head, tail = hashed_text(self.as_rest(timestamp, "\x00")).split('"\\u0000"')
+        for k in range(1001):
+            price = f"{k / 1000:.3f}"
+            body = f'{head}"{price}"{tail}'
+            if hashlib.sha1(body.encode()).hexdigest() == want:
+                return price
+        return None
 
     def levels(self) -> tuple[dict, dict]:
         return dict(self.bids), dict(self.asks)
