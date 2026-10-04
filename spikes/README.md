@@ -3,7 +3,38 @@
 Scripts for the source investigation recorded in
 [`docs/source-behavior.md`](../docs/source-behavior.md). They are not part of
 the package or its checks. Each declares its dependencies inline (PEP 723)
-and runs with `uv run`; `orderbook.py` is a helper the others import.
+and runs with `uv run`; `orderbook.py` and `live.py` are helpers the others
+import.
+
+## Reproducing the behavior the documentation does not state
+
+Each `repro_*.py` subcommand checks one behavior from the catalog in
+[`docs/source-behavior.md`](../docs/source-behavior.md#behavior-the-documentation-and-sdk-do-not-state).
+Run without options, it picks current markets, runs live, saves a capture
+under `spikes/captures/repro/`, and prints a verdict: REPRODUCED, NOT
+REPRODUCED, or INCONCLUSIVE, with the reason. With `--capture FILE`
+(repeatable), it analyzes recorded captures instead, including the ones the
+findings came from.
+
+```sh
+uv run spikes/repro_sdk.py silent-reconnect           # about 2 minutes
+uv run spikes/repro_sdk.py drops-events               # 3 minutes
+uv run spikes/repro_stream.py idle-close              # up to 4.5 minutes
+uv run spikes/repro_stream.py no-replay               # 1 minute
+uv run spikes/repro_stream.py duplicates              # 5 minutes; also checks order
+uv run spikes/repro_stream.py slow-consumer           # 10 minutes; depends on activity
+uv run spikes/repro_settlement.py settled-subscription  # 30 seconds
+uv run spikes/repro_settlement.py settlement          # until the next 5-minute
+                                                      # market settles and lookup
+                                                      # shows it; about 8 minutes
+
+# Re-analyze the captures the findings came from, where they are kept:
+uv run spikes/repro_sdk.py silent-reconnect --capture spikes/captures/sdk-reconnect.jsonl
+uv run spikes/repro_settlement.py settlement \
+    --capture spikes/captures/settle-watch-2.jsonl --markets spikes/captures/markets-1.jsonl
+```
+
+## The investigation's runs
 
 Captures go to `spikes/captures/`, which git ignores. Markets settle, so the
 commands below need a fresh `markets.jsonl` and current slugs to rerun.
