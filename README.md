@@ -9,14 +9,18 @@ data systems with attention to how they behave in operation. My work includes
 observability integrations, financial systems, and operating data pipelines.
 This project will apply that experience to a focused third-party API workflow.
 
-**Status:** Project brief with source findings. This repository contains this
+**Status:** Specification drafted for review. This repository contains this
 README, the findings of a short investigation of source behavior in
-[`docs/source-behavior.md`](docs/source-behavior.md), and the investigation's
-scripts in `spikes/`. The client, package interface, fixtures, and runnable
-examples follow. None of the client has been implemented or tested yet. The
-client will be written in Python. This is an independent, read-only
-demonstration. It is not affiliated with or endorsed by Polymarket, and it is
-not client work.
+[`docs/source-behavior.md`](docs/source-behavior.md), the investigation's
+scripts in `spikes/`, and the client's specification: the
+[client contract](spec/client.md), the
+[conformance scenarios](spec/conformance.md), the
+[implementation plan](docs/implementation-plan.md), and the rules for
+implementation agents in [`AGENTS.md`](AGENTS.md). Seven design decisions in
+the contract await review before the steps that depend on them start. None
+of the client has been implemented or tested yet. The client will be written
+in Python. This is an independent, read-only demonstration. It is not
+affiliated with or endorsed by Polymarket, and it is not client work.
 
 ## What this project demonstrates
 
@@ -123,6 +127,10 @@ must allow for queued data, and the client documents it.
    ([findings, question 3](docs/source-behavior.md#3-event-order-and-replay)).
 5. Report restored current state separately from the capture interval whose
    completeness remains unknown, including when recovery fails.
+
+The [client contract](spec/client.md) specifies these steps in full, with a
+per-token state machine and the records each change produces. It governs the
+code; this README describes the project.
 
 Steps 2 to 4 depend on source behavior the documentation does not answer:
 snapshots, event ordering, detecting missed events, replay, and the heartbeat.
@@ -261,9 +269,14 @@ means, and continuous operation.
   quickstart.
 - A runnable market-data example that chooses active markets when it runs,
   so it keeps working as markets settle.
-- The client interface and its documented recovery contract.
-- A scripted local WebSocket server and deterministic fixtures with
-  independently prepared expected states.
+- The client interface and its recovery contract, specified in
+  [`spec/client.md`](spec/client.md).
+- A scripted local WebSocket server and deterministic scenarios with
+  independently prepared expected states, specified in
+  [`spec/conformance.md`](spec/conformance.md) before any client code. They
+  use synthetic markets, not the captured Polymarket data.
+- An [implementation plan](docs/implementation-plan.md) of one pull request
+  at a time, and rules for implementation agents in [`AGENTS.md`](AGENTS.md).
 - Automated checks in CI on each supported Python version, and a tagged
   release with a built wheel.
 - An inspectable recovery timeline and documented source coverage limits.
