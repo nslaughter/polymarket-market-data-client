@@ -171,11 +171,12 @@ it as one.
 
 In scope: a limited, explicit set of markets and event types; Python;
 read-only market data; the market WebSocket connection; and recovery, consumer
-buffering, and the application handoff.
+buffering, and the application handoff. Recovery includes replaying missed
+events from the source, if the investigation finds that the source can.
 
 Outside this demonstration: order execution and trading, durable storage and
-batch delivery (handled by the pipeline), historical reconstruction of missed
-events, and continuous operation.
+batch delivery (handled by the pipeline), reconstructing missed events by any
+other means, and continuous operation.
 
 ## The demonstration is complete when
 
