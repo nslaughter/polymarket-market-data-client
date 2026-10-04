@@ -35,6 +35,8 @@ from pathlib import Path
 
 from websockets.asyncio.client import connect
 
+import live
+
 URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
 
@@ -55,7 +57,8 @@ async def stream(rec: Recorder, assets: list[str], stop: asyncio.Event) -> None:
     async with connect(URL, ping_interval=None, max_size=None) as ws:
         await ws.send(json.dumps({"type": "market", "assets_ids": assets,
                                   "custom_feature_enabled": True}))
-        rec.write("open")
+        rec.write("open", server={h: ws.response.headers.get(h)
+                                  for h in live.SERVER_HEADERS})
 
         async def ping():
             while True:
@@ -98,6 +101,7 @@ async def snapshots(rec: Recorder, assets: list[str], every: float,
 
 async def run(args) -> None:
     rec = Recorder(Path(args.out))
+    rec.write("environment", **live.environment())
     assets = []
     for line in Path(args.markets).read_text().splitlines():
         m = json.loads(line)

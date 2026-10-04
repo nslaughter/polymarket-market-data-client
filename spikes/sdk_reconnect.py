@@ -46,6 +46,8 @@ from pathlib import Path
 
 from websockets.asyncio.client import connect
 
+import live
+
 UPSTREAM_HOST = "ws-subscriptions-clob.polymarket.com"
 UPSTREAM_URL = f"wss://{UPSTREAM_HOST}/ws/market"
 PONG_FRAME = b"\x81\x04PONG"  # unmasked final text frame from the server
@@ -310,7 +312,8 @@ async def reference(rec: Recorder, assets: list[str], stop: asyncio.Event) -> No
     async with connect(UPSTREAM_URL, ping_interval=None, max_size=None, logger=logger) as ws:
         await ws.send(json.dumps({"type": "market", "assets_ids": assets,
                                   "custom_feature_enabled": True}))
-        rec.write("ref", event="subscribed")
+        rec.write("ref", event="subscribed",
+                  server={h: ws.response.headers.get(h) for h in live.SERVER_HEADERS})
 
         async def ping():
             while True:
@@ -336,6 +339,7 @@ async def run(args) -> None:
     from polymarket.streams import MarketSpec
 
     rec = Recorder(Path(args.out))
+    rec.write("environment", **live.environment())
     sdk_logger = logging.getLogger("spike.sdk")
     sdk_logger.setLevel(logging.DEBUG)
     sdk_logger.addHandler(LogToRecorder(rec, "sdk_log"))
@@ -355,7 +359,7 @@ async def run(args) -> None:
         m = json.loads(line)
         if m["slug"] in args.slug:
             assets.extend(m["token_ids"])
-    rec.write("note", sdk="polymarket-client 0.12.0", url=url, assets=assets,
+    rec.write("note", url=url, assets=assets,
               schedule={k: getattr(args, k) for k in
                         ("faults", "kill_at", "stall_at", "stall_for", "close_at",
                          "outage_at", "outage_for", "withhold_pong_at",

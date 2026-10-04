@@ -18,7 +18,8 @@ pings from this client are off unless --protocol-ping is given, so the two
 mechanisms can be told apart. Control frames the server sends (protocol
 pings, close frames) are recorded from the websockets library's debug log.
 
-Record kinds: note, open, sent, recv, control, close, end.
+Record kinds: environment (versions and repo commit), note, open (with the
+server's handshake headers), sent, recv, control, close, end.
 """
 
 import argparse
@@ -30,6 +31,8 @@ from pathlib import Path
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
+
+import live
 
 URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
@@ -91,6 +94,7 @@ async def heartbeat(ws, rec: Recorder, interval: float, ping_for: float | None) 
 
 async def run(args) -> None:
     rec = Recorder(Path(args.out), args.label)
+    rec.write("environment", **live.environment())
     logger = logging.getLogger("websockets.client")
     logger.setLevel(logging.DEBUG)
     logger.addHandler(ControlFrameLog(rec))
@@ -115,7 +119,8 @@ async def run(args) -> None:
 async def session(args, rec, logger, frame, deadline, ping_kwargs) -> bool:
     """Run one connection; return True once the duration is reached."""
     async with connect(args.url, max_size=None, logger=logger, **ping_kwargs) as ws:
-        rec.write("open")
+        rec.write("open", server={h: ws.response.headers.get(h)
+                                  for h in live.SERVER_HEADERS})
         text = json.dumps(frame)
         await ws.send(text)
         rec.write("sent", text=text)

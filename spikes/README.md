@@ -6,6 +6,33 @@ the package or its checks. Each declares its dependencies inline (PEP 723)
 and runs with `uv run`; `orderbook.py` and `live.py` are helpers the others
 import.
 
+## Versions
+
+Each runnable script has a lockfile beside it (`<script>.py.lock`), so
+`uv run` installs exactly the versions the findings were checked against:
+`polymarket-client` 0.12.0, `websockets` 15.0.1, `pydantic` 2.13.5, and the
+rest of the tree. Use `uv run --locked` to fail rather than run if a script
+and its lock disagree. Every capture from these scripts opens with an
+`environment` record of the package versions, Python, time, and repository
+commit, and every connection's `open` record keeps the server's handshake
+headers (`Date`, `Server`, `CF-RAY`). The reproductions print both with
+each verdict.
+
+To check whether a later SDK release fixes an SDK finding, keep the original
+and run a re-pinned copy beside it:
+
+```sh
+cp spikes/repro_sdk.py spikes/repro_sdk_next.py
+# edit the copy's header: "polymarket-client==<new version>"
+uv lock --script spikes/repro_sdk_next.py
+uv run spikes/repro_sdk_next.py drops-events
+uv run spikes/repro_sdk.py drops-events     # still 0.12.0
+```
+
+The service has no version, so a service finding is tied to the time it was
+checked. A later NOT REPRODUCED verdict, with its recorded time and server
+headers, is the evidence that the behavior changed.
+
 ## Reproducing the behavior the documentation does not state
 
 Each `repro_*.py` subcommand checks one behavior from the catalog in

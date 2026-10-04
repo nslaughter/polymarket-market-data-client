@@ -11,8 +11,12 @@ the reproductions write and re-read.
 
 import asyncio
 import json
+import platform
+import subprocess
+import sys
 import time
 from datetime import UTC, datetime, timedelta
+from importlib import metadata
 from pathlib import Path
 
 from websockets.asyncio.client import connect
@@ -20,6 +24,43 @@ from websockets.exceptions import ConnectionClosed
 
 URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 CAPTURES = Path(__file__).parent / "captures" / "repro"
+PACKAGES = ("polymarket-client", "websockets", "pydantic", "pydantic-core", "httpx")
+# Handshake headers that identify what answered: the service has no version.
+SERVER_HEADERS = ("date", "server", "cf-ray")
+
+
+def environment() -> dict:
+    """What a result was checked against. The SDK and libraries have versions;
+    the service does not, so its results are tied to the time and the
+    handshake headers recorded with each connection."""
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, cwd=Path(__file__).parent).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "."],
+                               capture_output=True, text=True,
+                               cwd=Path(__file__).parent).stdout.strip()
+    except OSError:
+        commit, dirty = "", ""
+    versions = {}
+    for name in PACKAGES:
+        try:
+            versions[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            versions[name] = None
+    return {"checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "script": Path(sys.argv[0]).name, "argv": sys.argv[1:],
+            "python": platform.python_version(), "platform": platform.platform(),
+            "packages": versions, "endpoint": URL,
+            "repo_commit": commit + ("+changes" if dirty else "")}
+
+
+def describe_environment(env: dict | None) -> str:
+    if not env:
+        return "versions not recorded in this capture; see docs/source-behavior.md"
+    pk = env["packages"]
+    return (f"checked {env['checked_at']} with polymarket-client {pk['polymarket-client']},"
+            f" websockets {pk['websockets']}, pydantic {pk['pydantic']}, Python"
+            f" {env['python']}, repo {env['repo_commit'] or 'unknown'}")
 
 
 class Recorder:
@@ -31,6 +72,7 @@ class Recorder:
         self.path = CAPTURES / f"{name}-{stamp}.jsonl"
         self._file = self.path.open("a", buffering=1)
         self.start = time.monotonic()
+        self.write("environment", **environment())
 
     def write(self, kind: str, **fields) -> None:
         now = time.monotonic()
@@ -129,7 +171,9 @@ class MarketSocket:
 
     async def open(self) -> "MarketSocket":
         self._ws = await connect(URL, ping_interval=None, max_size=None)
-        self.rec.write("open", conn=self.label)
+        headers = self._ws.response.headers
+        self.rec.write("open", conn=self.label,
+                       server={h: headers.get(h) for h in SERVER_HEADERS})
         frame = json.dumps({"type": "market", "assets_ids": self.assets,
                             "custom_feature_enabled": self.custom})
         await self._ws.send(frame)
@@ -194,4 +238,9 @@ def verdict(name: str, outcome: str, why: str, path: Path | str | list) -> None:
     paths = path if isinstance(path, list) else [path]
     print(f"\n{name}: {outcome}\n  {why}")
     for p in paths:
+        env = next((r for r in load([str(p)]) if r["kind"] == "environment"), None)
+        server = next((r["server"] for r in load([str(p)]) if r.get("server")), None)
         print(f"  capture: {p}")
+        print(f"    {describe_environment(env)}")
+        if server:
+            print(f"    server: {', '.join(f'{k} {v}' for k, v in server.items() if v)}")
