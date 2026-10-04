@@ -17,6 +17,11 @@ after the SDK subscribes:
   --close-at     send the SDK a server close frame (1001) and close TCP
   --outage-at    stop accepting connections and abort the open one for
                  --outage-for seconds
+  --withhold-pong-at
+                 drop the server's PONG frames, and nothing else, for
+                 --withhold-pong-for seconds
+
+--faults picks which of these run; the default is all but withhold-pong.
 
 A direct reference connection to the same markets runs alongside, so the
 events the source sent while the SDK was disconnected can be compared with
@@ -43,6 +48,7 @@ from websockets.asyncio.client import connect
 
 UPSTREAM_HOST = "ws-subscriptions-clob.polymarket.com"
 UPSTREAM_URL = f"wss://{UPSTREAM_HOST}/ws/market"
+PONG_FRAME = b"\x81\x04PONG"  # unmasked final text frame from the server
 
 
 class Recorder:
@@ -171,6 +177,9 @@ class ProxiedConnection:
             if not data:
                 return
             for chunk in splitter.feed(data):
+                if self.proxy.drop_pong and chunk == PONG_FRAME:
+                    self.proxy.pongs_dropped += 1
+                    continue
                 await self.flowing.wait()
                 async with self.client_lock:
                     self.cwriter.write(chunk)
@@ -198,6 +207,8 @@ class Proxy:
         self.server = None
         self.conns: dict[int, ProxiedConnection] = {}
         self._next = 0
+        self.drop_pong = False
+        self.pongs_dropped = 0
 
     async def listen(self) -> None:
         self.server = await asyncio.start_server(self._accept, "127.0.0.1", self.port,
@@ -224,37 +235,50 @@ class Proxy:
 
 
 async def fault_schedule(proxy: Proxy, args, t0: float) -> None:
-    async def at(offset: float) -> None:
-        await asyncio.sleep(max(0.0, t0 + offset - time.monotonic()))
-
     rec = proxy.rec
-    await at(args.kill_at)
-    rec.write("fault", action="kill", conns=[c.cid for c in proxy.live()])
-    for c in proxy.live():
-        c.abort()
 
-    await at(args.stall_at)
-    stalled = proxy.live()
-    rec.write("fault", action="stall start", conns=[c.cid for c in stalled])
-    for c in stalled:
-        c.flowing.clear()
-    await asyncio.sleep(args.stall_for)
-    rec.write("fault", action="stall end", conns=[c.cid for c in stalled])
-    for c in stalled:
-        c.flowing.set()
+    async def kill() -> None:
+        rec.write("fault", action="kill", conns=[c.cid for c in proxy.live()])
+        for c in proxy.live():
+            c.abort()
 
-    await at(args.close_at)
-    rec.write("fault", action="close frame 1001", conns=[c.cid for c in proxy.live()])
-    await asyncio.gather(*(c.send_close(1001, "going away") for c in proxy.live()))
+    async def stall() -> None:
+        stalled = proxy.live()
+        rec.write("fault", action="stall start", conns=[c.cid for c in stalled])
+        for c in stalled:
+            c.flowing.clear()
+        await asyncio.sleep(args.stall_for)
+        rec.write("fault", action="stall end", conns=[c.cid for c in stalled])
+        for c in stalled:
+            c.flowing.set()
 
-    await at(args.outage_at)
-    rec.write("fault", action="outage start", conns=[c.cid for c in proxy.live()])
-    proxy.stop_listening()
-    for c in proxy.live():
-        c.abort()
-    await asyncio.sleep(args.outage_for)
-    await proxy.listen()
-    rec.write("fault", action="outage end")
+    async def close() -> None:
+        rec.write("fault", action="close frame 1001", conns=[c.cid for c in proxy.live()])
+        await asyncio.gather(*(c.send_close(1001, "going away") for c in proxy.live()))
+
+    async def outage() -> None:
+        rec.write("fault", action="outage start", conns=[c.cid for c in proxy.live()])
+        proxy.stop_listening()
+        for c in proxy.live():
+            c.abort()
+        await asyncio.sleep(args.outage_for)
+        await proxy.listen()
+        rec.write("fault", action="outage end")
+
+    async def withhold_pong() -> None:
+        rec.write("fault", action="withhold PONG start")
+        proxy.drop_pong = True
+        await asyncio.sleep(args.withhold_pong_for)
+        proxy.drop_pong = False
+        rec.write("fault", action="withhold PONG end", dropped=proxy.pongs_dropped)
+
+    steps = {"kill": (args.kill_at, kill), "stall": (args.stall_at, stall),
+             "close": (args.close_at, close), "outage": (args.outage_at, outage),
+             "withhold-pong": (args.withhold_pong_at, withhold_pong)}
+    for name in sorted(args.faults, key=lambda n: steps[n][0]):
+        offset, step = steps[name]
+        await asyncio.sleep(max(0.0, t0 + offset - time.monotonic()))
+        await step()
 
 
 # --- SDK and reference connection -----------------------------------------
@@ -333,8 +357,9 @@ async def run(args) -> None:
             assets.extend(m["token_ids"])
     rec.write("note", sdk="polymarket-client 0.12.0", url=url, assets=assets,
               schedule={k: getattr(args, k) for k in
-                        ("kill_at", "stall_at", "stall_for", "close_at", "outage_at",
-                         "outage_for", "duration")})
+                        ("faults", "kill_at", "stall_at", "stall_for", "close_at",
+                         "outage_at", "outage_for", "withhold_pong_at",
+                         "withhold_pong_for", "duration")})
 
     stop = asyncio.Event()
     ref = asyncio.create_task(reference(rec, assets, stop))
@@ -402,8 +427,7 @@ def summarize(path: str) -> None:
         elif r["type"] == "book":
             sdk_hashes.add((r["asset"], r["hash"]))
     print("\n== SDK delivery around each fault")
-    faults = [r for r in recs if r["kind"] == "fault" and r["action"] != "stall end"
-              and r["action"] != "outage end"]
+    faults = [r for r in recs if r["kind"] == "fault" and not r["action"].endswith("end")]
     for f in faults:
         before = [r for r in sdk if r["elapsed"] < f["elapsed"]]
         after = [r for r in sdk if r["elapsed"] > f["elapsed"]]
@@ -439,12 +463,18 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--markets", help="JSON Lines file from select_markets.py")
     p.add_argument("--slug", action="append", help="market slug to subscribe")
+    p.add_argument("--faults", type=lambda v: v.split(","),
+                   default=["kill", "stall", "close", "outage"],
+                   help="comma-separated faults to run: kill, stall, close, outage,"
+                        " withhold-pong")
     p.add_argument("--kill-at", type=float, default=60)
     p.add_argument("--stall-at", type=float, default=120)
     p.add_argument("--stall-for", type=float, default=75)
     p.add_argument("--close-at", type=float, default=240)
     p.add_argument("--outage-at", type=float, default=300)
     p.add_argument("--outage-for", type=float, default=60)
+    p.add_argument("--withhold-pong-at", type=float, default=60)
+    p.add_argument("--withhold-pong-for", type=float, default=60)
     p.add_argument("--duration", type=float, default=420)
     p.add_argument("--out")
     p.add_argument("--summarize", metavar="FILE")
