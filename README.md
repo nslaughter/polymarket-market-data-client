@@ -99,10 +99,11 @@ investigation below informs that timeout, and the client documents it.
 
 Steps 2 to 4 depend on source behavior the documentation does not settle:
 snapshots, event ordering, detecting missed events, replay, and the heartbeat.
-They are specified after the investigation below. If a consistent handoff between a snapshot and the
-stream cannot be established, the example will narrow its claim and expose the
-uncertainty. A fresh view of the market restores current state; it does not
-reconstruct every change that occurred during a disconnect.
+They are specified after the investigation below. If a consistent handoff
+between a snapshot and the stream cannot be established, the example will
+narrow its claim and expose the uncertainty. A fresh view of the market
+restores current state; it does not reconstruct every change that occurred
+during a disconnect.
 
 ## Source behavior is checked before recovery is specified
 
