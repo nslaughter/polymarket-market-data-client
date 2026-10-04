@@ -97,7 +97,7 @@ investigation below informs that timeout, and the client documents it.
 5. Report restored current state separately from the capture interval whose
    completeness remains unknown, including when recovery fails.
 
-Steps 2 to 4 depend on source behavior the documentation does not settle:
+Steps 2 to 4 depend on source behavior the documentation does not answer:
 snapshots, event ordering, detecting missed events, replay, and the heartbeat.
 They are specified after the investigation below. If a consistent handoff
 between a snapshot and the stream cannot be established, the example will
@@ -125,7 +125,7 @@ The investigation runs in this repository. Its scripts live in `spikes/` and
 are not part of the package or its checks. Findings are recorded in
 `docs/source-behavior.md` with the SDK version, the date checked, the markets
 observed, and the observation period, and this README cites them where it
-relies on source behavior. Questions the investigation cannot settle remain
+relies on source behavior. Questions the investigation cannot answer remain
 open there and carry into the live run's unresolved source behavior.
 
 ## What the application receives
