@@ -97,27 +97,44 @@ must allow for queued data, and the client documents it.
 
 1. Resolve the selected markets to the identifiers the source requires, and
    record the desired subscriptions independently of any connection.
-2. Connect and send the subscription frame. Establish initial application
-   state using the source's verified snapshot and update behavior before
-   reporting readiness.
+2. Connect and send the subscription frame. Take each token's initial book
+   from the `book` event the stream sends on subscribing, then apply the
+   token's later `price_change` entries in arrival order. Report the token
+   ready once its book is in place. In the investigation, that `book` matched
+   the source's current book every time it was checked. Each token's book
+   changes arrived in timestamp order, apart from two that trailed an opening
+   `book` by 1 ms. Some messages arrived twice, and other event types
+   sometimes arrived out of timestamp order
+   ([findings, questions 3 and 5](docs/source-behavior.md#3-event-order-and-replay)).
 3. When a close frame, a dropped connection, or a missing `PONG` reveals an
-   interruption, mark
-   the affected state uncertain and record the last confirmed activity and the
-   time the interruption was detected.
+   interruption, mark the affected state uncertain and record the last
+   confirmed activity and the time the interruption was detected. The server
+   also ends connections it considers slow consumers, sometimes without a
+   close frame. Within a connection, an order-book hash that keeps disagreeing
+   with the client's own book marks that token's book uncertain as well
+   ([findings, questions 2 and 4](docs/source-behavior.md#4-revealing-a-missed-event)).
 4. Reconnect with exponential backoff, jitter, and a bounded number of
    attempts, all cancellable. Resend the subscription frames from the desired
-   set, and follow the verified synchronization procedure before using updates
-   again.
+   set. The source does not replay missed events. Instead the stream sends a
+   fresh `book` for each token, which replaces the client's book before
+   updates are used again
+   ([findings, question 3](docs/source-behavior.md#3-event-order-and-replay)).
 5. Report restored current state separately from the capture interval whose
    completeness remains unknown, including when recovery fails.
 
 Steps 2 to 4 depend on source behavior the documentation does not answer:
 snapshots, event ordering, detecting missed events, replay, and the heartbeat.
-They are specified after the investigation below. If a consistent handoff
-between a snapshot and the stream cannot be established, the example will
-narrow its claim and expose the uncertainty. A fresh view of the market
-restores current state; it does not reconstruct every change that occurred
-during a disconnect.
+They follow the investigation's findings in
+[`docs/source-behavior.md`](docs/source-behavior.md), which hold for the
+markets and periods recorded there. The handoff between a snapshot and the
+stream was consistent every time it was checked. That held both for the
+stream's own `book` and for a REST snapshot joined to the stream by its
+order-book hash
+([findings, question 5](docs/source-behavior.md#5-joining-a-snapshot-to-the-stream)).
+The hash is undocumented, so the client treats a mismatch as evidence that a
+book has diverged, not as a condition for readiness. A fresh view of the
+market restores current state; it does not reconstruct every change that
+occurred during a disconnect.
 
 Every market eventually settles; Polymarket calls this resolution. When a
 subscribed market settles, the client reports it as settled, not ready, and
