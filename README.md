@@ -1,7 +1,7 @@
 # Polymarket market-data client
 
-A reusable, read-only client demonstration for consuming Polymarket market
-data, restoring subscriptions and state after a disconnect, and making
+A reusable, read-only Python client demonstration for consuming Polymarket
+market data, restoring subscriptions and state after a disconnect, and making
 uncertain application state visible to the consumer.
 
 I'm [Nathan Slaughter](https://nathanslaughter.com/). I build integrations and
@@ -11,8 +11,8 @@ This project will apply that experience to a focused third-party API workflow.
 
 **Status:** Project brief. This repository currently contains this README.
 The client, package interface, fixtures, and runnable examples are planned;
-nothing described here has been implemented or tested yet. This is an
-independent, read-only demonstration. It is not affiliated with or endorsed by
+nothing described here has been implemented or tested yet. The client will be
+written in Python. This is an independent, read-only demonstration. It is not affiliated with or endorsed by
 Polymarket, and it is not client work.
 
 ## What this project demonstrates
@@ -46,12 +46,16 @@ Consider a research application following a selected set of markets. After a
 connection drops, it needs to restore its subscriptions and establish which
 state it can use. It also needs to know what the interruption leaves unknown.
 
-The first implementation will inspect the current source contract and
-Polymarket's official client before choosing one language and an interface.
-It will pin a client version, build on that client where it fits, and add the
-behavior it lacks. The scope covers market selection, event handling,
-connection lifecycle, recovery, and the handoff into the consuming
-application.
+Polymarket publishes an official Python SDK,
+[`polymarket-client`](https://pypi.org/project/polymarket-client/), whose
+asynchronous client subscribes to the market stream and yields typed events
+with `Decimal` prices
+([Python SDK](https://docs.polymarket.com/getting-started/python), checked
+October 4, 2026). This project will pin a version of it, build on it where it
+fits, and add the behavior it lacks. Whether it reconnects and restores
+subscriptions on its own is one of the first things to establish. The scope
+covers market selection, event handling, connection lifecycle, recovery, and
+the handoff into the consuming application.
 
 The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
@@ -100,9 +104,26 @@ make the upstream service retain events. If the source cannot replay,
 disconnecting to protect memory creates a capture gap, and the client records
 it as one.
 
+## Design choices for Python
+
+- **Asynchronous, like the source client.** The client uses `asyncio`. Events
+  reach the application through an async iterator backed by a bounded queue,
+  with a configured response when the queue fills.
+- **Cancellation from the standard library.** Cancelling the consuming task,
+  or wrapping it in `asyncio.timeout()`, stops reconnection attempts and closes
+  the connection. No background task outlives the client's `async with` block.
+- **Exact values.** Prices and sizes stay `Decimal`, as the official SDK
+  provides them, and are never converted to `float`.
+- **Typed records and states.** Market events, connection-state changes, and
+  capture gaps are distinct types, so the application can tell data from
+  status with an ordinary `match` statement.
+- **A package the pipeline can pin.** Releases are tagged wheels. CI installs
+  the built wheel in a clean virtual environment and runs the fixture checks
+  on each supported Python version.
+
 ## Scope
 
-In scope: a limited, explicit set of markets and event types; one language;
+In scope: a limited, explicit set of markets and event types; Python;
 read-only market data; and the connection lifecycle, recovery, consumer
 buffering, and application handoff.
 
@@ -112,7 +133,7 @@ events, and continuous operation.
 
 ## The demonstration is complete when
 
-- The packaged client installs in a clean environment and the documented
+- The built wheel installs in a clean virtual environment and the documented
   research example runs.
 - Initial and recovered states from a deterministic source fixture match
   independently prepared expectations.
@@ -130,7 +151,8 @@ events, and continuous operation.
 - A runnable market-data example.
 - The client interface and its documented recovery contract.
 - Deterministic fixtures with independently prepared expected states.
-- Automated checks in CI and a tagged package release.
+- Automated checks in CI on each supported Python version, and a tagged
+  release with a built wheel.
 - An inspectable recovery timeline and documented source coverage limits.
 
 A reader should be able to run the controlled example without access to the
