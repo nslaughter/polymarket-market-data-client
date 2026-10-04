@@ -86,9 +86,11 @@ step ends the scenario.
 
 ### The scripted server
 
-The server accepts WebSocket connections on its port. It numbers the
-connections it accepts 1, 2, and so on; the client's generations must agree,
-and the records say so. One connection is open at a time, the current one.
+The server accepts WebSocket connections on its port. It runs on its own
+event loop in a separate thread, so its tasks never mix with the client's.
+It numbers the connections it accepts 1, 2, and so on; the client's
+generations must agree, and the records say so. One connection is open at a
+time, the current one.
 
 Without a step telling it otherwise, the server:
 
@@ -180,7 +182,7 @@ The block begins with these lines, before any step.
 | `refuse <n>` | Answer the next `n` attempts with HTTP 503 instead of a handshake, and wait until all `n` have arrived. |
 | `refuse-all` | Answer every attempt with HTTP 503 until the next `accept`. Does not wait. |
 | `recv-subscribe <T> ...` | Wait for the next text frame other than `PING`. It must be a JSON object with exactly three members: `type` `"market"`, `assets_ids` listing exactly these tokens in this order, and `custom_feature_enabled` `true`. |
-| `recv-ping` | Wait for the next `PING`. |
+| `recv-ping` | Wait for the next `PING` the server receives after this step starts. |
 | `send <frame>` | Send a frame written in the [frame notation](#frame-notation). |
 | `send-text <text>` | Send the rest of the line as one text frame, after replacing references: `${A}` with a market's condition ID, `${A1}` with a token's ID, and `${t:<offset>}` with the decimal digits of `T0` plus the offset. |
 | `send-binary <hex>` | Send these bytes as a binary frame. |
@@ -212,7 +214,8 @@ A runner step that calls the client may end with `raises <Exception>`: the
 call must raise that exception.
 
 Checking shutdown means: the host task has finished; every task the client
-started has finished, judged by comparing `asyncio.all_tasks()` with the
+started has finished, judged by comparing `asyncio.all_tasks()` on the
+runner's loop, leaving out the runner's own host and step tasks, with the
 set taken before the client was entered; and the client's iterator, once
 read to its end, raises `StopAsyncIteration`.
 
@@ -271,9 +274,21 @@ Every `Decimal` field of every event record the runner reads must be a
 
 `within <lo>..<hi> of <label>` may end an `expect` or `recv-` step. The time
 of the matched record (`at` on a status record, `received_at` on an event
-record), or the time the `recv-` step completed, minus the time of the
-labelled step, must lie between `lo` and `hi` + 0.25 seconds. A step's time
-is when it completed; a labelled `expect` step's time is its record's.
+record), or the time the `recv-` step's frame arrived, minus the time of the
+labelled step, must lie between `lo` − 0.05 and `hi` + 0.25 seconds.
+
+A step's time is when it took effect:
+
+- for `send`, `send-text`, `send-binary`, `send-again`, `close`, and
+  `release-pongs`, when the server sent the frame, before any handshake
+  that follows;
+- for `drop`, when the server ended the TCP connection;
+- for `refuse`, when it sent the last of its HTTP 503 responses;
+- for `accept`, `recv-subscribe`, `recv-ping`, and `expect-client-close`,
+  when what the step waited for arrived;
+- for `pong`, `silent`, `trade`, `idle-close`, and the runner steps, when
+  the step returned;
+- for a labelled `expect` step, its record's time.
 
 ### Frame notation
 
@@ -322,7 +337,8 @@ Filled in this way:
 - A `book`'s `hash`, and each `price_change` entry's, follow the
   [recipe](client.md#order-book-hash) over the reference book, with
   `min_order_size` `"5"`, `neg_risk` false, the token's tick size, and the
-  market's trade price set by `trade` or the last `ltp`. A `price_change`
+  market's trade price set by `trade` or the last `ltp`, written with three
+  decimals, as the opening books carry it. A `price_change`
   applies its entries to the reference books in order; each entry then
   carries the hash, best bid, and best ask of its token's book after all of
   the message's entries for that token, with the message's timestamp, as
@@ -741,7 +757,7 @@ pong hold
 send pc A t=100 A1:BUY:0.49:10
 send pc A t=110 A1:BUY:0.49:20
 send pc A t=120 A1:BUY:0.49:30
-wait 1.5
+wait 1.7
 release-pongs
 c: close 1013 "slow consumer: send buffer full"
 pong auto
@@ -911,17 +927,18 @@ expect-end
 
 The server stops answering `PING`. Once the oldest unanswered `PING` has
 waited `pong_timeout`, the connection counts as interrupted and the client
-closes it ([§2]; D1 sets the timeout).
+closes it ([§2]; D1 sets the timeout). The first unanswered `PING` goes out
+within `ping_interval` of the server's change, so the interruption comes 2.0
+to 2.5 s after it.
 
 ```scenario
 scenario pong-withheld
 markets A
 
 start A
-pong off
-p: recv-ping
+o: pong off
 expect conn interrupted reason=pong_timeout connection=1
-  last_confirmed_at=set within 1.9..2.2 of p
+  last_confirmed_at=set within 2.0..2.5 of o
 expect token A1 uncertain reason=interrupted
 expect token A2 uncertain reason=interrupted
 expect conn recovering attempt=1 retry_in=0.1
@@ -958,7 +975,7 @@ pong hold
 send pc A t=100 A1:BUY:0.49:10
 send pc A t=110 A1:BUY:0.49:20
 send pc A t=120 A1:BUY:0.49:30
-wait 1.4
+wait 1.6
 release-pongs
 pong auto
 expect price_change A t=100
@@ -1484,8 +1501,10 @@ send-text 42
 expect undecodable reason=not_object index=none affected=()
 send-text [7]
 expect undecodable reason=not_object index=0 affected=()
+send pc A t=300 A1:BUY:0.49:10
+expect price_change A t=300 applied=true
 send book A1
-expect book A1
+expect book A1 t=300 held_book_matched=true
 expect token A1 ready
 send book A2
 expect book A2
@@ -1587,12 +1606,13 @@ The consumer stops reading. The client reports the backlog, and at the limit
 it closes the connection, waits for the consumer to drain the queue, and
 reconnects; the overflowing change is part of the gap, so the fresh book
 differs from the held one ([§2], [§3]). The queue holds 4 market records, a
-`Backlog` record marks 2, and the client resumes at 1.
+`Backlog` record marks 3, so the two opening books stay below it, and the
+client resumes at 1.
 
 ```scenario
 scenario consumer-stops-reading
 markets A
-config queue_size=4 backlog_warning=0.5 resume_below=0.25
+config queue_size=4 backlog_warning=0.75 resume_below=0.25
 pending D3
 
 start A
@@ -1605,15 +1625,15 @@ expect-client-close 1000 "client backlog"
 expect-backlog 4
 expect price_change A t=100
 expect price_change A t=101
-expect backlog queued=2 limit=4 rising=true
 expect price_change A t=102
+expect backlog queued=3 limit=4 rising=true
 expect price_change A t=103
 expect conn interrupted reason=consumer_overflow connection=1
 expect token A1 uncertain previous=ready reason=interrupted
 expect token A2 uncertain previous=ready reason=interrupted
 expect conn recovering attempt=1 reason=waiting_for_consumer
   retry_in=none
-expect backlog queued=1 limit=4 rising=false
+expect backlog queued=2 limit=4 rising=false
 expect conn connecting attempt=1
 accept
 recv-subscribe A1 A2

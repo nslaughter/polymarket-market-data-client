@@ -265,7 +265,7 @@ overwrote leaves no trace (Observed, [§4]).
 | Record | Fields |
 | --- | --- |
 | `UnknownEvent` | `event_type: str \| None`; `payload: Mapping[str, Any]`; `raw: str`; `received_at`, `connection`, `frame`, `index`. A JSON object whose `event_type` the client does not know, or that has none. |
-| `UndecodableFrame` | `reason`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str \| bytes`; `received_at`, `connection`, `frame`; `index: int \| None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
+| `UndecodableFrame` | `reason`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str \| bytes`; `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
 
 [Decoding](#decoding) says which applies and what each does to token states.
 
@@ -274,7 +274,7 @@ overwrote leaves no trace (Observed, [§4]).
 | Record | Fields |
 | --- | --- |
 | `TokenStateChange` | `token_id`; `market`; `state: TokenState`; `previous: TokenState \| None`; `reason: str`; `at: datetime`; `connection: int \| None`; `last_confirmed_at: datetime \| None`, set when the reason is `interrupted`; `winning_asset_id: str \| None`, set when settled and known. |
-| `ConnectionStateChange` | `state: ConnectionState`; `at`; `connection: int \| None`; `attempt: int \| None`; `reason: str \| None`; `detail: str \| None`; `close_code: int \| None`; `close_reason: str \| None`; `retry_in: float \| None`; `last_confirmed_at: datetime \| None`. |
+| `ConnectionStateChange` | `state: ConnectionState`; `at`; `connection: int \| None`, the generation for `open`, `subscribed`, `interrupted`, `ended`, and `idle` after a connection, otherwise `None`; `attempt: int \| None`, set for `connecting` and `recovering`; `reason: str \| None`; `detail: str \| None`; `close_code: int \| None`; `close_reason: str \| None`; `retry_in: float \| None`; `last_confirmed_at: datetime \| None`. |
 | `CaptureGap` | `token_id`; `market`; `cause: str`; `close_code: int \| None`; `close_reason: str \| None`; `last_confirmed_at: datetime`; `detected_at: datetime`; `resumed_at: datetime \| None`; `end: str`; `connection_before: int`; `connection_after: int \| None`; `held_book_matched: bool \| None`; `discarded: int \| None`; `at`. |
 | `Backlog` | `queued: int`; `limit: int`; `rising: bool`; `at`. |
 
@@ -310,7 +310,10 @@ rules, so that every conformance scenario has one correct sequence:
 4. A connection-level cause emits its `ConnectionStateChange` before the
    token records it causes, and any further connection record after them:
    for example `interrupted`, then each token's `uncertain`, then
-   `recovering`.
+   `recovering`. The one exception is `failed`, which comes after the
+   `CaptureGap`s that recovery's failure ends.
+5. A `Backlog` record with `rising=True` comes after every record caused by
+   the event whose record brought the count to the warning level.
 
 The [state machine](#per-token-state-machine) and
 [connection](#the-connection) sections give each sequence in full.
@@ -352,9 +355,10 @@ failed attempt, not an interruption.
 
 ### Heartbeat
 
-From the moment the subscription frame is sent, the client sends the text
-frame `PING` every `ping_interval` seconds (10 by default), whatever other
-traffic there is. The server answers each with `PONG` (Documented, as the
+Once the subscription frame is sent, the client sends the text frame `PING`
+every `ping_interval` seconds (10 by default), the first one
+`ping_interval` after the subscription frame, whatever other traffic there
+is. The server answers each with `PONG` (Documented, as the
 README cites; [How it ran]). A quiet connection needs this: one with no
 traffic in either direction was closed after about 125 s without a close
 frame, four times in four, and a `PING` every 10 s prevented it (Observed,
@@ -762,12 +766,13 @@ Records pass to the consumer through one bounded FIFO queue:
   would turn a slow consumer into a heartbeat timeout or a server close
   (Observed: the server closes connections whose send buffer fills, [§2]).
 - `client.backlog` gives the current count at any time. In the stream, a
-  `Backlog` record with `rising=True` follows the record that brings the
-  count to `backlog_warning × queue_size`, rounded up, and one with
+  `Backlog` record with `rising=True` follows the records caused by the
+  event whose record brings the count to `backlog_warning × queue_size`,
+  rounded up ([Record order](#record-order), rule 5), and one with
   `rising=False` is appended when the consumer's reading brings it back
-  below that. A `Backlog` record shows where in the stream the backlog
-  crossed the level; it reaches the consumer only after the records ahead
-  of it.
+  below that. Only one `rising=True` record is outstanding at a time. A
+  `Backlog` record shows where in the stream the backlog crossed the level;
+  it reaches the consumer only after the records ahead of it.
 
 What happens at the limit is D3's to settle. Backpressure cannot make the
 source retain events: the server ends a connection whose send buffer fills,
@@ -787,8 +792,9 @@ and lets the client resume, the `Backlog` record comes before `connecting`.
 ## Market lookup
 
 The client needs a market lookup to resolve a slug to its condition ID and
-tokens, to confirm settlement, and, if D4 adopts verification, to fetch the
-two hash inputs the stream does not carry. How the pinned SDK provides it is
+tokens, to confirm settlement, and, when `verify_hash` is set, to fetch the
+two hash inputs the stream does not carry. With `verify_hash` off, the
+client never calls `book_parameters`. How the pinned SDK provides it is
 D6's to settle. Whatever D6 decides, the client calls lookup through this
 interface, so tests replace it with a scripted one:
 

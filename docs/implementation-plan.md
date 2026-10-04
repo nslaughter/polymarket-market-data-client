@@ -137,11 +137,12 @@ Out of scope: I/O, timers, and hash computation. Timers are inputs here.
 ### 4. Build the conformance harness
 
 - In `tests/conformance/`, implement
-  [`spec/conformance.md`](../spec/conformance.md) completely: the block parser and the `start` macro; the scripted server
+  [`spec/conformance.md`](../spec/conformance.md) completely: the block
+  parser and the `start` macro; the scripted server, on its own event loop,
   with every server step, the reference books, and the frame notation with
   its hashes; the scripted lookup; the runner with every runner and
-  expectation step, matching, `within` windows, the `Decimal` type check,
-  shutdown checks, and failure reports.
+  expectation step, matching, step times and `within` windows, the
+  `Decimal` type check, shutdown checks, and failure reports.
 - The harness computes hashes with its own implementation of the recipe,
   separate from the client's, and checks it against the four vectors in
   `spec/conformance.md` and the one in `spec/client.md`.
@@ -189,7 +190,9 @@ Needs D6: how the pinned SDK serves lookup and settlement confirmation.
 
 - `MarketLookup`, the default lookup as D6 decides, and `resolve`;
   `book_timeout`; settlement by `market_resolved`, by the all-resolved
-  close, and by lookup, with its polling and timeout; `ended` and `idle`.
+  close, and by lookup, with its polling and timeout; `ended` and `idle`;
+  and `subscribe` on an idle client, which connects it, as
+  `resolve-by-slug` needs. Changes to a running connection are step 8.
 - The default lookup is tested with the SDK's HTTP layer replaced by
   recorded synthetic responses, never against the live service.
 - Turn on: `resolve-by-slug`, `settle-announced-others-open`,
