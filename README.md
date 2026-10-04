@@ -67,11 +67,17 @@ Polymarket also publishes an official Python SDK,
 asynchronous client for the same stream
 ([Python SDK](https://docs.polymarket.com/getting-started/python), checked
 October 4, 2026). This project pins a version of it for market lookup and any
-REST snapshots the recovery procedure needs. Whether the SDK's own stream
-reconnects and restores subscriptions, and whether it reports doing so, is
-checked in the source investigation below, so the choice to own the connection
-rests on evidence. The scope covers market selection, event handling, the
-connection lifecycle, recovery, and the handoff into the consuming application.
+REST snapshots the recovery procedure needs. The investigation below checked
+version 0.12.0. Its stream does reconnect and resend its subscriptions after a
+dropped, stalled, or closed connection, but it reports none of this to the
+consumer. Its subscription handle yields only market events, with nothing to
+mark a disconnect or the events lost during one. Only failed reconnect
+attempts and its own heartbeat timeout reach its logger. It also drops events
+it cannot parse, logging them only at debug level
+([findings, question 1](docs/source-behavior.md#1-reconnection-and-subscription-restoration-in-the-sdk)).
+So the client owns the connection, as the paragraph above requires. The scope
+covers market selection, event handling, the connection lifecycle, recovery,
+and the handoff into the consuming application.
 
 The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
