@@ -89,7 +89,7 @@ when the heartbeat stops. In the investigation, the server kept connections
 open without `PING` while market data flowed. It closed one with no traffic in
 either direction after about 125 seconds, without a close frame, and a `PING`
 every 10 seconds prevented that. `PONG` came back in about 0.14 seconds, but
-it is queued behind market data and took 9.5 seconds under heavy load
+it is queued behind market data and took over 11 seconds under heavy load
 ([findings, question 2](docs/source-behavior.md#2-heartbeat)). So the client
 sends `PING` even on quiet subscriptions. How long it waits for `PONG` before
 treating the connection as interrupted remains a design choice. That timeout
