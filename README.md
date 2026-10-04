@@ -10,10 +10,11 @@ observability integrations, financial systems, and operating data pipelines.
 This project will apply that experience to a focused third-party API workflow.
 
 **Status:** Project brief. This repository currently contains this README.
-The client, package interface, fixtures, and runnable examples are planned;
-nothing described here has been implemented or tested yet. The client will be
-written in Python. This is an independent, read-only demonstration. It is not affiliated with or endorsed by
-Polymarket, and it is not client work.
+A short investigation of source behavior comes first; the client, package
+interface, fixtures, and runnable examples follow it. Nothing described here
+has been implemented or tested yet. The client will be written in Python. This
+is an independent, read-only demonstration. It is not affiliated with or
+endorsed by Polymarket, and it is not client work.
 
 ## What this project demonstrates
 
@@ -65,17 +66,18 @@ asynchronous client for the same stream
 ([Python SDK](https://docs.polymarket.com/getting-started/python), checked
 October 4, 2026). This project pins a version of it for market lookup and any
 REST snapshots the recovery procedure needs. Whether the SDK's own stream
-reconnects and restores subscriptions, and whether it reports doing so, will be
-checked and documented, so the choice to own the connection rests on evidence. The scope covers market selection, event handling, the connection
-lifecycle, recovery, and the handoff into the consuming application.
+reconnects and restores subscriptions, and whether it reports doing so, is
+checked in the source investigation below, so the choice to own the connection
+rests on evidence. The scope covers market selection, event handling, the
+connection lifecycle, recovery, and the handoff into the consuming application.
 
 The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
 ([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
 checked October 3, 2026). The documentation does not say what the server does
 when the heartbeat stops, so how long the client waits for `PONG` before
-treating the connection as interrupted is a design choice. That timeout will
-be documented and checked against the live service.
+treating the connection as interrupted is a design choice. The source
+investigation below informs that timeout, and the client documents it.
 
 ## How the client will recover and report its state
 
@@ -95,8 +97,9 @@ be documented and checked against the live service.
 5. Report restored current state separately from the capture interval whose
    completeness remains unknown, including when recovery fails.
 
-Source replay, event ordering, and snapshot behavior need investigation before
-step 4 can be specified. If a consistent handoff between a snapshot and the
+Steps 2 to 4 depend on source behavior the documentation does not settle:
+snapshots, event ordering, replay, and the heartbeat. They are specified after
+the investigation below. If a consistent handoff between a snapshot and the
 stream cannot be established, the example will narrow its claim and expose the
 uncertainty. A fresh view of the market restores current state; it does not
 reconstruct every change that occurred during a disconnect.
@@ -196,9 +199,9 @@ events, and continuous operation.
 - Automated checks in CI on each supported Python version, and a tagged
   release with a built wheel.
 - An inspectable recovery timeline and documented source coverage limits.
-- Source-behavior findings in `docs/source-behavior.md`, with the SDK version
-  and dates checked. The investigation scripts in `spikes/` are kept out of
-  the package.
+- Source-behavior findings in `docs/source-behavior.md`, with the SDK version,
+  dates checked, markets observed, and observation periods. The investigation
+  scripts in `spikes/` are kept out of the package and its checks.
 
 A reader should be able to run the controlled example without access to the
 live service.
