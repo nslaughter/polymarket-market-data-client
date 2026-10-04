@@ -10,11 +10,9 @@ collected at the end.
 ## How the investigation ran
 
 - **Date checked:** October 4, 2026. Times below are UTC.
-- **SDK:** `polymarket-client` 0.12.0 from PyPI. The documentation's
-  [SDK changelog](https://docs.polymarket.com/changelog/sdks) lists Python
-  releases only through 0.11.0.
-- **Other software:** scripts that open their own socket use `websockets`
-  15.0.1. All scripts ran on CPython 3.12.13 under `uv run`.
+- **Versions:** `polymarket-client` 0.12.0 and `websockets` 15.0.1, on
+  CPython 3.12.13. The full list, and how to check a later release without
+  losing these results, is under [Versions](#versions).
 - **Endpoints:** the market WebSocket at
   `wss://ws-subscriptions-clob.polymarket.com/ws/market`, which answered
   through Cloudflare (its handshake response carries `Server: cloudflare`),
@@ -25,8 +23,35 @@ collected at the end.
   the text frame `PING` every 10 seconds unless a run withheld it. Scripts
   that open their own socket turned WebSocket protocol pings off.
 - **Scripts:** in [`spikes/`](../spikes), each declaring its own
-  dependencies. Raw captures stayed on the machine that ran them and are not
-  in git. Excerpts below are quoted from them.
+  dependencies and locked to exact versions. Raw captures stayed on the
+  machine that ran them and are not in git. Excerpts below are quoted from
+  them.
+
+### Versions
+
+Every finding holds for these versions only. A finding about the SDK may be
+fixed in a later release, and the service may change without any version to
+mark it. So the versions are recorded here, and pinned in the scripts, so
+that the original behavior stays reproducible after a fix.
+
+| Component | Version checked |
+| --- | --- |
+| Official Python SDK | `polymarket-client` 0.12.0, wheel `polymarket_client-0.12.0-py3-none-any.whl`, sha256 `b563c6f487f86c1f7ac459feb29b438d48c1df3261d75975249c02618d03fb48`. Source paths cited below are in this wheel. The [SDK changelog](https://docs.polymarket.com/changelog/sdks) listed Python releases only through 0.11.0 when read. |
+| SDK dependencies that shape the findings | `websockets` 15.0.1 (whose keepalive caught the stall), `pydantic` 2.13.5 and `pydantic-core` 2.46.5 (whose validation rejects the `new_market` events), `httpx` 0.28.1 |
+| Every other package | locked per script in `spikes/<script>.py.lock` |
+| Python and platform | CPython 3.12.13 managed by uv 0.12.23, on macOS 26.6.2 (arm64) |
+| Market WebSocket and REST APIs | No version. Checked October 4, 2026, 14:26 to 16:08 UTC. Handshakes were answered by Cloudflare (`Server: cloudflare`, rays ending `-DFW`). |
+| Documentation | Read October 4, 2026 as Markdown (page URL plus `.md`). SHA-256 of what was read: [real-time data](https://docs.polymarket.com/market-data/realtime-data) `8ad4bd28afd777ebb9229afa8bfd859c8c9e5db6448b6f0f6e750f72adcb0b51`, [prices and order books](https://docs.polymarket.com/market-data/prices-order-books) `e7b41e330500084c013dc31e59d363a25f66b51fc9f3124a14a4889680662b1b`, [Python SDK](https://docs.polymarket.com/getting-started/python) `c5860a04c695fb915a7a1b736cfeae723c4e4b3ccd982946d62aa4caf2efe32b`, [SDK changelog](https://docs.polymarket.com/changelog/sdks) `3aca66c34314921115818c7ef7ff0e30048624cd08e64107ec5d255974a05929`, [resolution](https://docs.polymarket.com/concepts/resolution) `698262d533e21d42ea6192c5d09d421d81646397a82ffe96e88c8b9cd77931ac`. "Not documented" below means not in these pages as read. |
+
+The scripts run under the lockfiles, so `uv run` rebuilds this environment
+exactly, including after newer releases. Each reproduction's capture opens
+with an `environment` record of the versions, the time, and the repository
+commit. Each connection's `open` record carries the server's handshake
+headers, and each verdict prints both. To check whether a later SDK release
+fixes an SDK finding, re-pin a copy of the script, lock it, and run it beside
+the original. The 0.12.0 result stays reproducible from the original script.
+For the service, a later NOT REPRODUCED verdict is dated evidence of a
+change, compared with the dates above.
 
 ### Markets
 
