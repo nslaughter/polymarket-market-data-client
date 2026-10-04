@@ -1,0 +1,71 @@
+{"t":1791124887.77523,"mono":1909943.785653583,"elapsed":9.5e-05,"conn":"idle-ping","kind":"note","text":"connecting","url":"wss://ws-subscriptions-clob.polymarket.com/ws/market","protocol_ping":false,"ping_interval":10,"ping_for":null}
+{"t":1791124887.815009,"mono":1909943.825432708,"elapsed":0.039874,"conn":"idle-ping","kind":"control","line":"= connection is CONNECTING"}
+{"t":1791124888.22893,"mono":1909944.239353833,"elapsed":0.453795,"conn":"idle-ping","kind":"control","line":"= connection is OPEN"}
+{"t":1791124888.2290292,"mono":1909944.239452666,"elapsed":0.453894,"conn":"idle-ping","kind":"open"}
+{"t":1791124888.229144,"mono":1909944.239567916,"elapsed":0.454009,"conn":"idle-ping","kind":"sent","text":"{\"type\": \"market\", \"assets_ids\": [\"6012180248743313116112314719986762687955919882234931815345456773884607889280\", \"59124705498088345406614874304734362081361971958233729558690850455967428254529\"], \"custom_feature_enabled\": false}"}
+{"t":1791124888.3881521,"mono":1909944.39857575,"elapsed":0.613017,"conn":"idle-ping","kind":"recv","text":"[]\n","binary":false}
+{"t":1791124898.2306602,"mono":1909954.24108975,"elapsed":10.455531,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124898.361676,"mono":1909954.372106541,"elapsed":10.586548,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124908.231988,"mono":1909964.242424416,"elapsed":20.456866,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124908.3730931,"mono":1909964.383528916,"elapsed":20.59797,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124918.2337651,"mono":1909974.244206541,"elapsed":30.458648,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124918.36686,"mono":1909974.377301541,"elapsed":30.591743,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124928.234966,"mono":1909984.245414,"elapsed":40.459855,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124928.388983,"mono":1909984.399430958,"elapsed":40.613872,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124938.23584,"mono":1909994.246293875,"elapsed":50.460735,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124938.3720078,"mono":1909994.382462333,"elapsed":50.596903,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124948.237269,"mono":1910004.247728583,"elapsed":60.46217,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124948.3721669,"mono":1910004.382626958,"elapsed":60.597068,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124958.238827,"mono":1910014.249292791,"elapsed":70.463734,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124958.372204,"mono":1910014.382669875,"elapsed":70.597111,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124968.240681,"mono":1910024.251152875,"elapsed":80.465594,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124968.3779242,"mono":1910024.388395166,"elapsed":80.602836,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124978.242677,"mono":1910034.253154541,"elapsed":90.467596,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124978.373782,"mono":1910034.38425975,"elapsed":90.598701,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124988.244929,"mono":1910044.255411583,"elapsed":100.469853,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124988.377548,"mono":1910044.388032041,"elapsed":100.602473,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791124998.246421,"mono":1910054.256910708,"elapsed":110.471352,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791124998.390068,"mono":1910054.40055775,"elapsed":110.614999,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125008.248037,"mono":1910064.258532541,"elapsed":120.472974,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125008.381618,"mono":1910064.392113583,"elapsed":120.606555,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125018.250891,"mono":1910074.261392833,"elapsed":130.475834,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125018.393774,"mono":1910074.404275541,"elapsed":130.618717,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125028.2523258,"mono":1910084.262833666,"elapsed":140.477275,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125028.388482,"mono":1910084.39898925,"elapsed":140.61343,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125038.2535481,"mono":1910094.264061916,"elapsed":150.478503,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125038.3850791,"mono":1910094.395592791,"elapsed":150.610034,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125048.2547479,"mono":1910104.265267416,"elapsed":160.479709,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125048.391645,"mono":1910104.402163791,"elapsed":160.616605,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125058.2561831,"mono":1910114.26670875,"elapsed":170.48115,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125058.391249,"mono":1910114.401774291,"elapsed":170.616215,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125068.257393,"mono":1910124.267924041,"elapsed":180.482365,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125068.39205,"mono":1910124.402581083,"elapsed":180.617022,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125078.258563,"mono":1910134.269100208,"elapsed":190.483541,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125078.389964,"mono":1910134.400501041,"elapsed":190.614942,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125088.26049,"mono":1910144.271032791,"elapsed":200.485474,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125088.39253,"mono":1910144.403073458,"elapsed":200.617515,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125098.261683,"mono":1910154.272231916,"elapsed":210.486673,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125098.394921,"mono":1910154.405469583,"elapsed":210.619911,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125108.262555,"mono":1910164.273109833,"elapsed":220.487551,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125108.405789,"mono":1910164.416344208,"elapsed":220.630785,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125118.264405,"mono":1910174.27496575,"elapsed":230.489407,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125118.4054668,"mono":1910174.416027958,"elapsed":230.630469,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125128.266336,"mono":1910184.276902416,"elapsed":240.491344,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125128.4137979,"mono":1910184.424365,"elapsed":240.638806,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125138.267074,"mono":1910194.277646833,"elapsed":250.492088,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125138.427828,"mono":1910194.438401125,"elapsed":250.652842,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125148.268506,"mono":1910204.279085041,"elapsed":260.493526,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125148.4112499,"mono":1910204.421828625,"elapsed":260.63627,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125158.2697852,"mono":1910214.280369958,"elapsed":270.494811,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125158.4036422,"mono":1910214.414227125,"elapsed":270.628668,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125168.271497,"mono":1910224.282088125,"elapsed":280.496529,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125168.404279,"mono":1910224.414869666,"elapsed":280.629311,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125178.273021,"mono":1910234.283618083,"elapsed":290.498059,"conn":"idle-ping","kind":"sent","text":"PING"}
+{"t":1791125178.407866,"mono":1910234.418463166,"elapsed":290.632904,"conn":"idle-ping","kind":"recv","text":"PONG","binary":false}
+{"t":1791125187.7762291,"mono":1910243.786831208,"elapsed":300.001272,"conn":"idle-ping","kind":"end","reason":"duration reached"}
+{"t":1791125187.77636,"mono":1910243.786962875,"elapsed":300.001404,"conn":"idle-ping","kind":"control","line":"> CLOSE 1000 (OK) [2 bytes]"}
+{"t":1791125187.77641,"mono":1910243.787012333,"elapsed":300.001454,"conn":"idle-ping","kind":"control","line":"= connection is CLOSING"}
+{"t":1791125187.916667,"mono":1910243.927270125,"elapsed":300.141711,"conn":"idle-ping","kind":"control","line":"< CLOSE 1000 (OK) [2 bytes]"}
+{"t":1791125187.916872,"mono":1910243.927474708,"elapsed":300.141916,"conn":"idle-ping","kind":"control","line":"= connection is CLOSED"}
+{"t":1791125187.916925,"mono":1910243.927527833,"elapsed":300.141969,"conn":"idle-ping","kind":"control","line":"x closing TCP connection"}
+{"t":1791125187.91745,"mono":1910243.928052291,"elapsed":300.142493,"conn":"idle-ping","kind":"close","rcvd":{"code":1000,"reason":""},"sent":{"code":1000,"reason":""},"rcvd_then_sent":false}

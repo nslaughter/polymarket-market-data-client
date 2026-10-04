@@ -1,0 +1,233 @@
+[
+  {
+    "file": "sdk-silent-reconnect--sdk-run.jsonl.gz",
+    "behavior": "The SDK's stream reconnects and resubscribes without telling its consumer",
+    "source": "sdk-reconnect.jsonl",
+    "source_bytes": 1468703,
+    "source_sha256": "f8f31b39c1897aff77fb8eb380dc4e0c9d720efd3773c0e2946048a6441c7c5e",
+    "kept": "all control, log, and proxy records; SDK and reference events from 5 s before each fault to 3 s after the SDK resubscribed",
+    "records": 730,
+    "bytes": 45077,
+    "sha256": "20240d3872d570c58fb79b6d92db3b7091648459ab78b69c20216d69d9a4ef23"
+  },
+  {
+    "file": "sdk-silent-reconnect--busy.jsonl.gz",
+    "behavior": "The SDK's stream reconnects and resubscribes without telling its consumer",
+    "source": "repro/silent-reconnect-20261004T154747Z.jsonl",
+    "source_bytes": 46269475,
+    "source_sha256": "21cf429ea692a0afbf191912d6dbde47efda8f43a0c873c7b53f8962b4544c79",
+    "kept": "the abort only: control and log records, and SDK and reference events from 2 s before it to 2 s after the SDK resubscribed",
+    "records": 2691,
+    "bytes": 162067,
+    "sha256": "4babcd50378e133f21104fae49deb09e031abcc8f5cc3a123a8b42ff820434f6"
+  },
+  {
+    "file": "sdk-drops-events--long-run.jsonl.gz",
+    "behavior": "The SDK drops events its parser rejects, logging only at DEBUG",
+    "source": "long-run.jsonl",
+    "source_bytes": 22904468,
+    "source_sha256": "d033d6ca4effa76eefe53e16b891dcab833fb765a8617bede0a26700412d0391",
+    "kept": "every tenth new_market frame of the 60-minute run, and the connection records",
+    "records": 374,
+    "bytes": 124536,
+    "sha256": "d4175d8a73115b540e6584d7545246e324b5ab9e7afe2820bf9015d0a552621b"
+  },
+  {
+    "file": "stream-no-replay--repro.jsonl",
+    "behavior": "Nothing is replayed after a reconnect",
+    "source": "repro/no-replay-20261004T154157Z.jsonl",
+    "source_bytes": 63110,
+    "source_sha256": "a261e2ddfadea1f8c7e36f9a92059e1608aa7de1f0e643be34223fe6ba2abd0a",
+    "kept": "the whole capture",
+    "records": 44,
+    "bytes": 62592,
+    "sha256": "3d17ddc323ccb65210c2aed9314519a3020a6843e28659b7d07d416061d32c53"
+  },
+  {
+    "file": "stream-idle-close--no-ping.jsonl",
+    "behavior": "A connection with no traffic is closed after about 125 s, without a close frame",
+    "source": "hb-idle.jsonl",
+    "source_bytes": 1586,
+    "source_sha256": "bc005808909d8f1c3ca8c49d1fe514c51ebe88d0931271d2af49cc25df23ee7a",
+    "kept": "the whole capture",
+    "records": 9,
+    "bytes": 1475,
+    "sha256": "4adbbae4fb1ccaad73f62d2cfe8c4c24cd497604c2c30d2060ad84416e831bdb"
+  },
+  {
+    "file": "stream-idle-close--ping.jsonl",
+    "behavior": "A connection with no traffic is closed after about 125 s, without a close frame",
+    "source": "hb-idle-ping.jsonl",
+    "source_bytes": 10171,
+    "source_sha256": "39f5a3861c76873cd482bf417ddc6f052e1578cf2c8b3bb5e750ecfee4a4baff",
+    "kept": "the whole capture",
+    "records": 71,
+    "bytes": 9314,
+    "sha256": "500b61967c292cede33d5cb01cf9bd6eb3c5e9fda4c75425ffef561de8888466"
+  },
+  {
+    "file": "stream-idle-close--repro.jsonl",
+    "behavior": "A connection with no traffic is closed after about 125 s, without a close frame",
+    "source": "repro/idle-close-20261004T154157Z.jsonl",
+    "source_bytes": 5472,
+    "source_sha256": "5f05dd094b102cf58ac93fb512bacf689dff4bc801dca2710a3e30dcb6023ed1",
+    "kept": "the whole capture",
+    "records": 37,
+    "bytes": 5047,
+    "sha256": "4333bdf372cde1328bafee396826ac9a04292950a72576fb9981e72acd5dc58e"
+  },
+  {
+    "file": "stream-slow-consumer--settle-1.jsonl.gz",
+    "behavior": "The server ends connections it considers slow consumers",
+    "source": "settle-watch.jsonl",
+    "source_bytes": 33647729,
+    "source_sha256": "24ac451c6f473dac3633de22b72e9a504efacf4cca157392716ba0b6cf008b1a",
+    "kept": "every record but data frames, and data frames from the last second before each connection closed",
+    "records": 1293,
+    "bytes": 109712,
+    "sha256": "1364399f6de601e12fd6eb390c340bd4fe289cf0c215648e608a8166ae1a327b"
+  },
+  {
+    "file": "stream-slow-consumer--settle-2.jsonl.gz",
+    "behavior": "The server ends connections it considers slow consumers",
+    "source": "settle-watch-2.jsonl",
+    "source_bytes": 210691806,
+    "source_sha256": "08225674924155094da302a6ee7d07a5bbc05cc898eefaebb877e393647d7666",
+    "kept": "every record but data frames, and data frames from the last second before each connection closed",
+    "records": 6145,
+    "bytes": 458576,
+    "sha256": "f27a99254bab196b0d0760e434937e9f65d92eddc2d9c52ef15b2068cc52589c"
+  },
+  {
+    "file": "stream-slow-consumer--repro.jsonl.gz",
+    "behavior": "The server ends connections it considers slow consumers",
+    "source": "repro/slow-consumer-20261004T154944Z.jsonl",
+    "source_bytes": 214436822,
+    "source_sha256": "81d64f44e5d4f351c53ffff50a3dbbef37955db726c842a7418af1faf31f3da4",
+    "kept": "every record but data frames, and data frames from the last second before each connection closed",
+    "records": 960,
+    "bytes": 75634,
+    "sha256": "c6a22ea2c2bdfc4db9411074b6da8006e4df9fed26e3159dfcc8a7f327a654e7"
+  },
+  {
+    "file": "stream-duplicates--repro.jsonl.gz",
+    "behavior": "Messages arrive more than once; a token's events arrive out of timestamp order",
+    "source": "repro/duplicates-20261004T154159Z.jsonl",
+    "source_bytes": 22060931,
+    "source_sha256": "b6fbff1f4ef9a691cfab2ab686c6234fea06ba50f6d6bbe533cd2ac466ef8365",
+    "kept": "both copies of each repeated message and both events of each timestamp regression, with the connection records",
+    "records": 134,
+    "bytes": 12567,
+    "sha256": "60284e67d556431106f04abe980eded6c2822c103df616bbee379d228240ec77"
+  },
+  {
+    "file": "stream-duplicates--long-run.jsonl",
+    "behavior": "Messages arrive more than once; a token's events arrive out of timestamp order",
+    "source": "long-run.jsonl",
+    "source_bytes": 22904468,
+    "source_sha256": "d033d6ca4effa76eefe53e16b891dcab833fb765a8617bede0a26700412d0391",
+    "kept": "both copies of each repeated message and both events of each timestamp regression, with the connection records",
+    "records": 42,
+    "bytes": 72416,
+    "sha256": "bb2f6fa3b87516878a654d833acb813342713b2ba19a01f0c51f1f51785d7786"
+  },
+  {
+    "file": "stream-late-change--settle-2.jsonl.gz",
+    "behavior": "A change stamped before an opening book can arrive after it",
+    "source": "settle-watch-2.jsonl",
+    "source_bytes": 210691806,
+    "source_sha256": "08225674924155094da302a6ee7d07a5bbc05cc898eefaebb877e393647d7666",
+    "kept": "everything the first connection received in its first second",
+    "records": 907,
+    "bytes": 78236,
+    "sha256": "c6ac7afbfcd8e5cd33a374ed23b11cf4d47afa49cb0bc4d1ced184d4acab3996"
+  },
+  {
+    "file": "hash--probe.jsonl.gz",
+    "behavior": "The order-book hash is a reproducible SHA-1 of the book; a trade enters it before it is announced; the stream can omit a change",
+    "source": "probe-long.jsonl",
+    "source_bytes": 634524,
+    "source_sha256": "60aef9f83b9ec811275d6aa8ba5dd3da7f4d52e9558fdb73ed083549fa86b2d5",
+    "kept": "the whole 90-second capture of eight election markets",
+    "records": 472,
+    "bytes": 68478,
+    "sha256": "713e9a77a76006cdf1f17e93a0980ab8dd64b8acdf5e04eef2ce6227a8953fc0"
+  },
+  {
+    "file": "settlement--settle-2.jsonl.gz",
+    "behavior": "A settlement can go unannounced",
+    "source": "settle-watch-2.jsonl",
+    "source_bytes": 210691806,
+    "source_sha256": "08225674924155094da302a6ee7d07a5bbc05cc898eefaebb877e393647d7666",
+    "kept": "each market's frames from its end date on, market_resolved, each connection's opening frame, and the connection records; a note naming the markets is added from select_markets.py output",
+    "records": 499,
+    "bytes": 40844,
+    "sha256": "6a0ab41388d86473793169ed9aa70dd2ff0af1b47f9b5c3a20f45566be35048a"
+  },
+  {
+    "file": "settlement--all-resolved-1.jsonl.gz",
+    "behavior": "When every market on a connection has settled, the server closes it",
+    "source": "repro/settlement-20261004T154157Z.jsonl",
+    "source_bytes": 23245872,
+    "source_sha256": "12bb02480509a20edb8d85cabfa9cc212b54be1c3300458d412f9e02a749e50e",
+    "kept": "the market's frames from its end date on, market_resolved, each connection's opening frame, and the connection records",
+    "records": 371,
+    "bytes": 23422,
+    "sha256": "d4dc9c2030aa167d93d1450dc712fcd46f1d6954cd9540a5023e8177c923f611"
+  },
+  {
+    "file": "settlement--all-resolved-2.jsonl.gz",
+    "behavior": "When every market on a connection has settled, the server closes it",
+    "source": "repro/settlement-20261004T160013Z.jsonl",
+    "source_bytes": 33555017,
+    "source_sha256": "7bac29a88fed8b81a5ceb95c9218652a0c490489edaa4cda9ba349a84c23be2a",
+    "kept": "the market's frames from its end date on, market_resolved, each connection's opening frame, the connection records, and the market-lookup polls",
+    "records": 363,
+    "bytes": 25734,
+    "sha256": "9f0c68c092ac0bc9fbfc252e4b9f94b26102ed6a2bb629b57e9948dbc8e36d98"
+  },
+  {
+    "file": "settlement--others-open.jsonl.gz",
+    "behavior": "When every market on a connection has settled, the server closes it",
+    "source": "repro/slow-consumer-20261004T154944Z.jsonl",
+    "source_bytes": 214436822,
+    "source_sha256": "81d64f44e5d4f351c53ffff50a3dbbef37955db726c842a7418af1faf31f3da4",
+    "kept": "each market's frames from its end date on, market_resolved, each connection's opening frame, and the connection records",
+    "records": 359,
+    "bytes": 26865,
+    "sha256": "d925a8f930f122ee44af9b3d9c826409df0e007722adb845cdff2149be0b5d96"
+  },
+  {
+    "file": "settled-subscription--mixed.jsonl",
+    "behavior": "Settled tokens are silently left out of a subscription",
+    "source": "mixed-sub.jsonl",
+    "source_bytes": 33512,
+    "source_sha256": "19a1b504b238fe2a748474e5f6ae9fa1eed3a0a8a3023d6434a62b2e017f4f18",
+    "kept": "the connection records and the opening frame",
+    "records": 6,
+    "bytes": 17130,
+    "sha256": "4a2ac1ccf7f2eaa04fa56696dd95e17a249fdf7f841225da0935aa2ac50d6ad3"
+  },
+  {
+    "file": "settled-subscription--alone.jsonl",
+    "behavior": "Settled tokens are silently left out of a subscription",
+    "source": "settled-sub.jsonl",
+    "source_bytes": 213736,
+    "source_sha256": "ea14159801d602def00ab3867b377f67091704e0a40d4504451b851480090dff",
+    "kept": "the connection records and the opening frame",
+    "records": 6,
+    "bytes": 1133,
+    "sha256": "d76a91dc485f03d48764622494d499b95ae364892c96daa0334ec3f728ced4a0"
+  },
+  {
+    "file": "settled-subscription--repro.jsonl",
+    "behavior": "Settled tokens are silently left out of a subscription; REST returns 404",
+    "source": "repro/settled-subscription-20261004T160139Z.jsonl",
+    "source_bytes": 1744688,
+    "source_sha256": "e7beabda0758ebc176d6faf910eb614f8fdf2828cc369d0b00a5f4209ead575a",
+    "kept": "the connection records, each connection's opening frame, and the REST results",
+    "records": 12,
+    "bytes": 19945,
+    "sha256": "a1fe56b2a1714bf46646164534c099c80346bf747f3228074ca883e00587fee4"
+  }
+]

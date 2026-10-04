@@ -1,0 +1,9 @@
+{"t":1791124740.562849,"mono":1909796.572928791,"elapsed":9.5e-05,"conn":"idle","kind":"note","text":"connecting","url":"wss://ws-subscriptions-clob.polymarket.com/ws/market","protocol_ping":false,"ping_interval":0.0,"ping_for":null}
+{"t":1791124740.602677,"mono":1909796.612757583,"elapsed":0.039923,"conn":"idle","kind":"control","line":"= connection is CONNECTING"}
+{"t":1791124741.036505,"mono":1909797.0465925,"elapsed":0.473758,"conn":"idle","kind":"control","line":"= connection is OPEN"}
+{"t":1791124741.036862,"mono":1909797.046948958,"elapsed":0.474115,"conn":"idle","kind":"open"}
+{"t":1791124741.037448,"mono":1909797.047535291,"elapsed":0.474701,"conn":"idle","kind":"sent","text":"{\"type\": \"market\", \"assets_ids\": [\"6012180248743313116112314719986762687955919882234931815345456773884607889280\", \"59124705498088345406614874304734362081361971958233729558690850455967428254529\"], \"custom_feature_enabled\": false}"}
+{"t":1791124741.182676,"mono":1909797.192765625,"elapsed":0.619931,"conn":"idle","kind":"recv","text":"[]\n","binary":false}
+{"t":1791124866.190294,"mono":1909922.200704583,"elapsed":125.62787,"conn":"idle","kind":"control","line":"= connection is CLOSED"}
+{"t":1791124866.1911008,"mono":1909922.20151225,"elapsed":125.628678,"conn":"idle","kind":"control","line":"x closing TCP connection"}
+{"t":1791124866.191329,"mono":1909922.201740416,"elapsed":125.628906,"conn":"idle","kind":"close","rcvd":null,"sent":null,"rcvd_then_sent":null}
