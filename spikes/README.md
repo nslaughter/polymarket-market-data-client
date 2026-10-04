@@ -61,6 +61,19 @@ uv run spikes/repro_settlement.py settlement \
     --capture spikes/captures/settle-watch-2.jsonl --markets spikes/captures/markets-1.jsonl
 ```
 
+## Evidence
+
+[`evidence/`](evidence) holds excerpts of the captures, enough to show each
+catalogued behavior without the full captures or the live service. Check
+them offline, and, where the full captures are kept, regenerate them:
+
+```sh
+uv run spikes/check_evidence.py      # verifies hashes, reruns the analyses
+uv run spikes/extract_evidence.py    # recuts evidence/ from spikes/captures/
+```
+
+[`evidence/README.md`](evidence/README.md) says what each excerpt keeps.
+
 ## The investigation's runs
 
 Captures go to `spikes/captures/`, which git ignores. Markets settle, so the

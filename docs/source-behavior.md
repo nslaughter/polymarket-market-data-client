@@ -25,7 +25,9 @@ collected at the end.
 - **Scripts:** in [`spikes/`](../spikes), each declaring its own
   dependencies and locked to exact versions. Raw captures stayed on the
   machine that ran them and are not in git. Excerpts below are quoted from
-  them.
+  them, and [`spikes/evidence/`](../spikes/evidence) holds the excerpts that
+  show each catalogued behavior, with the SHA-256 of every capture they came
+  from.
 
 ### Versions
 
@@ -51,7 +53,9 @@ headers, and each verdict prints both. To check whether a later SDK release
 fixes an SDK finding, re-pin a copy of the script, lock it, and run it beside
 the original. The 0.12.0 result stays reproducible from the original script.
 For the service, a later NOT REPRODUCED verdict is dated evidence of a
-change, compared with the dates above.
+change, compared with the dates above. The committed excerpts in
+[`spikes/evidence/`](../spikes/evidence) keep the original behavior
+demonstrable either way.
 
 ### Markets
 
@@ -134,7 +138,10 @@ wrong or incomplete without any error. Each links to its evidence below. The
 last column names the script that reproduces it: run live, it repeats the
 check against current markets, and with `--capture` it re-analyzes a
 recorded capture. Each prints a verdict. Behaviors seen only once, or only
-in the SDK's source, say so.
+in the SDK's source, say so. Excerpts showing every behavior but the
+source-only one are committed in
+[`spikes/evidence/`](../spikes/evidence). `uv run spikes/check_evidence.py`
+reruns the same analyses on them offline and confirms each verdict.
 
 | Behavior | What it does to a client's data | Seen | Reproduce |
 | --- | --- | --- | --- |
