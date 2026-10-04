@@ -1,0 +1,6 @@
+{"t":1791124740.552661,"mono":1909796.562740708,"elapsed":0.000101,"conn":"settled","kind":"note","text":"connecting","url":"wss://ws-subscriptions-clob.polymarket.com/ws/market","protocol_ping":false,"ping_interval":10,"ping_for":null}
+{"t":1791124741.0216808,"mono":1909797.031768708,"elapsed":0.469129,"conn":"settled","kind":"open"}
+{"t":1791124741.022125,"mono":1909797.032212375,"elapsed":0.469573,"conn":"settled","kind":"sent","text":"{\"type\": \"market\", \"assets_ids\": [\"6012180248743313116112314719986762687955919882234931815345456773884607889280\", \"59124705498088345406614874304734362081361971958233729558690850455967428254529\"], \"custom_feature_enabled\": true}"}
+{"t":1791124741.1663811,"mono":1909797.176470666,"elapsed":0.613831,"conn":"settled","kind":"recv","text":"[]\n","binary":false}
+{"t":1791125040.553401,"mono":1910096.563914958,"elapsed":300.001275,"conn":"settled","kind":"end","reason":"duration reached"}
+{"t":1791125040.706601,"mono":1910096.717115791,"elapsed":300.154476,"conn":"settled","kind":"close","rcvd":{"code":1000,"reason":""},"sent":{"code":1000,"reason":""},"rcvd_then_sent":false}

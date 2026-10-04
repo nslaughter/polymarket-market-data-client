@@ -1,0 +1,37 @@
+{"t":1791128517.809472,"mono":1913573.847640083,"elapsed":1e-06,"kind":"note","markets":[{"slug":"btc-updown-5m-1791127800","question":"Bitcoin Up or Down - October 4, 11:30AM-11:35AM ET","condition_id":"0xb8bf724e28ba073aec2f767136ece99cba29ff1147eb481f26f46db6e37841eb","token_ids":["3356153585581581299384671177036309751587799874232375764857851138457443302582","53354206921733681090908778912489675736681464086698317103031479808844776750464"],"end_date":"2026-10-04T15:35:00+00:00"}]}
+{"t":1791128518.251474,"mono":1913574.289645083,"elapsed":0.442006,"kind":"open","conn":"no-ping"}
+{"t":1791128518.2519722,"mono":1913574.290144208,"elapsed":0.442505,"kind":"sent","conn":"no-ping","text":"{\"type\": \"market\", \"assets_ids\": [\"3356153585581581299384671177036309751587799874232375764857851138457443302582\", \"53354206921733681090908778912489675736681464086698317103031479808844776750464\"], \"custom_feature_enabled\": false}"}
+{"t":1791128518.389241,"mono":1913574.42741275,"elapsed":0.579774,"kind":"recv","conn":"no-ping","text":"[]\n"}
+{"t":1791128518.7057018,"mono":1913574.743877291,"elapsed":0.896238,"kind":"open","conn":"ping"}
+{"t":1791128518.705795,"mono":1913574.743970833,"elapsed":0.896332,"kind":"sent","conn":"ping","text":"{\"type\": \"market\", \"assets_ids\": [\"3356153585581581299384671177036309751587799874232375764857851138457443302582\", \"53354206921733681090908778912489675736681464086698317103031479808844776750464\"], \"custom_feature_enabled\": false}"}
+{"t":1791128518.8764632,"mono":1913574.91464,"elapsed":1.067001,"kind":"recv","conn":"ping","text":"[]\n"}
+{"t":1791128528.706959,"mono":1913584.745214416,"elapsed":10.897575,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128528.847828,"mono":1913584.886084625,"elapsed":11.038445,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128538.708063,"mono":1913594.746398666,"elapsed":20.898759,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128538.853746,"mono":1913594.892081958,"elapsed":21.044443,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128548.709151,"mono":1913604.747565541,"elapsed":30.899926,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128548.850755,"mono":1913604.889170958,"elapsed":31.041532,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128558.709523,"mono":1913614.748017333,"elapsed":40.900378,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128558.8488472,"mono":1913614.887342708,"elapsed":41.039704,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128568.7101288,"mono":1913624.748704166,"elapsed":50.901065,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128568.852418,"mono":1913624.890993333,"elapsed":51.043354,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128578.711257,"mono":1913634.749911541,"elapsed":60.902272,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128578.848686,"mono":1913634.887341625,"elapsed":61.039702,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128588.713164,"mono":1913644.751898375,"elapsed":70.904259,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128588.854922,"mono":1913644.893657208,"elapsed":71.046018,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128598.714253,"mono":1913654.753066625,"elapsed":80.905427,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128598.8544261,"mono":1913654.893240708,"elapsed":81.045602,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128608.71542,"mono":1913664.754313708,"elapsed":90.906675,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128608.8538759,"mono":1913664.892770125,"elapsed":91.045131,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128618.7165089,"mono":1913674.755482958,"elapsed":100.907844,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128618.859508,"mono":1913674.89848225,"elapsed":101.050843,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128628.717642,"mono":1913684.756695875,"elapsed":110.909057,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128628.856704,"mono":1913684.895758291,"elapsed":111.048119,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128638.718771,"mono":1913694.757904,"elapsed":120.910265,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128638.859648,"mono":1913694.898781875,"elapsed":121.051143,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128643.39438,"mono":1913699.433548875,"elapsed":125.58591,"kind":"close","conn":"no-ping","rcvd":null,"sent":null,"rcvd_then_sent":null}
+{"t":1791128648.7199218,"mono":1913704.7591355,"elapsed":130.911496,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128648.865515,"mono":1913704.904729083,"elapsed":131.05709,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128658.721442,"mono":1913714.760734708,"elapsed":140.913096,"kind":"sent","conn":"ping","text":"PING"}
+{"t":1791128658.858999,"mono":1913714.898293125,"elapsed":141.050654,"kind":"recv","conn":"ping","text":"PONG"}
+{"t":1791128663.539689,"mono":1913719.579018958,"elapsed":145.73138,"kind":"close","conn":"ping","rcvd":{"code":1000,"reason":""},"sent":{"code":1000,"reason":""},"rcvd_then_sent":false}
