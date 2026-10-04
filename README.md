@@ -83,9 +83,15 @@ The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
 ([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
 checked October 4, 2026). The documentation does not say what the server does
-when the heartbeat stops, so how long the client waits for `PONG` before
-treating the connection as interrupted is a design choice. The source
-investigation below informs that timeout, and the client documents it.
+when the heartbeat stops. In the investigation, the server kept connections
+open without `PING` while market data flowed. It closed one with no traffic in
+either direction after about 125 seconds, without a close frame, and a `PING`
+every 10 seconds prevented that. `PONG` came back in about 0.14 seconds, but
+it is queued behind market data and took 9.5 seconds under heavy load
+([findings, question 2](docs/source-behavior.md#2-heartbeat)). So the client
+sends `PING` even on quiet subscriptions. How long it waits for `PONG` before
+treating the connection as interrupted remains a design choice. That timeout
+must allow for queued data, and the client documents it.
 
 ## How the client will recover and report its state
 
