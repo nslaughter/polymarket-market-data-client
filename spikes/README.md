@@ -46,6 +46,8 @@ findings came from.
 ```sh
 uv run spikes/repro_sdk.py silent-reconnect           # about 2 minutes
 uv run spikes/repro_sdk.py drops-events               # 3 minutes
+uv run spikes/repro_sdk.py drops-events-live          # 10 minutes; the SDK live,
+                                                      # beside a reference connection
 uv run spikes/repro_stream.py idle-close              # up to 4.5 minutes
 uv run spikes/repro_stream.py no-replay               # 1 minute
 uv run spikes/repro_stream.py duplicates              # 5 minutes; also checks order

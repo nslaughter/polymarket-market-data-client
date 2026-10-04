@@ -42,7 +42,7 @@ that the original behavior stays reproducible after a fix.
 | SDK dependencies that shape the findings | `websockets` 15.0.1 (whose keepalive caught the stall), `pydantic` 2.13.5 and `pydantic-core` 2.46.5 (whose validation rejects the `new_market` events), `httpx` 0.28.1 |
 | Every other package | locked per script in `spikes/<script>.py.lock` |
 | Python and platform | CPython 3.12.13 managed by uv 0.12.23, on macOS 26.6.2 (arm64) |
-| Market WebSocket and REST APIs | No version. Checked October 4, 2026, 14:26 to 16:08 UTC. Handshakes were answered by Cloudflare (`Server: cloudflare`, rays ending `-DFW`). |
+| Market WebSocket and REST APIs | No version. Checked October 4, 2026, 14:26 to 16:11 UTC, and again in the review runs, 17:02 to 17:27, and the side-by-side drops run, 18:44 to 18:54. Handshakes were answered by Cloudflare (`Server: cloudflare`, rays ending `-DFW`). |
 | Documentation | Read October 4, 2026 as Markdown (page URL plus `.md`). SHA-256 of what was read: [real-time data](https://docs.polymarket.com/market-data/realtime-data) `8ad4bd28afd777ebb9229afa8bfd859c8c9e5db6448b6f0f6e750f72adcb0b51`, [prices and order books](https://docs.polymarket.com/market-data/prices-order-books) `e7b41e330500084c013dc31e59d363a25f66b51fc9f3124a14a4889680662b1b`, [Python SDK](https://docs.polymarket.com/getting-started/python) `c5860a04c695fb915a7a1b736cfeae723c4e4b3ccd982946d62aa4caf2efe32b`, [SDK changelog](https://docs.polymarket.com/changelog/sdks) `3aca66c34314921115818c7ef7ff0e30048624cd08e64107ec5d255974a05929`, [resolution](https://docs.polymarket.com/concepts/resolution) `698262d533e21d42ea6192c5d09d421d81646397a82ffe96e88c8b9cd77931ac`. "Not documented" below means not in these pages as read. |
 
 The scripts run under the lockfiles, so `uv run` rebuilds this environment
@@ -122,7 +122,7 @@ runs.
 
 | Question | Answer for the observed markets and periods |
 | --- | --- |
-| 1. Does the SDK's stream reconnect and restore subscriptions, and report it? | It reconnects and resends its subscription on its own after every fault tried. It reports neither the disconnect nor the reconnect to the consumer; only failed attempts and its own heartbeat timeout reach its logger. |
+| 1. Does the SDK's stream reconnect and restore subscriptions, and report it? | It reconnects and resends its subscription on its own after every fault tried. It reports neither the disconnect nor the reconnect to the consumer; only failed attempts and its own heartbeat timeout reach its logger. It also drops events it cannot parse without telling the consumer: live, it delivered 24 of 704 `new_market` events. |
 | 2. What happens when PING stops, and how promptly does PONG arrive? | With market data flowing, nothing: connections without PING stayed open for 10 minutes. A connection with no traffic at all was closed after about 125 seconds without a close frame; PING every 10 seconds kept it open. PONG took a median of 0.14 seconds but waits behind queued data, up to 11.4 seconds under load. |
 | 3. Is the order consistent, and can missed events be replayed? | Book changes for each token arrived in timestamp order, with two 1 ms exceptions at the start of a connection. Events of different types for one token sometimes did not, and some messages arrived twice. Nothing is replayed: after a reconnect the stream sends a fresh book, and the events in between are gone. |
 | 4. Does anything reveal a missed event? | No sequence numbers. The order-book hash, an undocumented SHA-1 of the token's book, can be recomputed locally and reveals a book that has diverged from the source's. It cannot count missed events, and some of its inputs are not on the stream. |
@@ -145,28 +145,29 @@ reruns the same analyses on them offline and confirms each verdict.
 
 | Behavior | What it does to a client's data | Seen | Reproduce |
 | --- | --- | --- | --- |
-| The SDK's stream reconnects and resubscribes without telling its consumer ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The consumer keeps reading after a gap with no sign that source events were lost, so it cannot mark its state uncertain | the abort, stall, and close in run sdk and both aborts in the reproductions; 2 to 596 book states lost per gap | `repro_sdk.py silent-reconnect` |
-| The SDK drops events its parser rejects, logging only at DEBUG ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | Events vanish: 3,595 of 3,754 `new_market` events in run long's hour (96%) carry a `game_start_time` string the SDK rejects | every capture with `new_market` events | `repro_sdk.py drops-events` |
+| The SDK's stream reconnects and resubscribes without telling its consumer ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The consumer keeps reading after a gap with no sign that source events were lost, so it cannot mark its state uncertain | the abort, stall, and close in run sdk, and all three aborts in the reproductions and review; 2 to 596 book states lost per gap | `repro_sdk.py silent-reconnect` |
+| The SDK drops events its parser rejects, logging only at DEBUG ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | Events vanish: a live subscription delivered 24 of the 704 `new_market` events a reference connection received in 10 minutes, and in run long's hour 3,554 of 3,689 (96%) carried a `game_start_time` string the SDK rejects | every capture with `new_market` events, and live beside a reference | `repro_sdk.py drops-events-live`, or `drops-events` on a capture |
 | The SDK stops reconnecting after an error other than its `TransportError` ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The handle stays open and silent; a consumer waits forever | source only | none (source: `streams/reconnect.py`, `streams/clob/market.py`) |
 | Nothing is replayed after a reconnect ([3](#3-event-order-and-replay)) | Changes made during a disconnect are gone; the stream sends only current books | every reconnect observed | `repro_stream.py no-replay` |
-| A connection with no traffic is closed after about 125 s, without a close frame ([2](#2-heartbeat)) | A quiet subscription that skips `PING` loses its connection in a way that looks like a network failure | 3 of 3 idle runs | `repro_stream.py idle-close` |
-| The server ends connections it considers slow consumers, with 1013 or no close frame, and `PONG` waits behind queued data ([2](#2-heartbeat)) | Busy subscriptions lose their connection and the events in the gap; a short `PONG` timeout misreads a backlog as a dead connection | 9 connections ended on busy Bitcoin markets; `PONG` up to 11.4 s | `repro_stream.py slow-consumer` |
-| Messages arrive more than once ([3](#3-event-order-and-replay)) | Event counts and anything derived from them double-count | 60 in 3 min, 172 in 45 min, and 38 in 5 min on busy markets; 9 in run long's hour | `repro_stream.py duplicates` |
+| A connection with no traffic is closed after about 125 s, without a close frame ([2](#2-heartbeat)) | A quiet subscription that skips `PING` loses its connection in a way that looks like a network failure | 4 of 4 idle runs | `repro_stream.py idle-close` |
+| The server ends connections it considers slow consumers, with 1013 or no close frame, and `PONG` waits behind queued data ([2](#2-heartbeat)) | Busy subscriptions lose their connection and the events in the gap; a short `PONG` timeout misreads a backlog as a dead connection | 11 connections ended on busy Bitcoin markets, but none in a 10-minute review run; `PONG` up to 11.4 s | `repro_stream.py slow-consumer` |
+| Messages arrive more than once ([3](#3-event-order-and-replay)) | Event counts and anything derived from them double-count | 60 in 3 min, 172 in 45 min, and 38 and 30 in 5 min on busy markets; 9 in run long's hour | `repro_stream.py duplicates` |
 | A token's events arrive out of timestamp order across event types ([3](#3-event-order-and-replay)) | Sorting by source timestamp and arrival order disagree; `best_bid_ask` and `last_trade_price` can trail or lead the book | every busy capture; 18 in run long's hour | `repro_stream.py duplicates` |
 | A change stamped before an opening `book` can arrive after it ([3](#3-event-order-and-replay)) | The client cannot tell whether the book already includes it; applying it failed one hash check | twice, at connection start | `repro_stream.py duplicates` (out-of-order verdict) |
 | Opening `book` timestamps are the book's last change, not the snapshot time ([3](#3-event-order-and-replay)) | A freshness check on the timestamp misjudges how current the book is | every subscription | any capture |
 | A trade's price and a tick-size change enter the book hash before the stream announces them ([4](#4-revealing-a-missed-event)) | A client checking hashes sees false mismatches unless it waits for the announcement | every capture with trades | `check_hashes.py` |
 | The order-book hash is a reproducible SHA-1 of the book, but undocumented; on busy markets its trade price does not follow announced trades ([4](#4-revealing-a-missed-event)) | Without the recipe a client cannot check its book; with it, it still needs two REST-only fields and sometimes a search | all captures | `check_hashes.py --any-trade-price` |
 | The stream can omit a change to the book ([4](#4-revealing-a-missed-event)) | The client's book silently differs from the source's until the level changes again | once, in the probe | `check_hashes.py` on a capture; cannot be forced |
-| When every market on a connection has settled, the server closes it with `1000 all subscribed assets resolved` ([6](#6-settlement)) | A client that treats every close as an interruption reconnects to settled tokens and gets no books | all 3 settlements that left no unresolved market: twice with the close frame, once probably without it | `repro_settlement.py settlement` |
-| A settlement can go unannounced ([6](#6-settlement)) | `market_resolved` is lost if the connection drops at that moment and is not sent again; the client keeps a settled market as ready | 1 of 5 settlements | `repro_settlement.py settlement` |
+| When every market on a connection has settled, the server closes it with `1000 all subscribed assets resolved` ([6](#6-settlement)) | A client that treats every close as an interruption reconnects to settled tokens and gets no books | all 4 settlements that left no unresolved market: three times with the close frame, once probably without it | `repro_settlement.py settlement` |
+| A settlement can go unannounced ([6](#6-settlement)) | `market_resolved` is lost if the connection drops at that moment and is not sent again; the client keeps a settled market as ready | 1 of 7 settlements | `repro_settlement.py settlement` |
 | Settled tokens are silently left out of a subscription; REST returns 404 for their books ([6](#6-settlement)) | The client waits for a book that never comes and cannot tell a settled token from an unknown one | every settled subscription | `repro_settlement.py settled-subscription` |
-| `new_market` arrives for every new market whenever `custom_feature_enabled` is set ([6](#6-settlement)) | Up to about five a second that the client must filter out | every run with the flag | `repro_sdk.py drops-events` |
+| `new_market` arrives for every new market whenever `custom_feature_enabled` is set ([6](#6-settlement)) | Each is a distinct market, but they come in bulk bursts: 3,689 in run long's hour, 566 in one minute, which the client must filter | every run with the flag | `repro_sdk.py drops-events` |
 
 ### Reproduction runs
 
 The reproductions ran against current markets on October 4, 2026, between
-15:41 and 16:08 UTC, after the investigation's own runs. Runs that
+15:41 and 16:08 UTC, after the investigation's own runs. The side-by-side
+drops check followed from 18:44 to 18:54. Runs that
 started before 16:01 predate the `environment` record in captures. uv's
 cached environments for those scripts hold the same versions listed under
 [Versions](#versions).
@@ -182,6 +183,7 @@ cached environments for those scripts hold the same versions listed under
 | `repro_settlement.py settled-subscription` | 15:43:01–15:43:23 and 16:01:39–16:02:02 | 5-minute Bitcoin ended 15:40, then 15:55 (both settled), with Lisnard | REPRODUCED both times. Settled tokens were left out of the opening frame without an error, as `[]` when alone, and REST rejected their books. The second run's capture records its versions and the server's headers. |
 | `repro_settlement.py settlement` | 15:41:57–15:47:07 | 5-minute Bitcoin ending 15:45 | NOT REPRODUCED: announced, then closed `1000 all subscribed assets resolved`. See [6](#6-settlement). |
 | `repro_settlement.py settlement` | 16:00:12–16:07:50 | 5-minute Bitcoin ending 16:05 | NOT REPRODUCED: announced, then closed `1000 all subscribed assets resolved`. Gamma showed it closed 51 s later. |
+| `repro_sdk.py drops-events-live` | 18:44:44–18:54:44 | Lisnard, with `new_market` events for every new market | REPRODUCED. The SDK, live beside a reference connection, delivered 24 of the 704 `new_market` events the reference received. Its parser rejects each of the other 680, on `game_start_time`. It logged 680 drops at DEBUG and counted 680 on its stream manager; the handle's `dropped` stayed at 0. It never reconnected. A 30-second trial at 18:43 delivered 7 of 9. |
 
 Markets in these runs, besides Lisnard (listed above):
 
@@ -194,12 +196,52 @@ Markets in these runs, besides Lisnard (listed above):
 | Bitcoin Up or Down, 11:50–11:55 AM ET (`btc-updown-5m-1791129000`) | `0x8232df1e165b34828ef42befbebf4d20024b6475d06187b914849b9eaa60d2b0` | Up `16218391670914544698325664221894081973763748876477747482610137685375518815082`<br>Down `70315748122003180930189135738896142286865370061917538834567908956206819727751` | 2026-10-04 15:55 |
 | Bitcoin Up or Down, 12:00–12:05 PM ET (`btc-updown-5m-1791129600`) | `0xe32b27cd816b40445f8f9cece2fd6fe7f1031c6b6be1eb4a0859814d9c8a40d2` | Up `35902896712260582114771873921200347198359549353294277159121615050932857714630`<br>Down `79181699931229917353627113086356511148325493966026070653706439205502792302912` | 2026-10-04 16:05 |
 
+### Review runs
+
+Nathan Slaughter directed a rerun of every check on October 4, 2026, from
+17:02 to 17:27 UTC, for his review of these findings, and read the outputs.
+An AI assistant ran the commands. The runs used this repository at commit
+`a802121`, unmodified, under the lockfiles: `polymarket-client` 0.12.0,
+`websockets` 15.0.1, `pydantic` 2.13.5, and CPython 3.12.13. Each capture
+records these versions, and Cloudflare answered every handshake (rays
+ending `-DFW`). The lighter checks and the settlement watch ran in parallel
+from 17:02. The busy-market checks then ran one at a time from 17:10. The
+logs (`directed-*.log`) and captures stay in `spikes/captures/repro/` on the
+machine that ran them.
+
+| Check | Period (UTC) | Markets | Verdict and what it saw |
+| --- | --- | --- | --- |
+| `check_evidence.py` (offline) | 17:02:13 | the committed evidence | 19 of 19 checks pass; all 21 files match the manifest. |
+| `repro_sdk.py silent-reconnect` | 17:10:21–17:12:14 | 15-minute Bitcoin ending 17:15 | REPRODUCED. After the abort, the SDK resubscribed in 0.5 s and logged nothing above DEBUG. 220 source book states from that gap never reached its consumer. The withheld `PONG`s were reported, with a WARNING, and 278 states were lost across that reconnect. |
+| `repro_sdk.py drops-events` | 17:02:36–17:05:36 | Lisnard | REPRODUCED. The parser rejected 380 of 388 `new_market` events, on `game_start_time`. |
+| `repro_stream.py idle-close` | 17:02:35–17:05:01 | 5-minute Bitcoin ended 17:00 (settled) | REPRODUCED. The quiet connection was closed without a close frame after 125.2 s; the one sending `PING` stayed open. |
+| `repro_stream.py no-replay` | 17:02:36–17:03:38 | Lisnard | REPRODUCED. The 15.5 s gap held 4 book states, and the 2 that the fresh books did not carry never arrived. |
+| `repro_stream.py duplicates` | 17:12:16–17:17:17 | 15-minute Bitcoin ending 17:30 | REPRODUCED, both. 30 messages arrived a second time, up to 58 ms apart. 69 events arrived after a later-stamped event for the same token, none of them between `book` and `price_change`. |
+| `repro_stream.py slow-consumer` | 17:17:19–17:27:19 | 15-minute Bitcoin ending 17:30, 5-minute ending 17:20 | NOT REPRODUCED. One connection ran 599 s until the script closed it. Its backlog reached 7.05 s and its slowest `PONG` 6.42 s, but the server did not end it. The settlement watch below lost two connections without a close frame, at 17:03:41 and 17:03:54, while four other runs shared the network. That is weaker evidence than a run on its own. |
+| `repro_settlement.py settled-subscription` | 17:03:40–17:04:02 | 5-minute Bitcoin ended 17:00 (settled), with Lisnard | REPRODUCED. The settled tokens were left out of the opening frame without an error, and REST rejected both books. |
+| `repro_settlement.py settlement` | 17:02:35–17:10:05 | 5-minute Bitcoin ending 17:05 | NOT REPRODUCED: announced 119 s after the end, then closed `1000 all subscribed assets resolved`. Gamma first showed it closed 186 s after `market_resolved`. |
+| the same analysis, on the slow-consumer capture | 17:17:19–17:27:19 | 5-minute Bitcoin ending 17:20 | NOT REPRODUCED: announced 120 s after the end. The connection stayed open, since the 15-minute market was still subscribed. |
+| `snapshot_join.py` | 17:02:34–17:07:36 | Vance, Harris, Lisnard | 462 snapshots of 6 tokens. All 462 matched a stream state by hash, with equal levels, and all 462 matched by timestamp, 5 of them ambiguously. REST ran ahead of the stream 7 times, by at most 316 ms. |
+
+Markets in the review runs, besides Lisnard and those listed above:
+
+| Market | Condition ID | Token IDs | End date |
+| --- | --- | --- | --- |
+| Bitcoin Up or Down, 12:55–1:00 PM ET (`btc-updown-5m-1791132900`) | `0x0b291a0442e2d563a9006ede54d028e590c38ce59f7db1c6d6cadb403fbf6a9b` | Up `105299730752146633808078367996502593583858974321907374549771182370742998260331`<br>Down `82586593890687754633237333372834647660379958302457586866651506680087789960123` | 2026-10-04 17:00 |
+| Bitcoin Up or Down, 1:00–1:05 PM ET (`btc-updown-5m-1791133200`) | `0x729178a791a05ec7ecb4c59b44cb215658562a23fe97ffd70e91368773124489` | Up `68882887400412228716613787378255190537006842811116707165110096148435286424446`<br>Down `85193492611111006208650811777887933670751217810097572524783500238779808218149` | 2026-10-04 17:05 |
+| Bitcoin Up or Down, 1:00–1:15 PM ET (`btc-updown-15m-1791133200`) | `0x66dad635dda6be04e9359da10c7bf496d422b96ba7d55761c9f2073479af78f9` | Up `72241361067796332375035962544889764430539841750304107015216290473083137411740`<br>Down `105237567702832283898974823127989729447478982001224944093572007841257315974431` | 2026-10-04 17:15 |
+| Bitcoin Up or Down, 1:15–1:20 PM ET (`btc-updown-5m-1791134100`) | `0x839602bee464a65654526d8309197c07fc3b460dd0b9119f5a7f2273a6af6e0c` | Up `17609941980666258441091546941787475769429475664853937143111304160369980561220`<br>Down `82513687146354059789161341405066460170547867023254101045173955946396425919474` | 2026-10-04 17:20 |
+| Bitcoin Up or Down, 1:15–1:30 PM ET (`btc-updown-15m-1791134100`) | `0xc5c99a177e8a088752c0ea2959db1bad72f511f9ef734fd422b7faa0427a5fee` | Up `27359544728430133771216727904469059751405616071841367544927270625682927543702`<br>Down `11697294322842094310278590246247547921066810154930718546957618066295879665145` | 2026-10-04 17:30 |
+
 ## 1. Reconnection and subscription restoration in the SDK
 
 **Checked** October 4, 2026, with `polymarket-client` 0.12.0.
-**Markets:** Vance and Harris. **Observed:** run sdk, 14:33:22–14:40:24
-(7 min), and run sdk-pong, 14:50:08–14:52:38 (2.5 min). **Evidence:** the SDK
-source and [`sdk_reconnect.py`](../spikes/sdk_reconnect.py).
+**Markets:** Vance and Harris, and Lisnard for the side-by-side drops run.
+**Observed:** run sdk, 14:33:22–14:40:24 (7 min), run sdk-pong,
+14:50:08–14:52:38 (2.5 min), and the side-by-side drops run,
+18:44:44–18:54:44 (10 min). **Evidence:** the SDK source,
+[`sdk_reconnect.py`](../spikes/sdk_reconnect.py), and
+[`repro_sdk.py`](../spikes/repro_sdk.py).
 
 ### From reading the source
 
@@ -270,6 +312,13 @@ The SDK also dropped events it could not parse. In run sdk it logged
 `'2026-10-04 14:25:00+00'`, which the SDK's validator rejects as not epoch
 milliseconds. Only 8 of the 49 `new_market` events it received reached the
 consumer.
+
+A later run measured this directly. With the SDK subscribed beside a
+reference connection for 10 minutes, the SDK delivered 24 of the 704
+`new_market` events the reference received. Its parser rejects each of the
+other 680, and its DEBUG log and stream-manager counter each show 680 drops.
+The handle's `dropped` stayed at 0, nothing was logged above DEBUG, and the
+SDK never reconnected, so no gap explains the loss.
 
 ### Answer
 
@@ -351,8 +400,9 @@ the periods in the run table. **Evidence:**
 
 The server did not react when `PING` stopped while market data was flowing,
 over two 10-minute runs. A connection with no traffic in either direction
-was closed after about 125 seconds without a close frame, twice, and a
-`PING` every 10 seconds prevented that. `PONG` normally came back in about
+was closed after about 125 seconds without a close frame, four times in all
+counting the reproduction and review runs, and a `PING` every 10 seconds
+prevented that. `PONG` normally came back in about
 0.14 seconds, but it is queued behind market data. Under heavy load it took
 9.5 seconds, and 11.4 seconds in a reproduction, before the server dropped
 the connection. So the PONG
@@ -604,7 +654,9 @@ last change, not of the request. For every snapshot:
 Joining instead by timestamp, taking the stream state after the last entry
 whose timestamp is at or before the snapshot's, matched in 455 of 456. In
 4 cases several entries shared the snapshot's timestamp, which makes that
-rule ambiguous.
+rule ambiguous. A review run on the same markets gave the same result: all
+462 snapshots matched by hash, and REST ran ahead of the stream by at most
+316 ms ([Review runs](#review-runs)).
 
 ### Answer
 
@@ -627,7 +679,8 @@ limits.
 14:35 and 14:45, the Bitcoin market that ended at 14:20 and had already
 settled, and, in the reproduction runs, the 5-minute Bitcoin market ending
 15:45. **Observed:** run settle-2, 14:33:05–15:18:05 (45 min); runs settled,
-idle-1, idle-2, idle-ping, and mixed; and the reproduction runs listed above.
+idle-1, idle-2, idle-ping, and mixed; and the reproduction and review runs
+listed above.
 **Evidence:** `capture.py` and
 [`repro_settlement.py`](../spikes/repro_settlement.py).
 
@@ -686,7 +739,7 @@ closed. For the fifth settlement, at 16:06:59, `repro_settlement.py` polled
 Gamma from the moment `market_resolved` arrived. Gamma first showed the market
 closed 51 s later, with a `closedTime` of 16:05:53.
 
-Five settlements were observed in all:
+Seven settlements were observed in all:
 
 | Market | Book emptied | `market_resolved` | The connection |
 | --- | --- | --- | --- |
@@ -695,12 +748,18 @@ Five settlements were observed in all:
 | 5-minute, ending 15:45 (`settlement` reproduction) | 15:47:01.600 | 15:47:01.835, 122 s after the end | closed `1000 all subscribed assets resolved` |
 | 5-minute, ending 15:55 (`slow-consumer` reproduction) | 15:57:00.931 | 15:57:00.944, 121 s after the end | stayed open; the 15-minute market was still subscribed |
 | 5-minute, ending 16:05 (`settlement` reproduction) | 16:06:59.468 | 16:06:59.594, 120 s after the end | closed `1000 all subscribed assets resolved` |
+| 5-minute, ending 17:05 (`settlement` review run) | 17:06:59.005 | 17:06:59.490, 119 s after the end | closed `1000 all subscribed assets resolved` |
+| 5-minute, ending 17:20 (`slow-consumer` review run) | 17:21:59.722 | 17:21:59.978, 120 s after the end | stayed open; the 15-minute market was still subscribed |
 
 `market_resolved` arrived only for subscribed markets. No run received one
 for a market it had not subscribed to, although other Bitcoin markets settled
 every few minutes. `new_market`, by contrast, arrives for every new market
-whenever `custom_feature_enabled` is set. Its rate ranged from under one a
-minute to about five a second, depending on the period.
+whenever `custom_feature_enabled` is set. Each one is a distinct market: in
+run long, none of the 3,689 repeated an ID, condition ID, or slug. They come
+in bursts, because markets are created in bulk: one soccer match, Kosovo
+vs. Austria, got 372 player-prop markets within 85 seconds. The busiest
+minute, 14:46, brought 566. In quieter periods fewer than one arrived a
+minute.
 
 ### A subscription to a settled market
 
@@ -722,22 +781,22 @@ When a subscribed market settled, the stream emptied its book, then sent
 `market_resolved` with the winning token, two to two and a half minutes
 after the end date, and then nothing more for that market. When that market
 was the last unresolved one on the connection, the server also closed the
-connection, with `1000 all subscribed assets resolved`. Of five settlements,
-four were announced. For the other, the last unresolved market on its
-connection, the connection dropped between the emptied book and any
+connection, with `1000 all subscribed assets resolved`. Of seven
+settlements, six were announced. For the other, the last unresolved market
+on its connection, the connection dropped between the emptied book and any
 announcement. A subscription to an already-settled market, including a
 resubscription after a disconnect, returns no book and no error. So the
 stream does not reliably announce a settlement, and a close is not always an
 interruption. The client must expect to learn of a settlement from a token
 that gets no `book`, which an unknown token would also produce. It confirms
 the settlement through market lookup or the REST 404. Gamma showed settled
-markets as closed 51 s and about three minutes after `market_resolved`, so the
-client has to allow for that lag.
+markets as closed 51 s, 186 s, and about three minutes after
+`market_resolved`, so the client has to allow for that lag.
 
 Open: settlement of markets resolved through a UMA proposal, such as the
 election markets, which may take longer and need not clear the book the same
 way; whether `market_resolved` is ever sent more than once or late; whether
-the dropped connection at 14:47:38 was the all-resolved close. Only five
+the dropped connection at 14:47:38 was the all-resolved close. Only seven
 automatically resolved crypto markets were observed settling.
 
 ## Open questions

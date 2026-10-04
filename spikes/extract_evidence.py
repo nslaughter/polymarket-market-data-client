@@ -117,6 +117,25 @@ def new_market_frames(records, every=10):
     return keep
 
 
+def side_by_side_new_markets(records):
+    """A drops-events-live run: the reference connection's new_market frames,
+    the SDK's new_market deliveries, its drop log and counters, and the
+    connection records."""
+    keep = []
+    for r in records:
+        k = r["kind"]
+        if k == "recv":
+            if r.get("conn") == "reference" and any(
+                    e.get("event_type") == "new_market" for e in events(r)):
+                keep.append(r)
+        elif k == "sdk_event":
+            if r["type"] == "new_market":
+                keep.append(r)
+        elif not is_ping(r):
+            keep.append(r)
+    return keep
+
+
 def connection_tails(records, tail=1.0):
     """Every non-data record (including PING and PONG, for their timing), and
     the data frames from the last `tail` s before each connection closed."""
@@ -263,6 +282,11 @@ def plan() -> list[dict]:
          "select": lambda rs: fault_windows(rs, faults={"kill"}, before=2.0, after=2.0),
          "kept": "the abort only: control and log records, and SDK and reference events from"
          " 2 s before it to 2 s after the SDK resubscribed"},
+        {"file": "sdk-drops-events--live", "source": "repro/drops-events-live-20261004T184444Z.jsonl",
+         "behavior": "The SDK drops events its parser rejects, logging only at DEBUG",
+         "select": side_by_side_new_markets, "kept": "the reference connection's new_market"
+         " frames, the SDK's new_market deliveries, its drop log and counters, and the"
+         " connection records, from a 10-minute run with the SDK live beside the reference"},
         {"file": "sdk-drops-events--long-run", "source": "long-run.jsonl",
          "behavior": "The SDK drops events its parser rejects, logging only at DEBUG",
          "select": new_market_frames, "kept": "every tenth new_market frame of the 60-minute"

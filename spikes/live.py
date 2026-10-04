@@ -165,15 +165,17 @@ class MarketSocket:
 
     def __init__(self, rec: Recorder, label: str, assets: list[str], *,
                  custom: bool = True, ping: float | None = 10.0,
-                 on_text=None) -> None:
+                 on_text=None, logger=None) -> None:
         self.rec, self.label, self.assets = rec, label, assets
         self.custom, self.ping, self.on_text = custom, ping, on_text
+        self.logger = logger  # websockets' logger; default "websockets.client"
         self.closed = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
         self._ws = None
 
     async def open(self) -> "MarketSocket":
-        self._ws = await connect(URL, ping_interval=None, max_size=None)
+        extra = {"logger": self.logger} if self.logger else {}
+        self._ws = await connect(URL, ping_interval=None, max_size=None, **extra)
         headers = self._ws.response.headers
         self.rec.write("open", conn=self.label,
                        server={h: headers.get(h) for h in SERVER_HEADERS})

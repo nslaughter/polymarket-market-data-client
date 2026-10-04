@@ -22,6 +22,17 @@
     "sha256": "4babcd50378e133f21104fae49deb09e031abcc8f5cc3a123a8b42ff820434f6"
   },
   {
+    "file": "sdk-drops-events--live.jsonl.gz",
+    "behavior": "The SDK drops events its parser rejects, logging only at DEBUG",
+    "source": "repro/drops-events-live-20261004T184444Z.jsonl",
+    "source_bytes": 2999976,
+    "source_sha256": "2791f5429c6d7e1a5d7980e8c07678f7ab974c7b0fa8c70ca949e54674978a77",
+    "kept": "the reference connection's new_market frames, the SDK's new_market deliveries, its drop log and counters, and the connection records, from a 10-minute run with the SDK live beside the reference",
+    "records": 1421,
+    "bytes": 197059,
+    "sha256": "84b8620954e7a2884149818ea4ab10a7c4c086881546dd24a2aa73dff24607d4"
+  },
+  {
     "file": "sdk-drops-events--long-run.jsonl.gz",
     "behavior": "The SDK drops events its parser rejects, logging only at DEBUG",
     "source": "long-run.jsonl",

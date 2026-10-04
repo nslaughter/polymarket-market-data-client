@@ -37,8 +37,14 @@ still contains one.
 Some excerpts keep less than the analysis saw on the full capture, which
 changes a few printed figures but not the verdicts:
 
+- `sdk-drops-events--live` keeps only the `new_market` traffic from a
+  10-minute run with the SDK live beside a reference connection: the
+  reference's `new_market` frames, the SDK's `new_market` deliveries, its
+  drop log and counters, and the connection records. The run's other market
+  data is left out, and its figures (24 of 704 delivered) are unchanged.
+
 - `sdk-drops-events--long-run` keeps every tenth `new_market` frame. Its
-  parser rejects 355 of 369, about the 96% of the full hour's 3,595 of 3,754.
+  parser rejects 355 of 369, about the 96% of the full hour's 3,554 of 3,689.
 - `stream-slow-consumer--*` keeps PING and PONG timing in full, but data
   frames only from the last second before each close.
 - `settlement--*` keeps each market's frames from its end date on, so
@@ -52,6 +58,7 @@ changes a few printed figures but not the verdicts:
 | --- | --- | --- | ---: | ---: |
 | `sdk-silent-reconnect--sdk-run.jsonl.gz` | The SDK's stream reconnects and resubscribes without telling its consumer | `sdk-reconnect.jsonl` | 730 | 45,077 |
 | `sdk-silent-reconnect--busy.jsonl.gz` | The SDK's stream reconnects and resubscribes without telling its consumer | `repro/silent-reconnect-20261004T154747Z.jsonl` | 2,691 | 162,067 |
+| `sdk-drops-events--live.jsonl.gz` | The SDK drops events its parser rejects, logging only at DEBUG | `repro/drops-events-live-20261004T184444Z.jsonl` | 1,421 | 197,059 |
 | `sdk-drops-events--long-run.jsonl.gz` | The SDK drops events its parser rejects, logging only at DEBUG | `long-run.jsonl` | 374 | 124,536 |
 | `stream-no-replay--repro.jsonl` | Nothing is replayed after a reconnect | `repro/no-replay-20261004T154157Z.jsonl` | 44 | 62,592 |
 | `stream-idle-close--no-ping.jsonl` | A connection with no traffic is closed after about 125 s, without a close frame | `hb-idle.jsonl` | 9 | 1,475 |
