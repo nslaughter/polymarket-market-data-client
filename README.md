@@ -219,9 +219,10 @@ capture gap, and the client records it as one.
 - **Frames decoded defensively.** Each frame is parsed into a typed event.
   A frame the client cannot decode, or an event type it doesn't recognize, is
   kept with its raw payload and reported, not allowed to stop the connection.
-- **Cancellation from the standard library.** Cancelling the consuming task,
-  or wrapping it in `asyncio.timeout()`, stops reconnection attempts and closes
-  the connection. No background task outlives the client's `async with` block.
+- **Cancellation from the standard library.** Cancelling the task that holds
+  the client's `async with` block, or wrapping it in `asyncio.timeout()`,
+  stops reconnection attempts and closes the connection. No background task
+  outlives the block.
 - **Exact values.** Prices and sizes are decoded straight to `Decimal` and
   never pass through `float`.
 - **Typed records and states.** Market events, connection-state changes, and
