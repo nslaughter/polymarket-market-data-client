@@ -143,14 +143,17 @@ subscribed market settles, the client reports it as settled, not ready, and
 removes it from the desired subscriptions so a reconnect does not resubscribe
 it. In the investigation, the stream emptied a settling market's book and then
 sent `market_resolved` naming the winning token, minutes after the market's end
-date. For a second market, the connection dropped before any announcement. A
-subscription to an already-settled market, including a resubscription after
-a disconnect, returned no book and no error
-([findings, question 6](docs/source-behavior.md#6-settlement)). So the
-client does not rely on `market_resolved` alone. When a token gets no book
-after subscribing, the client checks through market lookup whether its market
-has settled. Only automatically resolved markets were seen settling; others
-may behave differently.
+date. When no unresolved market was left on the connection, the server also
+closed it, with `1000 all subscribed assets resolved`. Once, a connection
+ended at that moment without the announcement. A subscription to an
+already-settled market, including a resubscription after a disconnect,
+returned no book and no error
+([findings, question 6](docs/source-behavior.md#6-settlement)). So the client
+treats that close as settlement, not an interruption, and does not rely on
+`market_resolved` alone. When a token gets no book after subscribing, the
+client checks through market lookup whether its market has settled, allowing
+for the lookup to lag. Only automatically resolved markets were seen
+settling; others may behave differently.
 
 ## Source behavior is checked before recovery is specified
 
