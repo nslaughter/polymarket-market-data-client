@@ -21,6 +21,10 @@ This is the supporting example for my API integration development work: client
 code that completes one application workflow against a third-party API, with
 its recovery behavior tested and documented. It is meant to show:
 
+- **WebSocket handling in its own code.** The connection lifecycle, the
+  application-level heartbeat, subscription frames, reconnection, close
+  handling, and cancellation are implemented and tested here, not delegated to
+  a library.
 - **Connection states an application can act on.** An open connection,
   restored subscriptions, and usable application state are distinct,
   observable states.
@@ -33,8 +37,9 @@ its recovery behavior tested and documented. It is meant to show:
   Events are not dropped silently.
 - **Evidence for investigation.** Unfamiliar or undecodable events are kept,
   and records carry the identities and timestamps the consumer needs.
-- **Failure behavior anyone can exercise.** A deterministic source fixture
-  reproduces disconnects and other failures without access to the live service.
+- **Failure behavior anyone can exercise.** A scripted local WebSocket server
+  reproduces disconnects, a missing heartbeat reply, and other failures without
+  access to the live service.
 
 The client is the first of two stages. The companion
 [polymarket-data-pipeline](https://github.com/nslaughter/polymarket-data-pipeline)
@@ -46,16 +51,23 @@ Consider a research application following a selected set of markets. After a
 connection drops, it needs to restore its subscriptions and establish which
 state it can use. It also needs to know what the interruption leaves unknown.
 
-Polymarket publishes an official Python SDK,
-[`polymarket-client`](https://pypi.org/project/polymarket-client/), whose
-asynchronous client subscribes to the market stream and yields typed events
-with `Decimal` prices
+The client manages the market WebSocket connection itself. It connects to
+`wss://ws-subscriptions-clob.polymarket.com/ws/market` and subscribes by
+sending a `market` frame with the selected token IDs
+([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
+checked October 4, 2026). Owning the connection is deliberate: the client must
+mark state uncertain the moment a connection drops, and a library that
+reconnects silently would hide that event.
+
+Polymarket also publishes an official Python SDK,
+[`polymarket-client`](https://pypi.org/project/polymarket-client/), with an
+asynchronous client for the same stream
 ([Python SDK](https://docs.polymarket.com/getting-started/python), checked
-October 4, 2026). This project will pin a version of it, build on it where it
-fits, and add the behavior it lacks. Whether it reconnects and restores
-subscriptions on its own is one of the first things to establish. The scope
-covers market selection, event handling, connection lifecycle, recovery, and
-the handoff into the consuming application.
+October 4, 2026). This project pins a version of it for market lookup and any
+REST snapshots the recovery procedure needs. Whether the SDK's own stream
+reconnects and restores subscriptions, and whether it reports doing so, will be
+checked and documented, so the choice to own the connection rests on evidence. The scope covers market selection, event handling, the connection
+lifecycle, recovery, and the handoff into the consuming application.
 
 The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
@@ -69,14 +81,17 @@ be documented and checked against the live service.
 
 1. Resolve the selected markets to the identifiers the source requires, and
    record the desired subscriptions independently of any connection.
-2. Connect and subscribe. Establish initial application state using the
-   source's verified snapshot and update behavior before reporting readiness.
-3. When a closed connection or a missing `PONG` reveals an interruption, mark
+2. Connect and send the subscription frame. Establish initial application
+   state using the source's verified snapshot and update behavior before
+   reporting readiness.
+3. When a close frame, a dropped connection, or a missing `PONG` reveals an
+   interruption, mark
    the affected state uncertain and record the last confirmed activity and the
    time the interruption was detected.
-4. Reconnect under a bounded retry policy that supports cancellation, restore
-   the subscriptions, and follow the verified synchronization procedure before
-   using updates again.
+4. Reconnect with exponential backoff, jitter, and a bounded number of
+   attempts, all cancellable. Resend the subscription frames from the desired
+   set, and follow the verified synchronization procedure before using updates
+   again.
 5. Report restored current state separately from the capture interval whose
    completeness remains unknown, including when recovery fails.
 
@@ -106,14 +121,18 @@ it as one.
 
 ## Design choices for Python
 
-- **Asynchronous, like the source client.** The client uses `asyncio`. Events
-  reach the application through an async iterator backed by a bounded queue,
-  with a configured response when the queue fills.
+- **Asynchronous, on `asyncio` and the `websockets` library.** One task reads
+  frames, one sends the heartbeat, and events reach the application through an
+  async iterator backed by a bounded queue, with a configured response when
+  the queue fills.
+- **Frames decoded defensively.** Each frame is parsed into a typed event.
+  A frame the client cannot decode, or an event type it doesn't recognize, is
+  kept with its raw payload and reported, not allowed to stop the connection.
 - **Cancellation from the standard library.** Cancelling the consuming task,
   or wrapping it in `asyncio.timeout()`, stops reconnection attempts and closes
   the connection. No background task outlives the client's `async with` block.
-- **Exact values.** Prices and sizes stay `Decimal`, as the official SDK
-  provides them, and are never converted to `float`.
+- **Exact values.** Prices and sizes are decoded straight to `Decimal` and
+  never pass through `float`.
 - **Typed records and states.** Market events, connection-state changes, and
   capture gaps are distinct types, so the application can tell data from
   status with an ordinary `match` statement.
@@ -124,8 +143,8 @@ it as one.
 ## Scope
 
 In scope: a limited, explicit set of markets and event types; Python;
-read-only market data; and the connection lifecycle, recovery, consumer
-buffering, and application handoff.
+read-only market data; the market WebSocket connection; and recovery, consumer
+buffering, and the application handoff.
 
 Outside this demonstration: order execution and trading, durable storage and
 batch delivery (handled by the pipeline), historical reconstruction of missed
@@ -135,11 +154,12 @@ events, and continuous operation.
 
 - The built wheel installs in a clean virtual environment and the documented
   research example runs.
-- Initial and recovered states from a deterministic source fixture match
+- Initial and recovered states from the scripted WebSocket server match
   independently prepared expectations.
-- Checks exercise disconnection, a missing `PONG`, subscription
-  restoration and changes, unfamiliar events, and a slow consumer. They assert
-  when the client becomes uncertain and when it may report readiness again.
+- Checks against that server exercise a dropped connection, a close frame, a
+  withheld `PONG`, subscription restoration and changes, unknown and malformed
+  frames, and a consumer that stops reading. They assert when the client
+  becomes uncertain and when it may report readiness again.
 - A limited live run is recorded separately, with its client version,
   configuration, observation period, interruptions, and unresolved source
   behavior.
@@ -150,7 +170,8 @@ events, and continuous operation.
   quickstart.
 - A runnable market-data example.
 - The client interface and its documented recovery contract.
-- Deterministic fixtures with independently prepared expected states.
+- A scripted local WebSocket server and deterministic fixtures with
+  independently prepared expected states.
 - Automated checks in CI on each supported Python version, and a tagged
   release with a built wheel.
 - An inspectable recovery timeline and documented source coverage limits.
