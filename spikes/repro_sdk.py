@@ -8,25 +8,36 @@ consumer.
 silent-reconnect
     Runs the SDK through sdk_reconnect.py's proxy on the current 15-minute
     Bitcoin market, drops its connection, then withholds PONG, with a direct
-    reference connection alongside. Reproduced
-    when the SDK reconnects and resubscribes after a fault without delivering
-    anything that marks the gap and without logging above DEBUG, so a consumer
-    cannot tell that the source events in the gap never reached it.
+    reference connection alongside. Reproduced when the SDK reconnects and
+    resubscribes after a fault without delivering anything that marks the gap
+    and without logging above DEBUG, so a consumer cannot tell that the source
+    events in the gap never reached it.
 
 drops-events
     Records the raw stream with custom_feature_enabled and runs every event
     through the SDK's own parser. Reproduced when the parser rejects events
     the server sent; the SDK drops those with only a DEBUG log record.
 
+drops-events-live
+    Runs a real SDK subscription with custom_feature_enabled and a direct
+    reference connection to the same market at the same time, and matches
+    their new_market events by ID. Reproduced when the reference received
+    new_market events the SDK never delivered, the SDK's own parser rejects
+    each of them, and the SDK neither reconnected nor reported anything above
+    DEBUG. Inconclusive if the SDK reconnected, since a gap could also explain
+    the missing events.
+
 Each subcommand runs live and writes a capture under spikes/captures/repro/.
 With --capture FILE it analyzes existing captures instead: sdk_reconnect.py
-captures for silent-reconnect, and any capture of received frames for
-drops-events.
+captures for silent-reconnect, any capture of received frames for
+drops-events, and drops-events-live captures for drops-events-live.
 """
 
 import argparse
 import asyncio
 import json
+import logging
+import re
 from argparse import Namespace
 from collections import Counter
 from datetime import timedelta
@@ -164,20 +175,132 @@ def analyze_drops_events(paths: list[str]) -> None:
                      " new markets are created during the recording", paths)
 
 
+# --- drops-events-live ---------------------------------------------------------
+
+
+async def collect_drops_events_live(args) -> str:
+    from polymarket import AsyncPublicClient
+    from polymarket.streams import MarketSpec
+    from sdk_reconnect import LogToRecorder
+
+    market = await live.select("long")
+    rec = live.Recorder("drops-events-live")
+    rec.write("note", markets=[market])
+    tokens = market["token_ids"]
+    print(f"market: {market['slug']}; the SDK subscribes for {args.duration:.0f} s")
+
+    sdk_logger = logging.getLogger("spike.sdk")
+    sdk_logger.setLevel(logging.DEBUG)
+    sdk_logger.addHandler(LogToRecorder(rec, "sdk_log"))
+    sdk_logger.propagate = False
+    # The SDK's socket logs to websockets' default logger; the reference
+    # connection gets its own, so the SDK's connections can be told apart.
+    ws_logger = logging.getLogger("websockets.client")
+    ws_logger.setLevel(logging.DEBUG)
+    ws_logger.addHandler(LogToRecorder(rec, "sdk_ws", lambda m: m.startswith(
+        ("= connection is", "> TEXT '{\"type\":\"market\"", "x "))))
+    ws_logger.propagate = False
+
+    ref = await live.MarketSocket(rec, "reference", tokens,
+                                  logger=logging.getLogger("reference.websockets")).open()
+    await asyncio.sleep(2)  # the reference covers the SDK's whole window
+    async with AsyncPublicClient(logger=sdk_logger) as client:
+        handle = await client.subscribe(MarketSpec(token_ids=tokens,
+                                                   custom_feature_enabled=True))
+        rec.write("sdk", event="subscribed")
+        try:
+            async with asyncio.timeout(args.duration):
+                async for event in handle:
+                    rec.write("sdk_event", type=event.type,
+                              id=event.payload.id if event.type == "new_market" else None)
+        except TimeoutError:
+            pass
+        # Private: the public client does not expose the parse-drop count.
+        manager = client._market_manager
+        rec.write("sdk", event="done", handle_dropped=handle.dropped,
+                  parse_dropped=None if manager is None else manager.dropped_events)
+        await handle.close()
+    await asyncio.sleep(2)
+    await ref.close()
+    return str(rec.path)
+
+
+def analyze_drops_events_live(paths: list[str]) -> None:
+    from pydantic import ValidationError
+    from polymarket.models.clob.market_events import parse_market_event
+
+    recs = live.load(paths)
+    start = next(r["t"] for r in recs if r["kind"] == "sdk" and r["event"] == "subscribed")
+    done = next(r for r in recs if r["kind"] == "sdk" and r["event"] == "done")
+    # Compare inside the SDK's window, a second in from each edge, so events
+    # that reached only one connection because of when it subscribed or
+    # closed do not count.
+    ref = {e["id"]: e for r, e in live.frames(recs, "reference")
+           if e.get("event_type") == "new_market" and start + 1 <= r["t"] <= done["t"] - 1}
+    delivered = {r["id"] for r in recs if r["kind"] == "sdk_event" and r["type"] == "new_market"}
+    missing = [e for i, e in ref.items() if i not in delivered]
+    reasons = Counter()
+    for e in missing:
+        try:
+            parse_market_event(e)
+            reasons["the SDK's parser accepts it"] += 1
+        except ValidationError as err:
+            first = err.errors()[0]
+            reasons[f"rejected on {'.'.join(str(x) for x in first['loc'][2:])}"] += 1
+    logged = sum(int(m.group(1)) for r in recs if r["kind"] == "sdk_log"
+                 for m in [re.match(r"dropped (\d+) malformed", r["msg"])] if m)
+    above_debug = sorted({r["msg"][:70] for r in recs
+                          if r["kind"] == "sdk_log" and r["level"] != "DEBUG"})
+    subscriptions = sum(1 for r in recs if r["kind"] == "sdk_ws"
+                        and r["msg"].startswith("> TEXT '{\"type\":\"market\""))
+    print(f"== {', '.join(paths)}")
+    print(f"  SDK subscribed for {done['t'] - start:.0f} s; it sent {subscriptions}"
+          f" subscription frame(s), so {max(subscriptions - 1, 0)} reconnect(s)")
+    print(f"  new_market events the reference received in that window: {len(ref)}")
+    print(f"  of those, delivered by the SDK: {len(ref) - len(missing)};"
+          f" never delivered: {len(missing)} {dict(reasons)}")
+    print(f"  the SDK logged {logged} dropped event(s) at DEBUG and counted"
+          f" {done['parse_dropped']} on its stream manager; handle.dropped ="
+          f" {done['handle_dropped']}")
+    print(f"  SDK log records above DEBUG: {above_debug or 'none'}")
+    explained = missing and all(k.startswith("rejected") for k in reasons)
+    if subscriptions > 1:
+        live.verdict("drops-events-live", "INCONCLUSIVE",
+                     "the SDK reconnected during the run, so a gap could also explain"
+                     " missing events", paths)
+    elif explained and not above_debug:
+        live.verdict("drops-events-live", "REPRODUCED",
+                     f"the SDK delivered {len(ref) - len(missing)} of the {len(ref)} new_market"
+                     f" events the reference received; its parser rejects each of the"
+                     f" {len(missing)} it dropped, and nothing above DEBUG said so", paths)
+    elif not missing:
+        live.verdict("drops-events-live", "NOT REPRODUCED",
+                     f"the SDK delivered all {len(ref)} new_market events the reference"
+                     " received", paths)
+    else:
+        live.verdict("drops-events-live", "INCONCLUSIVE",
+                     "some missing events are not explained by the parser, or the SDK"
+                     " logged above DEBUG", paths)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="check", required=True)
-    for name in ("silent-reconnect", "drops-events"):
+    for name, default in (("silent-reconnect", 0), ("drops-events", 180),
+                          ("drops-events-live", 600)):
         s = sub.add_parser(name)
         s.add_argument("--capture", action="append",
                        help="analyze this capture instead of running live; repeatable")
-        s.add_argument("--duration", type=float, default=180,
-                       help="seconds to record (drops-events)")
+        if default:
+            s.add_argument("--duration", type=float, default=default,
+                           help="seconds to record")
     args = p.parse_args()
     collect = {"silent-reconnect": collect_silent_reconnect,
-               "drops-events": collect_drops_events}[args.check]
+               "drops-events": collect_drops_events,
+               "drops-events-live": collect_drops_events_live}[args.check]
     analyze = {"silent-reconnect": analyze_silent_reconnect,
-               "drops-events": analyze_drops_events}[args.check]
+               "drops-events": analyze_drops_events,
+               "drops-events-live": analyze_drops_events_live}[args.check]
     paths = args.capture or [asyncio.run(collect(args))]
     analyze(paths)
 
