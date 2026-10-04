@@ -42,7 +42,7 @@ that the original behavior stays reproducible after a fix.
 | SDK dependencies that shape the findings | `websockets` 15.0.1 (whose keepalive caught the stall), `pydantic` 2.13.5 and `pydantic-core` 2.46.5 (whose validation rejects the `new_market` events), `httpx` 0.28.1 |
 | Every other package | locked per script in `spikes/<script>.py.lock` |
 | Python and platform | CPython 3.12.13 managed by uv 0.12.23, on macOS 26.6.2 (arm64) |
-| Market WebSocket and REST APIs | No version. Checked October 4, 2026, 14:26 to 16:11 UTC, and again in the review runs, 17:02 to 17:27. Handshakes were answered by Cloudflare (`Server: cloudflare`, rays ending `-DFW`). |
+| Market WebSocket and REST APIs | No version. Checked October 4, 2026, 14:26 to 16:11 UTC, and again in the review runs, 17:02 to 17:27, and the side-by-side drops run, 18:44 to 18:54. Handshakes were answered by Cloudflare (`Server: cloudflare`, rays ending `-DFW`). |
 | Documentation | Read October 4, 2026 as Markdown (page URL plus `.md`). SHA-256 of what was read: [real-time data](https://docs.polymarket.com/market-data/realtime-data) `8ad4bd28afd777ebb9229afa8bfd859c8c9e5db6448b6f0f6e750f72adcb0b51`, [prices and order books](https://docs.polymarket.com/market-data/prices-order-books) `e7b41e330500084c013dc31e59d363a25f66b51fc9f3124a14a4889680662b1b`, [Python SDK](https://docs.polymarket.com/getting-started/python) `c5860a04c695fb915a7a1b736cfeae723c4e4b3ccd982946d62aa4caf2efe32b`, [SDK changelog](https://docs.polymarket.com/changelog/sdks) `3aca66c34314921115818c7ef7ff0e30048624cd08e64107ec5d255974a05929`, [resolution](https://docs.polymarket.com/concepts/resolution) `698262d533e21d42ea6192c5d09d421d81646397a82ffe96e88c8b9cd77931ac`. "Not documented" below means not in these pages as read. |
 
 The scripts run under the lockfiles, so `uv run` rebuilds this environment
@@ -122,7 +122,7 @@ runs.
 
 | Question | Answer for the observed markets and periods |
 | --- | --- |
-| 1. Does the SDK's stream reconnect and restore subscriptions, and report it? | It reconnects and resends its subscription on its own after every fault tried. It reports neither the disconnect nor the reconnect to the consumer; only failed attempts and its own heartbeat timeout reach its logger. |
+| 1. Does the SDK's stream reconnect and restore subscriptions, and report it? | It reconnects and resends its subscription on its own after every fault tried. It reports neither the disconnect nor the reconnect to the consumer; only failed attempts and its own heartbeat timeout reach its logger. It also drops events it cannot parse without telling the consumer: live, it delivered 24 of 704 `new_market` events. |
 | 2. What happens when PING stops, and how promptly does PONG arrive? | With market data flowing, nothing: connections without PING stayed open for 10 minutes. A connection with no traffic at all was closed after about 125 seconds without a close frame; PING every 10 seconds kept it open. PONG took a median of 0.14 seconds but waits behind queued data, up to 11.4 seconds under load. |
 | 3. Is the order consistent, and can missed events be replayed? | Book changes for each token arrived in timestamp order, with two 1 ms exceptions at the start of a connection. Events of different types for one token sometimes did not, and some messages arrived twice. Nothing is replayed: after a reconnect the stream sends a fresh book, and the events in between are gone. |
 | 4. Does anything reveal a missed event? | No sequence numbers. The order-book hash, an undocumented SHA-1 of the token's book, can be recomputed locally and reveals a book that has diverged from the source's. It cannot count missed events, and some of its inputs are not on the stream. |
@@ -146,7 +146,7 @@ reruns the same analyses on them offline and confirms each verdict.
 | Behavior | What it does to a client's data | Seen | Reproduce |
 | --- | --- | --- | --- |
 | The SDK's stream reconnects and resubscribes without telling its consumer ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The consumer keeps reading after a gap with no sign that source events were lost, so it cannot mark its state uncertain | the abort, stall, and close in run sdk, and all three aborts in the reproductions and review; 2 to 596 book states lost per gap | `repro_sdk.py silent-reconnect` |
-| The SDK drops events its parser rejects, logging only at DEBUG ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | Events vanish: 3,554 of 3,689 `new_market` events in run long's hour (96%) carry a `game_start_time` string the SDK rejects | every capture with `new_market` events | `repro_sdk.py drops-events` |
+| The SDK drops events its parser rejects, logging only at DEBUG ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | Events vanish: a live subscription delivered 24 of the 704 `new_market` events a reference connection received in 10 minutes, and in run long's hour 3,554 of 3,689 (96%) carried a `game_start_time` string the SDK rejects | every capture with `new_market` events, and live beside a reference | `repro_sdk.py drops-events-live`, or `drops-events` on a capture |
 | The SDK stops reconnecting after an error other than its `TransportError` ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The handle stays open and silent; a consumer waits forever | source only | none (source: `streams/reconnect.py`, `streams/clob/market.py`) |
 | Nothing is replayed after a reconnect ([3](#3-event-order-and-replay)) | Changes made during a disconnect are gone; the stream sends only current books | every reconnect observed | `repro_stream.py no-replay` |
 | A connection with no traffic is closed after about 125 s, without a close frame ([2](#2-heartbeat)) | A quiet subscription that skips `PING` loses its connection in a way that looks like a network failure | 4 of 4 idle runs | `repro_stream.py idle-close` |
@@ -166,7 +166,8 @@ reruns the same analyses on them offline and confirms each verdict.
 ### Reproduction runs
 
 The reproductions ran against current markets on October 4, 2026, between
-15:41 and 16:08 UTC, after the investigation's own runs. Runs that
+15:41 and 16:08 UTC, after the investigation's own runs. The side-by-side
+drops check followed from 18:44 to 18:54. Runs that
 started before 16:01 predate the `environment` record in captures. uv's
 cached environments for those scripts hold the same versions listed under
 [Versions](#versions).
@@ -182,6 +183,7 @@ cached environments for those scripts hold the same versions listed under
 | `repro_settlement.py settled-subscription` | 15:43:01–15:43:23 and 16:01:39–16:02:02 | 5-minute Bitcoin ended 15:40, then 15:55 (both settled), with Lisnard | REPRODUCED both times. Settled tokens were left out of the opening frame without an error, as `[]` when alone, and REST rejected their books. The second run's capture records its versions and the server's headers. |
 | `repro_settlement.py settlement` | 15:41:57–15:47:07 | 5-minute Bitcoin ending 15:45 | NOT REPRODUCED: announced, then closed `1000 all subscribed assets resolved`. See [6](#6-settlement). |
 | `repro_settlement.py settlement` | 16:00:12–16:07:50 | 5-minute Bitcoin ending 16:05 | NOT REPRODUCED: announced, then closed `1000 all subscribed assets resolved`. Gamma showed it closed 51 s later. |
+| `repro_sdk.py drops-events-live` | 18:44:44–18:54:44 | Lisnard, with `new_market` events for every new market | REPRODUCED. The SDK, live beside a reference connection, delivered 24 of the 704 `new_market` events the reference received. Its parser rejects each of the other 680, on `game_start_time`. It logged 680 drops at DEBUG and counted 680 on its stream manager; the handle's `dropped` stayed at 0. It never reconnected. A 30-second trial at 18:43 delivered 7 of 9. |
 
 Markets in these runs, besides Lisnard (listed above):
 
@@ -234,9 +236,12 @@ Markets in the review runs, besides Lisnard and those listed above:
 ## 1. Reconnection and subscription restoration in the SDK
 
 **Checked** October 4, 2026, with `polymarket-client` 0.12.0.
-**Markets:** Vance and Harris. **Observed:** run sdk, 14:33:22–14:40:24
-(7 min), and run sdk-pong, 14:50:08–14:52:38 (2.5 min). **Evidence:** the SDK
-source and [`sdk_reconnect.py`](../spikes/sdk_reconnect.py).
+**Markets:** Vance and Harris, and Lisnard for the side-by-side drops run.
+**Observed:** run sdk, 14:33:22–14:40:24 (7 min), run sdk-pong,
+14:50:08–14:52:38 (2.5 min), and the side-by-side drops run,
+18:44:44–18:54:44 (10 min). **Evidence:** the SDK source,
+[`sdk_reconnect.py`](../spikes/sdk_reconnect.py), and
+[`repro_sdk.py`](../spikes/repro_sdk.py).
 
 ### From reading the source
 
@@ -307,6 +312,13 @@ The SDK also dropped events it could not parse. In run sdk it logged
 `'2026-10-04 14:25:00+00'`, which the SDK's validator rejects as not epoch
 milliseconds. Only 8 of the 49 `new_market` events it received reached the
 consumer.
+
+A later run measured this directly. With the SDK subscribed beside a
+reference connection for 10 minutes, the SDK delivered 24 of the 704
+`new_market` events the reference received. Its parser rejects each of the
+other 680, and its DEBUG log and stream-manager counter each show 680 drops.
+The handle's `dropped` stayed at 0, nothing was logged above DEBUG, and the
+SDK never reconnected, so no gap explains the loss.
 
 ### Answer
 
