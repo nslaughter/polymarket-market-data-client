@@ -10,10 +10,11 @@ observability integrations, financial systems, and operating data pipelines.
 This project will apply that experience to a focused third-party API workflow.
 
 **Status:** Project brief. This repository currently contains this README.
-The client, package interface, fixtures, and runnable examples are planned;
-nothing described here has been implemented or tested yet. The client will be
-written in Python. This is an independent, read-only demonstration. It is not affiliated with or endorsed by
-Polymarket, and it is not client work.
+A short investigation of source behavior comes first; the client, package
+interface, fixtures, and runnable examples follow it. Nothing described here
+has been implemented or tested yet. The client will be written in Python. This
+is an independent, read-only demonstration. It is not affiliated with or
+endorsed by Polymarket, and it is not client work.
 
 ## What this project demonstrates
 
@@ -35,7 +36,7 @@ its recovery behavior tested and documented. It is meant to show:
 - **A bounded handoff to the consumer.** Buffering toward the application has
   a limit, backlog is reported, and reaching the limit has a defined outcome.
   Events are not dropped silently.
-- **Evidence for investigation.** Unfamiliar or undecodable events are kept,
+- **Evidence for diagnosis.** Unfamiliar or undecodable events are kept,
   and records carry the identities and timestamps the consumer needs.
 - **Failure behavior anyone can exercise.** A scripted local WebSocket server
   reproduces disconnects, a missing heartbeat reply, and other failures without
@@ -65,17 +66,18 @@ asynchronous client for the same stream
 ([Python SDK](https://docs.polymarket.com/getting-started/python), checked
 October 4, 2026). This project pins a version of it for market lookup and any
 REST snapshots the recovery procedure needs. Whether the SDK's own stream
-reconnects and restores subscriptions, and whether it reports doing so, will be
-checked and documented, so the choice to own the connection rests on evidence. The scope covers market selection, event handling, the connection
-lifecycle, recovery, and the handoff into the consuming application.
+reconnects and restores subscriptions, and whether it reports doing so, is
+checked in the source investigation below, so the choice to own the connection
+rests on evidence. The scope covers market selection, event handling, the
+connection lifecycle, recovery, and the handoff into the consuming application.
 
 The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
 ([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
-checked October 3, 2026). The documentation does not say what the server does
+checked October 4, 2026). The documentation does not say what the server does
 when the heartbeat stops, so how long the client waits for `PONG` before
-treating the connection as interrupted is a design choice. That timeout will
-be documented and checked against the live service.
+treating the connection as interrupted is a design choice. The source
+investigation below informs that timeout, and the client documents it.
 
 ## How the client will recover and report its state
 
@@ -95,17 +97,42 @@ be documented and checked against the live service.
 5. Report restored current state separately from the capture interval whose
    completeness remains unknown, including when recovery fails.
 
-Source replay, event ordering, and snapshot behavior need investigation before
-step 4 can be specified. If a consistent handoff between a snapshot and the
-stream cannot be established, the example will narrow its claim and expose the
-uncertainty. A fresh view of the market restores current state; it does not
-reconstruct every change that occurred during a disconnect.
+Steps 2 to 4 depend on source behavior the documentation does not settle:
+snapshots, event ordering, detecting missed events, replay, and the heartbeat.
+They are specified after the investigation below. If a consistent handoff
+between a snapshot and the stream cannot be established, the example will
+narrow its claim and expose the uncertainty. A fresh view of the market
+restores current state; it does not reconstruct every change that occurred
+during a disconnect.
+
+## Source behavior is checked before recovery is specified
+
+Before the client is built, a short investigation against the live service
+answers the questions the recovery design depends on:
+
+- Whether the official SDK's stream reconnects and restores subscriptions on
+  its own, and whether it reports doing so.
+- What the server does when `PING` frames stop, and how promptly `PONG`
+  arrives, which together inform the client's `PONG` timeout.
+- Whether events arrive in a consistent order, and whether the source can
+  replay events missed during a disconnect.
+- Whether the stream carries anything, such as sequence numbers or order-book
+  hashes, that reveals a missed event.
+- Whether a snapshot can be joined to the stream's updates without losing or
+  repeating any.
+
+The investigation runs in this repository. Its scripts live in `spikes/` and
+are not part of the package or its checks. Findings are recorded in
+`docs/source-behavior.md` with the SDK version, the date checked, the markets
+observed, and the observation period, and this README cites them where it
+relies on source behavior. Questions the investigation cannot settle remain
+open there and carry into the live run's unresolved source behavior.
 
 ## What the application receives
 
 Records reach the consumer with their source identities, source timestamps
 where provided, receipt times, and the connection they arrived on. Raw payloads
-are available for investigating decoding failures and unfamiliar events. State
+are available for diagnosing decoding failures and unfamiliar events. State
 changes such as uncertain, recovering, and ready arrive alongside the data, so
 the application can decide what to show or do during an interruption. The
 client's responsibility ends at this handoff; durable storage belongs to the
@@ -144,14 +171,18 @@ it as one.
 
 In scope: a limited, explicit set of markets and event types; Python;
 read-only market data; the market WebSocket connection; and recovery, consumer
-buffering, and the application handoff.
+buffering, and the application handoff. Recovery includes replaying missed
+events from the source, if the investigation finds that the source can.
 
 Outside this demonstration: order execution and trading, durable storage and
-batch delivery (handled by the pipeline), historical reconstruction of missed
-events, and continuous operation.
+batch delivery (handled by the pipeline), reconstructing missed events by any
+other means, and continuous operation.
 
 ## The demonstration is complete when
 
+- Source-behavior findings, including the questions left open, are recorded
+  in `docs/source-behavior.md`, and this README cites them where it relies on
+  source behavior.
 - The built wheel installs in a clean virtual environment and the documented
   research example runs.
 - Initial and recovered states from the scripted WebSocket server match
@@ -175,6 +206,9 @@ events, and continuous operation.
 - Automated checks in CI on each supported Python version, and a tagged
   release with a built wheel.
 - An inspectable recovery timeline and documented source coverage limits.
+- Source-behavior findings in `docs/source-behavior.md`, with the SDK version,
+  dates checked, markets observed, and observation periods. The investigation
+  scripts in `spikes/` are kept out of the package and its checks.
 
 A reader should be able to run the controlled example without access to the
 live service.
@@ -184,8 +218,9 @@ live service.
 The fixture can establish missing-message counts because its emitted sequence
 is known. A live run needs source evidence to support the same claim. Local
 receipt counters describe the client's own order; they cannot prove that the
-source delivered every event. Live findings apply only to the markets, client
-version, and observation period recorded.
+source delivered every event. Live findings, whether from the live run or the
+source investigation, apply only to the markets, versions, and observation
+periods recorded.
 
 ## Related projects and writing
 
