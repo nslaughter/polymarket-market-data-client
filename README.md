@@ -36,7 +36,7 @@ its recovery behavior tested and documented. It is meant to show:
 - **A bounded handoff to the consumer.** Buffering toward the application has
   a limit, backlog is reported, and reaching the limit has a defined outcome.
   Events are not dropped silently.
-- **Evidence for investigation.** Unfamiliar or undecodable events are kept,
+- **Evidence for diagnosis.** Unfamiliar or undecodable events are kept,
   and records carry the identities and timestamps the consumer needs.
 - **Failure behavior anyone can exercise.** A scripted local WebSocket server
   reproduces disconnects, a missing heartbeat reply, and other failures without
@@ -132,7 +132,7 @@ open there and carry into the live run's unresolved source behavior.
 
 Records reach the consumer with their source identities, source timestamps
 where provided, receipt times, and the connection they arrived on. Raw payloads
-are available for investigating decoding failures and unfamiliar events. State
+are available for diagnosing decoding failures and unfamiliar events. State
 changes such as uncertain, recovering, and ready arrive alongside the data, so
 the application can decide what to show or do during an interruption. The
 client's responsibility ends at this handoff; durable storage belongs to the
