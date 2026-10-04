@@ -27,8 +27,8 @@ its recovery behavior tested and documented. It is meant to show:
   handling, and cancellation are implemented and tested here, not delegated to
   a library.
 - **Connection states an application can act on.** An open connection,
-  restored subscriptions, and usable application state are distinct,
-  observable states.
+  restored subscriptions, usable application state, and a settled market are
+  distinct, observable states.
 - **Recovery with explicit uncertainty.** After an interruption, the client
   reconnects within a bounded retry policy, restores its subscriptions, and
   marks affected state uncertain until the agreed recovery conditions are met.
@@ -54,7 +54,9 @@ state it can use. It also needs to know what the interruption leaves unknown.
 
 The client manages the market WebSocket connection itself. It connects to
 `wss://ws-subscriptions-clob.polymarket.com/ws/market` and subscribes by
-sending a `market` frame with the selected token IDs
+sending a `market` frame with the selected token IDs and
+`custom_feature_enabled` set, which adds market lifecycle events such as
+`market_resolved`
 ([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
 checked October 4, 2026). Owning the connection is deliberate: the client must
 mark state uncertain the moment a connection drops, and a library that
@@ -105,6 +107,12 @@ narrow its claim and expose the uncertainty. A fresh view of the market
 restores current state; it does not reconstruct every change that occurred
 during a disconnect.
 
+Every market eventually settles; Polymarket calls this resolution. When a
+subscribed market settles, the client reports it as settled, not ready, and
+removes it from the desired subscriptions so a reconnect does not resubscribe
+it. How reliably the stream announces a settlement is one of the
+investigation's questions below.
+
 ## Source behavior is checked before recovery is specified
 
 Before the client is built, a short investigation against the live service
@@ -120,6 +128,8 @@ answers the questions the recovery design depends on:
   hashes, that reveals a missed event.
 - Whether a snapshot can be joined to the stream's updates without losing or
   repeating any.
+- What the stream does when a subscribed market settles, and what a
+  subscription to an already-settled market returns.
 
 The investigation runs in this repository. Its scripts live in `spikes/` and
 are not part of the package or its checks. Findings are recorded in
@@ -133,10 +143,10 @@ open there and carry into the live run's unresolved source behavior.
 Records reach the consumer with their source identities, source timestamps
 where provided, receipt times, and the connection they arrived on. Raw payloads
 are available for diagnosing decoding failures and unfamiliar events. State
-changes such as uncertain, recovering, and ready arrive alongside the data, so
-the application can decide what to show or do during an interruption. The
-client's responsibility ends at this handoff; durable storage belongs to the
-pipeline.
+changes such as uncertain, recovering, ready, and settled arrive alongside the
+data, so the application can decide what to show or do during an interruption
+or after a market settles. The client's responsibility ends at this handoff;
+durable storage belongs to the pipeline.
 
 ## A slow consumer needs an explicit outcome
 
@@ -188,9 +198,10 @@ other means, and continuous operation.
 - Initial and recovered states from the scripted WebSocket server match
   independently prepared expectations.
 - Checks against that server exercise a dropped connection, a close frame, a
-  withheld `PONG`, subscription restoration and changes, unknown and malformed
-  frames, and a consumer that stops reading. They assert when the client
-  becomes uncertain and when it may report readiness again.
+  withheld `PONG`, subscription restoration and changes, a market that
+  settles, unknown and malformed frames, and a consumer that stops reading.
+  They assert when the client becomes uncertain, when it may report readiness
+  again, and when it reports a market settled.
 - A limited live run is recorded separately, with its client version,
   configuration, observation period, interruptions, and unresolved source
   behavior.
