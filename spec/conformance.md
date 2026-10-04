@@ -22,7 +22,9 @@ Nothing else here is executed.
 The scenarios use synthetic markets and frames shaped like the ones the
 investigation captured: the same event types, field names, key order,
 string-encoded numbers, and millisecond timestamps, and the same opening
-array and `[]` frame. They do not reuse the captured data. The excerpts in
+array and `[]` frame. The shapes were read from the committed excerpts for
+this document; the findings quote whole frames only for `market_resolved`
+([§6]). The scenarios do not reuse the captured data. The excerpts in
 [`spikes/evidence/`](../spikes/evidence) are Polymarket's market data, and
 whether its terms allow republishing it has not been checked.
 
@@ -276,13 +278,14 @@ is when it completed; a labelled `expect` step's time is its record's.
 ### Frame notation
 
 `send` writes frames as below. Every frame is compact JSON (no spaces),
-with members in the order shown, which is the order of the captured frames.
+with members in the order shown, which is the order of the captured frames
+as the excerpts keep them.
 Prices and sizes are strings as written; timestamps are decimal strings of
 milliseconds.
 
 | Notation | Frame |
 | --- | --- |
-| `opening` | The text `[]` followed by a newline, as a subscription to settled tokens returned ([§6]). |
+| `opening` | The text `[]` followed by a newline. A subscription to settled tokens returned `[]` ([§6]); the newline is as the excerpts keep it. |
 | `opening <item> ...` | A JSON array with one opening book per item. An item is a token name, for its current reference book, or `(book <T> t=<offset> bids=<levels> asks=<levels>)`, which first replaces the reference book. |
 | `book <T>` | One book object from the current reference book. With `t=`, `bids=`, and `asks=`, it first replaces the reference book. |
 | `pc <M> t=<offset> <entry> ...` | One `price_change` object. Each entry is `<T>:<BUY or SELL>:<price>:<size>`. |
@@ -312,9 +315,10 @@ The objects, with `<…>` filled from the notation and the reference:
 Filled in this way:
 
 - A book's levels: bids in ascending price order and asks in descending, as
-  the source sends them ([§4]). Its `timestamp` is the reference book's last
-  change. An opening book's `tick_size` is the token's tick size and its
-  `last_trade_price` is the market's trade price with three decimals.
+  in the hash input ([§4]) and the captured books. Its `timestamp` is the
+  reference book's last change. An opening book's `tick_size` is the
+  token's tick size and its `last_trade_price` is the market's trade price
+  with three decimals.
 - A `book`'s `hash`, and each `price_change` entry's, follow the
   [recipe](client.md#order-book-hash) over the reference book, with
   `min_order_size` `"5"`, `neg_risk` false, the token's tick size, and the
@@ -399,7 +403,7 @@ The last two lines alternate, token by token.
 | A token's events arrive out of timestamp order across types | `out-of-order-types` |
 | A change stamped before an opening `book` can arrive after it | `change-before-book` |
 | Opening `book` timestamps are the book's last change | `initial-books` |
-| A trade's price and a tick-size change enter the hash before they are announced | `hash-trade-before-announcement`, `hash-single-failure` |
+| A trade's price enters the hash before it is announced, and a tick-size change seemed to | `hash-trade-before-announcement`, `hash-single-failure` |
 | The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-trade-before-announcement` |
 | The stream can omit a change | `hash-divergence`, `mid-connection-book` |
 | The all-resolved close when every market has settled | `settle-all-resolved-close`, `settle-all-resolved-close-unannounced` |
@@ -589,8 +593,8 @@ expect-nothing 0.5
 #### `change-before-any-book`
 
 An entry for a token that has no book on the connection yet is delivered and
-not applied. This was not observed; the opening book always came first
-([§3]).
+not applied. The findings do not report one, and none appears in the
+excerpts measured for the contract.
 
 ```scenario
 scenario change-before-any-book
@@ -1063,7 +1067,11 @@ expect-stats interruptions=0
 #### `settle-all-resolved-close-unannounced`
 
 The all-resolved close arrives without `market_resolved`. It settles every
-token on the connection, winner unknown, and is not an interruption ([§6]).
+token on the connection, winner unknown, and is not an interruption. This
+case was not observed: once, a connection ended at that moment with neither
+the close frame nor the announcement, and whether the close can arrive
+without the announcement is open ([§6]). The scenario guards against it;
+the observed case is `settle-unannounced-drop`.
 
 ```scenario
 scenario settle-all-resolved-close-unannounced
@@ -1214,8 +1222,9 @@ expect token A2 ready
 #### `unknown-market`
 
 A token that gets no book and that lookup does not know stays uncertain,
-reported as unknown, and lookup is not repeated. The findings note that an
-unknown token would get no book, as a settled one does ([§6]).
+reported as unknown, and lookup is not repeated. The findings say that an
+unknown token would get no book, as a settled one does, but no run
+subscribed one (Inferred, [§6]).
 
 ```scenario
 scenario unknown-market

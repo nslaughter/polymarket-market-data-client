@@ -30,12 +30,31 @@ section it rests on and says what kind of evidence it is:
 | --- | --- |
 | Observed | Seen in the investigation's runs, as the cited section reports. |
 | SDK source | Read in the 0.12.0 wheel's source, as the cited section reports. |
-| Documented | Stated by Polymarket's documentation as the README cites it, and used in every run ([How it ran]). |
+| Documented | Stated by Polymarket's documentation as the README cites it, and used in every run that did not say otherwise ([How it ran]). |
 | Inferred | Concluded from what was observed, but not seen directly. |
+| Read for this document | Not in the findings: read or measured while writing this document, as listed below. |
 
-A few facts were read for this document and are not in the findings. Each
-says so where it appears, and the [Open questions](#open-questions) and the
-pull request that adds this document list them.
+These facts were read or measured for this document and are not in the
+findings. Each says so where it appears:
+
+- The event field names, the order of members in captured frames, and the
+  newline after an empty opening `[]`, read from the excerpts in
+  [`spikes/evidence/`](../spikes/evidence). The findings quote whole frames
+  only for `market_resolved` and the hash input ([§4], [§6]).
+- How long opening frames took (0.13 to 0.52 s on 24 connections), the
+  largest frame (68,573 bytes), and that no `price_change` entry arrived
+  before its token's opening `book` (none of 5,434 entries on the 10
+  connections whose excerpts keep the opening frame), measured from the
+  same excerpts. The excerpts keep only parts of the captures, so these are
+  samples, not totals.
+- That no frame other than JSON and `PONG` appears in those excerpts.
+- From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
+  Python 3.11 or later and `websockets` from 13 to below 16, and lists
+  `eth-abi`, `eth-account`, `httpx`, `pydantic`, and more; and its
+  `market_protocol.py` sends `subscribe` and `unsubscribe` operation frames
+  on an open connection.
+- The names of the SDK methods the investigation's scripts called:
+  `AsyncPublicClient`, `list_markets`, `get_market`, and `get_order_book`.
 
 The findings' open questions stay open. The client is designed to behave
 sensibly whichever way they resolve, and no conformance scenario assumes an
@@ -80,8 +99,9 @@ real-time feeds; continuous operation.
   price on each side.
 - A **capture gap** is an interval in which the client may have missed a
   token's events.
-- A market is **settled** once it has resolved; the stream sends nothing
-  more for it ([§6]).
+- A market is **settled** once it has resolved. In every settlement
+  observed, the stream sent nothing more for it ([§6]); whether
+  `market_resolved` is ever repeated or late is open.
 
 ## Public interface
 
@@ -173,6 +193,10 @@ own `TransportError`, with the handle left open and silent (SDK source,
   `asyncio.timeout()` around that await, raises in that task only. The
   client keeps running, and the record it was waiting for is not lost: the
   next read returns it.
+- In the usual pattern, the task that reads the records also holds the
+  block. Cancelling it, or an expired `asyncio.timeout()` around it, then
+  does both: the read raises, the exception leaves the block, and the
+  client shuts down.
 - Once the client has shut down, the iterator ends (`StopAsyncIteration`)
   after any exception it owes the consumer. Records still queued are
   discarded.
@@ -216,7 +240,7 @@ the client keeps both and reorders nothing.
 | `LastTradePriceEvent` | `asset_id`; `price`, `size: Decimal`; `side: Side`; `fee_rate_bps: Decimal \| None`; `transaction_hash: str \| None`. |
 | `TickSizeChangeEvent` | `asset_id`; `old_tick_size`, `new_tick_size: Decimal`. |
 | `MarketResolvedEvent` | `id: str \| None`; `assets_ids: tuple[str, ...]`; `winning_asset_id: str`; `winning_outcome: str \| None`; `tags: tuple[str, ...]`. |
-| `NewMarketEvent` | `id: str`; `condition_id: str`; `slug: str \| None`; `question: str \| None`; `assets_ids: tuple[str, ...]`; `payload: Mapping[str, Any]`, the whole event, read-only. Delivered only if `new_market` is `deliver`. |
+| `NewMarketEvent` | `id: str`; `condition_id: str \| None`, from `condition_id` or else `market`; `slug: str \| None`; `question: str \| None`; `assets_ids: tuple[str, ...]`, empty if absent; `payload: Mapping[str, Any]`, the whole event, read-only. Delivered only if `new_market` is `deliver`. The common field `market` is `""` when the event has none. |
 
 `Level` holds `price` and `size`, both `Decimal`. `PriceChange` holds
 `asset_id`, `side: Side` (`BUY` or `SELL`), `price`, `size`, `hash`,
@@ -315,8 +339,8 @@ from the desired set at that moment:
 `assets_ids` lists every token of every desired market, in desired-set
 order. `custom_feature_enabled` is always true, because it adds the
 lifecycle events, `market_resolved` among them (Documented, as the README
-cites; used in every settlement run, [§6]). The frame shape is the one every
-run used ([How it ran]).
+cites; set in every settlement run, [§6]). The frame shape is the one the
+runs used ([How it ran]).
 
 The source does not acknowledge a subscription. Its first frame is an array
 of `book` events, one for each subscribed token that is still trading, and
@@ -496,8 +520,9 @@ These change nothing about a token's state:
 
 - a `price_change` entry for a token in `synchronizing`, or in `uncertain`
   for `no_book`: no book to apply it to, so it is delivered with
-  `applied=False` (not observed; the opening `book` always came first,
-  [§3]);
+  `applied=False`. The findings do not report this; in the excerpts,
+  measured for this document, no entry came before its token's opening
+  `book`;
 - a `price_change` entry for a token in `uncertain` for `hash_mismatch` or
   `undecodable`: applied, so that a later check can verify the book;
 - a repeated message, an event out of timestamp order, and an entry stamped
@@ -526,7 +551,7 @@ table](conformance.md#coverage) names the scenarios that check each.
 | A token's events arrive out of timestamp order across types ([§3]) | Delivered in arrival order with source timestamps; nothing is reordered or rejected. |
 | A change stamped before an opening `book` can arrive after it ([§3]) | Applied in arrival order and flagged `before_book`. |
 | Opening `book` timestamps are the book's last change ([§3]) | Kept as sent; never used to judge freshness. |
-| A trade's price and a tick-size change enter the hash before they are announced ([§4]) | If D4 adopts verification: a failed check is retried with a searched trade price, and only persistent failure is divergence. |
+| A trade's price enters the hash before it is announced, and a tick-size change seemed to, once ([§4]) | If D4 adopts verification: a failed check is retried with a searched trade price, and only persistent failure is divergence. |
 | The hash recipe is undocumented; on busy markets its trade price does not follow announced trades ([§4]) | D4 decides whether and how to verify. |
 | The stream can omit a change ([§4]) | With verification, the token becomes `uncertain` until a check verifies or a book replaces it. Without it, the next `book` reports `held_book_matched=False`. |
 | The server closes with `1000 all subscribed assets resolved` when every market on the connection has settled ([§6]) | Settlement, not an interruption: no reconnect for those tokens. |
@@ -541,11 +566,12 @@ gap reports. A consumer that keeps its own book from the records gets the
 client's book by following the same rules.
 
 1. **The initial book is the stream's.** A token's book is the `book` event
-   the stream sends on subscribing. In every check, that book matched by
-   hash and timestamp a state the source reached, and in 31 of 34 it was
-   the latest (Observed, [§5]). No REST snapshot is taken. A REST snapshot
-   could be joined to the stream by hash (Observed, 456 of 456, [§5]), but
-   the stream's own book needs no join.
+   the stream sends on subscribing. In runs sdk and sdk-pong, on the Vance
+   and Harris markets, all 34 `book` events the SDK received matched by
+   hash and timestamp a state a reference connection reached, and 31 were
+   its latest state (Observed, [§5]). No REST snapshot is taken. A REST
+   snapshot could be joined to the stream by hash (Observed, 456 of 456,
+   [§5]), but the stream's own book needs no join.
 2. **Changes are applied in arrival order.** Each `price_change` entry sets
    the size at its price on one side: `BUY` on the bids, `SELL` on the asks.
    A size of 0 removes the level. The investigation's replays applied
@@ -668,11 +694,12 @@ The fields the client uses, by event type:
 | `last_trade_price` | `market`, `asset_id`, `timestamp`, `price`, `size`, `side` | `fee_rate_bps`, `transaction_hash` |
 | `tick_size_change` | `market`, `asset_id`, `timestamp`, `old_tick_size`, `new_tick_size` | |
 | `market_resolved` | `market`, `timestamp`, `assets_ids`, `winning_asset_id` | `id`, `winning_outcome`, `tags` |
-| `new_market` | `id`, `market` or `condition_id`, `assets_ids`, `timestamp` | everything else, kept in `payload` uninterpreted |
+| `new_market` | `id`, `timestamp` | everything else, kept in `payload` uninterpreted |
 
-The field names and shapes are those of the captured frames (Observed,
-[§3], [§4], [§6]). Unknown fields are ignored. `side` is `BUY` or `SELL`.
-`new_market` events carry `game_start_time` as a string such as
+The field names and shapes are those of the captured frames, read from the
+committed excerpts for this document; the findings quote whole frames only
+for `market_resolved` ([§6]). Unknown fields are ignored. `side` is `BUY` or
+`SELL`. `new_market` events carry `game_start_time` as a string such as
 `'2026-10-04 14:25:00+00'`, which the SDK's validator rejects (Observed,
 [§1]); the client keeps it in `payload` without interpreting it.
 
@@ -813,10 +840,12 @@ book checked, [§4]):
   ([`spikes/orderbook.py`](../spikes/orderbook.py)).
 - Consecutive entries for a token in one burst share a hash, that of the
   book after the last of them, so a check applies once per burst ([§4]).
-- A trade's price, and a new tick size, enter the hash shortly before the
-  stream announces them. On busy markets the price in the hash did not
-  follow announced trades at all and was found only by trying the 1,001
-  prices on the 0.001 grid; a match still confirms every level ([§4]).
+- A trade's price enters the hash shortly before the stream announces it.
+  On busy markets the price in the hash did not follow announced trades at
+  all and was found only by trying the 1,001 prices on the 0.001 grid; a
+  match still confirms every level ([§4]). The one tick-size change
+  observed seemed to enter the hash the same way; the findings leave that
+  open ([§4]).
 - Occasionally an entry's hash already includes the token's next change; a
   single failed check that passes after the next change is not a
   divergence ([§4]).
@@ -909,9 +938,9 @@ it. Each can be revisited in a later version.
 2. **One connection carries the whole desired set.** It is simplest, it is
    what the SDK does (SDK source, [§1]), and it makes the all-resolved
    close mean what it says for the client's whole subscription.
-3. **`custom_feature_enabled` is always set.** `market_resolved` needs it,
-   and settlement depends on it ([§6]). The `new_market` traffic it brings is
-   filtered (decision 15).
+3. **`custom_feature_enabled` is always set.** It adds `market_resolved`
+   (Documented, as the README cites), and every settlement run set it
+   ([§6]). The `new_market` traffic it brings is filtered (decision 15).
 4. **The application heartbeat is the only liveness check.** The protocol
    keepalive is off, as in the investigation's sockets, so one documented
    timeout governs ([How it ran]).
@@ -919,8 +948,9 @@ it. Each can be revisited in a later version.
    consumer that needs only usable data checks one state; one that needs to
    act on the cause reads the reason.
 6. **The stream's opening book is the initial state; no REST snapshot.** It
-   matched the source every time it was checked ([§5]), and it saves a
-   dependency on REST rate limits, which are unknown ([§5]).
+   matched a state of the source each time it was checked, in 34 checks on
+   two markets ([§5]), and it saves a dependency on REST rate limits, which
+   are unknown ([§5]).
 7. **Book changes are applied in arrival order, never by timestamp.** Book
    changes for a token arrived in timestamp order apart from two entries at
    connection start ([§3]), and the README specifies arrival order.
@@ -936,9 +966,11 @@ it. Each can be revisited in a later version.
     close reason is explicit ([§6]). A close with any other code or reason,
     including `1000` with another reason, is treated as possible loss. If
     the reason text changes, the client reconnects, finds no books, and
-    settles through lookup, so the cost is a short delay.
+    settles through lookup, so the cost is a delay: `book_timeout`, then
+    lookup's lag, which was 51 s to about three minutes ([§6]).
 12. **A missing book is confirmed through lookup before settling.** An
-    unknown token would look the same ([§6]).
+    unknown token would look the same, the findings say, though no run
+    subscribed one (Inferred, [§6]).
 13. **An undecodable frame makes the books it may affect uncertain.** A
     frame the client could not read may have changed a book; saying so is
     the point of the uncertain state. The client does not reconnect to
@@ -1014,8 +1046,8 @@ open ([§2]).
 
 **Recommended default: 20 s, fixed, measured from the oldest unanswered
 `PING`.** It is more than 8 s above the slowest `PONG` observed, and the two
-`PONG` delays observed above 6.5 s both came just before the server ended
-the connection itself.
+connections whose slowest `PONG` exceeded 6.5 s were then ended by the
+server itself ([§2]).
 
 ### D2. Reconnect bounds
 
@@ -1062,7 +1094,9 @@ bursts of 566 a minute are filtered by default (decision 15).
 
 **Recommended default: `disconnect`, `queue_size` 10,000, `backlog_warning`
 0.5, `resume_below` 0.1.** At the peak frame rate, 10,000 records is about
-12 s, close to the backlogs at which the server itself ended connections,
+12 s, if each frame yields about one record, as a `price_change` frame does
+(an estimate, not an observation). That is close to the backlogs at which
+the server itself ended connections,
 and the README describes the client disconnecting to protect memory.
 
 ### D4. Hash verification
@@ -1204,6 +1238,15 @@ From the findings ([Open questions][findings-open]), unresolved here:
 - How the SDK behaves with several subscriptions, subscription changes during
   a fault, and TLS failures on its own connection.
 
+From the sections of the findings, not in their consolidated list:
+
+- Whether `market_resolved` is ever sent late ([§6]).
+- Whether a tick-size change enters the hash before it is announced, as the
+  one observed seemed to ([§4]).
+- What happens when a REST snapshot's hash never appears in the stream; it
+  did not occur ([§5]). The client takes no REST snapshot (decision 6).
+- How the SDK behaves over longer periods ([§1]).
+
 Raised by this document:
 
 - How the server handles a subscription change on an open connection (D7).
@@ -1218,8 +1261,13 @@ Raised by this document:
   appears in the committed evidence, checked for this document.
 - Whether an opening frame is ever split across frames, or delayed beyond
   `book_timeout` under load.
-- Whether a `price_change` can arrive for a token before its opening `book`;
-  it did not in the findings ([§3]).
+- Whether a `price_change` can arrive for a token before its opening `book`.
+  The findings do not say; none did in the excerpts measured for this
+  document.
+- Whether the server penalizes quick reconnects (D2). D7's recommended
+  default reconnects at once on every addition.
+- Whether the decoder's required fields hold for every event the source
+  sends. They were read from the captured frames, not from the findings.
 
 [§1]: ../docs/source-behavior.md#1-reconnection-and-subscription-restoration-in-the-sdk
 [§2]: ../docs/source-behavior.md#2-heartbeat
