@@ -9,12 +9,14 @@ data systems with attention to how they behave in operation. My work includes
 observability integrations, financial systems, and operating data pipelines.
 This project will apply that experience to a focused third-party API workflow.
 
-**Status:** Project brief. This repository currently contains this README.
-A short investigation of source behavior comes first; the client, package
-interface, fixtures, and runnable examples follow it. Nothing described here
-has been implemented or tested yet. The client will be written in Python. This
-is an independent, read-only demonstration. It is not affiliated with or
-endorsed by Polymarket, and it is not client work.
+**Status:** Project brief with source findings. This repository contains this
+README, the findings of a short investigation of source behavior in
+[`docs/source-behavior.md`](docs/source-behavior.md), and the investigation's
+scripts in `spikes/`. The client, package interface, fixtures, and runnable
+examples follow. None of the client has been implemented or tested yet. The
+client will be written in Python. This is an independent, read-only
+demonstration. It is not affiliated with or endorsed by Polymarket, and it is
+not client work.
 
 ## What this project demonstrates
 
@@ -153,7 +155,7 @@ may behave differently.
 ## Source behavior is checked before recovery is specified
 
 Before the client is built, a short investigation against the live service
-answers the questions the recovery design depends on:
+answered the questions the recovery design depends on:
 
 - Whether the official SDK's stream reconnects and restores subscriptions on
   its own, and whether it reports doing so.
@@ -168,12 +170,14 @@ answers the questions the recovery design depends on:
 - What the stream does when a subscribed market settles, and what a
   subscription to an already-settled market returns.
 
-The investigation runs in this repository. Its scripts live in `spikes/` and
-are not part of the package or its checks. Findings are recorded in
-`docs/source-behavior.md` with the SDK version, the date checked, the markets
-observed, and the observation period, and this README cites them where it
-relies on source behavior. Questions the investigation cannot answer remain
-open there and carry into the live run's unresolved source behavior.
+The investigation ran in this repository on October 4, 2026, against
+`polymarket-client` 0.12.0. Its scripts live in `spikes/` and are not part of
+the package or its checks. Findings are recorded in
+[`docs/source-behavior.md`](docs/source-behavior.md) with the SDK version, the
+date checked, the markets observed, and the observation periods, and this
+README cites them where it relies on source behavior. Questions the
+investigation could not answer remain open there and carry into the live run's
+unresolved source behavior.
 
 ## What the application receives
 
