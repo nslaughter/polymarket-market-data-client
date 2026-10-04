@@ -210,7 +210,8 @@ other means, and continuous operation.
 
 - This README, explaining the application problem, and an installation
   quickstart.
-- A runnable market-data example.
+- A runnable market-data example that chooses active markets when it runs,
+  so it keeps working as markets settle.
 - The client interface and its documented recovery contract.
 - A scripted local WebSocket server and deterministic fixtures with
   independently prepared expected states.
