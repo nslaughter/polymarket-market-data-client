@@ -181,9 +181,11 @@ durable storage belongs to the pipeline.
 
 If the application stops keeping up, the client bounds its memory, reports the
 backlog, and applies a configured response at the limit. Backpressure cannot
-make the upstream service retain events. If the source cannot replay,
-disconnecting to protect memory creates a capture gap, and the client records
-it as one.
+make the upstream service retain events. The server ends a connection whose
+send buffer fills, and the source does not replay
+([findings, questions 2 and 3](docs/source-behavior.md#2-heartbeat)). So a
+disconnect, whether the client's to protect memory or the server's, creates a
+capture gap, and the client records it as one.
 
 ## Design choices for Python
 
@@ -210,12 +212,15 @@ it as one.
 
 In scope: a limited, explicit set of markets and event types; Python;
 read-only market data; the market WebSocket connection; and recovery, consumer
-buffering, and the application handoff. Recovery includes replaying missed
-events from the source, if the investigation finds that the source can.
+buffering, and the application handoff. The investigation found no way to
+replay missed events from the source
+([findings, question 3](docs/source-behavior.md#3-event-order-and-replay)),
+so recovery restores current state and reports the interval that may be
+incomplete.
 
 Outside this demonstration: order execution and trading, durable storage and
 batch delivery (handled by the pipeline), reconstructing missed events by any
-other means, and continuous operation.
+means, and continuous operation.
 
 ## The demonstration is complete when
 
@@ -259,9 +264,11 @@ live service.
 The fixture can establish missing-message counts because its emitted sequence
 is known. A live run needs source evidence to support the same claim. Local
 receipt counters describe the client's own order; they cannot prove that the
-source delivered every event. Live findings, whether from the live run or the
-source investigation, apply only to the markets, versions, and observation
-periods recorded.
+source delivered every event. The source's order-book hash can show that a
+book diverged from the source's, but not how many events were missed
+([findings, question 4](docs/source-behavior.md#4-revealing-a-missed-event)).
+Live findings, whether from the live run or the source investigation, apply
+only to the markets, versions, and observation periods recorded.
 
 ## Related projects and writing
 
