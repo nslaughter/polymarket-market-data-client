@@ -74,7 +74,7 @@ connection lifecycle, recovery, and the handoff into the consuming application.
 The market WebSocket uses an application-level heartbeat: the client sends the
 text frame `PING` every 10 seconds, and the server replies with `PONG`
 ([Polymarket real-time data](https://docs.polymarket.com/market-data/realtime-data),
-checked October 3, 2026). The documentation does not say what the server does
+checked October 4, 2026). The documentation does not say what the server does
 when the heartbeat stops, so how long the client waits for `PONG` before
 treating the connection as interrupted is a design choice. The source
 investigation below informs that timeout, and the client documents it.
@@ -98,8 +98,8 @@ investigation below informs that timeout, and the client documents it.
    completeness remains unknown, including when recovery fails.
 
 Steps 2 to 4 depend on source behavior the documentation does not settle:
-snapshots, event ordering, replay, and the heartbeat. They are specified after
-the investigation below. If a consistent handoff between a snapshot and the
+snapshots, event ordering, detecting missed events, replay, and the heartbeat.
+They are specified after the investigation below. If a consistent handoff between a snapshot and the
 stream cannot be established, the example will narrow its claim and expose the
 uncertainty. A fresh view of the market restores current state; it does not
 reconstruct every change that occurred during a disconnect.
@@ -115,6 +115,8 @@ answers the questions the recovery design depends on:
   arrives, which together inform the client's `PONG` timeout.
 - Whether events arrive in a consistent order, and whether the source can
   replay events missed during a disconnect.
+- Whether the stream carries anything, such as sequence numbers or order-book
+  hashes, that reveals a missed event.
 - Whether a snapshot can be joined to the stream's updates without losing or
   repeating any.
 
@@ -176,6 +178,9 @@ events, and continuous operation.
 
 ## The demonstration is complete when
 
+- Source-behavior findings, including the questions left open, are recorded
+  in `docs/source-behavior.md`, and this README cites them where it relies on
+  source behavior.
 - The built wheel installs in a clean virtual environment and the documented
   research example runs.
 - Initial and recovered states from the scripted WebSocket server match
@@ -211,8 +216,9 @@ live service.
 The fixture can establish missing-message counts because its emitted sequence
 is known. A live run needs source evidence to support the same claim. Local
 receipt counters describe the client's own order; they cannot prove that the
-source delivered every event. Live findings apply only to the markets, client
-version, and observation period recorded.
+source delivered every event. Live findings, whether from the live run or the
+source investigation, apply only to the markets, versions, and observation
+periods recorded.
 
 ## Related projects and writing
 
