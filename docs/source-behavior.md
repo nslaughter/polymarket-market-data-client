@@ -302,13 +302,14 @@ the next check verified.
 
 Three more order effects matter to a client:
 
-- **Repeated messages.** Run settle-1 received 120 `price_change` messages
-  twice, identical down to the hashes, in separate frames 0 to 6 ms apart.
+- **Repeated messages.** Run settle-1 received 60 `price_change` messages a
+  second time, in separate frames up to 6 ms apart. Each repeat had the same
+  entries, down to the hashes, though sometimes listed in a different order.
   Setting a level to the same size twice leaves the book unchanged, but a
-  client counting events would count them twice. Run settle-2 received 344
-  repeated `price_change` messages, 2 `best_bid_ask`, and 2 of its 4
-  `tick_size_change` events. Run long received 18 repeated `price_change`
-  messages in 60 minutes.
+  client counting events would count them twice. Run settle-2 received 172
+  `price_change` messages a second time, along with 2 `best_bid_ask` and 2 of
+  its 4 `tick_size_change` events, up to 18 ms apart. Run long received 9 in
+  60 minutes.
 - **Trades are announced after the book reflects them.** In the probe, a
   `book` event for the House-control market, received 8.119 s after
   subscribing, already reflected a trade at 0.93 in its hash. The
@@ -533,7 +534,7 @@ idle-2, idle-ping, and mixed. **Evidence:** `capture.py`.
 ### A subscribed market settles
 
 The 5-minute market ended at 14:35:00 and kept trading past its end date:
-264 `price_change` entries and 4 trades carry later timestamps. At
+288 of its events, including 4 trades, carry later timestamps. At
 14:37:28.420 a burst of `price_change` entries set every level on both tokens
 to size 0, leaving a best bid of 0 and a best ask of 1. At 14:37:28.448, 2.5
 minutes after the end date, the stream sent:
