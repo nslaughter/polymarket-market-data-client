@@ -101,6 +101,27 @@ stream cannot be established, the example will narrow its claim and expose the
 uncertainty. A fresh view of the market restores current state; it does not
 reconstruct every change that occurred during a disconnect.
 
+## Source behavior is checked before recovery is specified
+
+Before the client is built, a short investigation against the live service
+answers the questions the recovery design depends on:
+
+- Whether the official SDK's stream reconnects and restores subscriptions on
+  its own, and whether it reports doing so.
+- What the server does when `PING` frames stop, and how promptly `PONG`
+  arrives, which together inform the client's `PONG` timeout.
+- Whether events arrive in a consistent order, and whether the source can
+  replay events missed during a disconnect.
+- Whether a snapshot can be joined to the stream's updates without losing or
+  repeating any.
+
+The investigation runs in this repository. Its scripts live in `spikes/` and
+are not part of the package or its checks. Findings are recorded in
+`docs/source-behavior.md` with the SDK version, the date checked, the markets
+observed, and the observation period, and this README cites them where it
+relies on source behavior. Questions the investigation cannot settle remain
+open there and carry into the live run's unresolved source behavior.
+
 ## What the application receives
 
 Records reach the consumer with their source identities, source timestamps
@@ -175,6 +196,9 @@ events, and continuous operation.
 - Automated checks in CI on each supported Python version, and a tagged
   release with a built wheel.
 - An inspectable recovery timeline and documented source coverage limits.
+- Source-behavior findings in `docs/source-behavior.md`, with the SDK version
+  and dates checked. The investigation scripts in `spikes/` are kept out of
+  the package.
 
 A reader should be able to run the controlled example without access to the
 live service.
