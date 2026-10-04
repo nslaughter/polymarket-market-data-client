@@ -38,7 +38,7 @@ Some excerpts keep less than the analysis saw on the full capture, which
 changes a few printed figures but not the verdicts:
 
 - `sdk-drops-events--long-run` keeps every tenth `new_market` frame. Its
-  parser rejects 355 of 369, about the 96% of the full hour's 3,595 of 3,754.
+  parser rejects 355 of 369, about the 96% of the full hour's 3,554 of 3,689.
 - `stream-slow-consumer--*` keeps PING and PONG timing in full, but data
   frames only from the last second before each close.
 - `settlement--*` keeps each market's frames from its end date on, so

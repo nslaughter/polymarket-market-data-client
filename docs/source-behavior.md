@@ -146,7 +146,7 @@ reruns the same analyses on them offline and confirms each verdict.
 | Behavior | What it does to a client's data | Seen | Reproduce |
 | --- | --- | --- | --- |
 | The SDK's stream reconnects and resubscribes without telling its consumer ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The consumer keeps reading after a gap with no sign that source events were lost, so it cannot mark its state uncertain | the abort, stall, and close in run sdk, and all three aborts in the reproductions and review; 2 to 596 book states lost per gap | `repro_sdk.py silent-reconnect` |
-| The SDK drops events its parser rejects, logging only at DEBUG ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | Events vanish: 3,595 of 3,754 `new_market` events in run long's hour (96%) carry a `game_start_time` string the SDK rejects | every capture with `new_market` events | `repro_sdk.py drops-events` |
+| The SDK drops events its parser rejects, logging only at DEBUG ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | Events vanish: 3,554 of 3,689 `new_market` events in run long's hour (96%) carry a `game_start_time` string the SDK rejects | every capture with `new_market` events | `repro_sdk.py drops-events` |
 | The SDK stops reconnecting after an error other than its `TransportError` ([1](#1-reconnection-and-subscription-restoration-in-the-sdk)) | The handle stays open and silent; a consumer waits forever | source only | none (source: `streams/reconnect.py`, `streams/clob/market.py`) |
 | Nothing is replayed after a reconnect ([3](#3-event-order-and-replay)) | Changes made during a disconnect are gone; the stream sends only current books | every reconnect observed | `repro_stream.py no-replay` |
 | A connection with no traffic is closed after about 125 s, without a close frame ([2](#2-heartbeat)) | A quiet subscription that skips `PING` loses its connection in a way that looks like a network failure | 4 of 4 idle runs | `repro_stream.py idle-close` |
@@ -161,7 +161,7 @@ reruns the same analyses on them offline and confirms each verdict.
 | When every market on a connection has settled, the server closes it with `1000 all subscribed assets resolved` ([6](#6-settlement)) | A client that treats every close as an interruption reconnects to settled tokens and gets no books | all 4 settlements that left no unresolved market: three times with the close frame, once probably without it | `repro_settlement.py settlement` |
 | A settlement can go unannounced ([6](#6-settlement)) | `market_resolved` is lost if the connection drops at that moment and is not sent again; the client keeps a settled market as ready | 1 of 7 settlements | `repro_settlement.py settlement` |
 | Settled tokens are silently left out of a subscription; REST returns 404 for their books ([6](#6-settlement)) | The client waits for a book that never comes and cannot tell a settled token from an unknown one | every settled subscription | `repro_settlement.py settled-subscription` |
-| `new_market` arrives for every new market whenever `custom_feature_enabled` is set ([6](#6-settlement)) | Up to about five a second that the client must filter out | every run with the flag | `repro_sdk.py drops-events` |
+| `new_market` arrives for every new market whenever `custom_feature_enabled` is set ([6](#6-settlement)) | Each is a distinct market, but they come in bulk bursts: 3,689 in run long's hour, 566 in one minute, which the client must filter | every run with the flag | `repro_sdk.py drops-events` |
 
 ### Reproduction runs
 
@@ -742,8 +742,12 @@ Seven settlements were observed in all:
 `market_resolved` arrived only for subscribed markets. No run received one
 for a market it had not subscribed to, although other Bitcoin markets settled
 every few minutes. `new_market`, by contrast, arrives for every new market
-whenever `custom_feature_enabled` is set. Its rate ranged from under one a
-minute to about five a second, depending on the period.
+whenever `custom_feature_enabled` is set. Each one is a distinct market: in
+run long, none of the 3,689 repeated an ID, condition ID, or slug. They come
+in bursts, because markets are created in bulk: one soccer match, Kosovo
+vs. Austria, got 372 player-prop markets within 85 seconds. The busiest
+minute, 14:46, brought 566. In quieter periods fewer than one arrived a
+minute.
 
 ### A subscription to a settled market
 
