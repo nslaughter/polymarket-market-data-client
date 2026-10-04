@@ -227,7 +227,7 @@ the client keeps both and reorders nothing.
   token with no book on this connection.
 - `before_book: bool`: the entry is stamped earlier than the token's
   opening book on this connection but arrived after it
-  ([Changes stamped before the opening book](#changes-stamped-before-the-opening-book)).
+  ([below](#changes-stamped-before-the-opening-book)).
 
 `held_book_matched` compares a new `book` with the book the client held for
 that token just before it, level for level: `True` if every price and size
@@ -389,13 +389,21 @@ The client reconnects with exponential backoff, within the bounds D2 sets.
 With the recommended defaults, the delay before attempt *k* is
 `min(max_delay, base_delay × 2^(k − 1))`, multiplied by a uniform random
 factor in [0, 1) when `jitter` is on. Each attempt has `connect_timeout` to
-complete its handshake.
+complete its handshake. The first attempt when the client starts, or when a
+market is added to an empty desired set, starts at once; later attempts
+follow the delays.
+
+Before waiting for an attempt, the client fails instead if `max_attempts`
+attempts in a row have failed, or if the wait would end more than
+`max_recovery_time` after the interruption (at startup, after the first
+attempt began). An attempt under way is bounded by `connect_timeout`, not
+cut short.
 
 | Record | When |
 | --- | --- |
 | `recovering`, `attempt=k`, `retry_in`, `reason=backoff` | Before the delay for attempt *k*. After a failed attempt, `detail` says how it failed. |
-| `recovering`, `reason=subscription_change`, `retry_in=0` | Before reconnecting to apply a change (D7). |
-| `recovering`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, until the queue drains (D3). |
+| `recovering`, `attempt=1`, `reason=subscription_change`, `retry_in=0` | Before reconnecting to apply a change (D7). |
+| `recovering`, `attempt=1`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, until the queue drains (D3). |
 | `connecting`, `attempt=k` | When attempt *k* starts. |
 | `open`, `connection=g` | When the handshake completes. |
 | `subscribed`, `connection=g` | When the subscription frame has been sent. The tokens' `synchronizing` records follow. |
@@ -408,7 +416,8 @@ drops them at once still exhausts the bounds.
 
 When the bounds are exhausted the client emits, in order, a `CaptureGap`
 with `end` `recovery_failed` and `resumed_at` `None` for each token with an
-open gap, then `failed`. The iterator then raises `RecoveryFailed`, and the
+open gap, then `failed`, with no `recovering` record for the attempt it will
+not make. The iterator then raises `RecoveryFailed`, and the
 client stays shut down until the block is left. Tokens keep their last
 state, `uncertain`.
 
@@ -431,8 +440,14 @@ disconnect nor the reconnect to its consumer (SDK source and Observed,
 
 When the desired set becomes empty while a connection is open, the client
 closes it (1000, `no subscriptions`) and emits `idle`, unless the server's
-close comes first; either way one `idle` record follows. When the desired
-set becomes empty during recovery, the client stops and emits `idle`.
+close comes first; either way one `idle` record follows, with `connection`
+set to the generation that ended. When the desired set becomes empty during
+recovery, the client stops and emits `idle`. A client entered with an empty
+desired set emits nothing and opens no connection until a market is added.
+
+A change to the desired set made while no connection is subscribed, during
+backoff or an attempt, takes effect in the next subscription frame and
+causes no extra reconnect.
 
 ## Per-token state machine
 
@@ -601,10 +616,12 @@ covers an application subscribing to a market that has already settled.
 
 A missing book is not settlement on its own. An unknown token would also get
 no book, according to the findings, though no run subscribed one (Inferred,
-[§6]). So the client confirms through [market lookup](#market-lookup): it
-asks every `settlement_poll_interval` seconds, from T4 until lookup shows the
-market closed (T11), finds no market (T12), or `settlement_confirm_timeout`
-passes (T13). Lookup lags the stream: the market lookup the investigation
+[§6]). So the client confirms through [market lookup](#market-lookup), once
+per market: it asks at once when a token of the market reaches T4, then every
+`settlement_poll_interval` seconds, until lookup shows the market closed
+(T11), finds no market (T12), or `settlement_confirm_timeout` passes (T13).
+T11 to T13 apply to every token of the market that is `uncertain` with
+`no_book`. Lookup lags the stream: the market lookup the investigation
 used first showed settled markets as closed 51 s, 186 s, and about three
 minutes after `market_resolved`, and its `closedTime` does not say when a
 client could first see that (Observed, [§6]). A `book` that arrives
@@ -689,7 +706,8 @@ treat a timestamp running backwards as an error.
 ### Events outside the desired set
 
 An event that names only tokens outside the desired set, or a market outside
-it, is discarded and counted. This covers removed and settled markets and
+it, is discarded and counted as such, before repeat detection, so it does not
+count as a repeat. This covers removed and settled markets and
 any `market_resolved` for a market not subscribed; no run received one of
 those ([§6]). `new_market` events name new markets, not subscribed ones, and
 follow `new_market` below. `UnknownEvent` and `UndecodableFrame` are always
@@ -728,6 +746,16 @@ What happens at the limit is D3's to settle. Backpressure cannot make the
 source retain events: the server ends a connection whose send buffer fills,
 and nothing is replayed (Observed, [§2], [§3]). So every response at the
 limit loses events, and each must report the loss as a capture gap.
+
+With D3's recommended `disconnect`, a market-event record that finds the
+queue full starts the `consumer_overflow` interruption. The frame it came
+from is neither delivered nor applied, and the client reads nothing more
+from that connection. The interruption's `last_confirmed_at` is the receipt
+time of the last frame whose records were all queued, so the gap includes
+the frame that overflowed. The client reconnects, with no delay, once the
+consumer's reading brings the count to `resume_below × queue_size`, rounded
+down, or lower. When one read both brings the count below the warning level
+and lets the client resume, the `Backlog` record comes before `connecting`.
 
 ## Market lookup
 
@@ -815,14 +843,27 @@ readiness ([§4]; README).
 
 ## Statistics
 
-`client.stats()` returns a frozen snapshot with at least these counters,
-cumulative since the client started: frames received; events by type;
-repeats; unknown events; undecodable frames by reason; `new_market` events
-dropped; events discarded as outside the desired set; `PONG`s received, the
-last and largest `PONG` delay, and unanswered or unsolicited `PONG`s;
-connections opened; interruptions by cause; lookup calls and failures; and,
-if D4 adopts verification, hash checks verified, retried, and failed. The
-statistics are for diagnosis and the live run; the records remain the
+`client.stats()` returns a frozen `ClientStats` snapshot of counters,
+cumulative since the client started. It has at least these fields; the
+conformance scenarios check them by name:
+
+| Field | Type | Counts |
+| --- | --- | --- |
+| `frames` | `int` | Frames received after subscription frames, except `PONG` |
+| `events` | `Mapping[str, int]` | Decoded events, by `event_type` |
+| `repeats` | `int` | Events judged repeats |
+| `unknown` | `int` | `UnknownEvent` records |
+| `undecodable` | `Mapping[str, int]` | `UndecodableFrame` records, by `reason` |
+| `new_market_dropped` | `int` | `new_market` events not delivered |
+| `discarded_outside` | `int` | Events discarded as outside the desired set |
+| `pongs`, `pongs_unsolicited` | `int` | `PONG`s received, and those with no `PING` outstanding |
+| `pong_delay_last`, `pong_delay_max` | `float` | Seconds from a `PING` to its `PONG` |
+| `connections` | `int` | Connections opened |
+| `interruptions` | `Mapping[str, int]` | Interruptions, by cause |
+| `lookups`, `lookup_failures` | `int` | Lookup calls, and those that raised or timed out |
+| `hash_verified`, `hash_retried`, `hash_failed` | `int` | Hash checks that verified at once, verified after a retry, and failed (D4) |
+
+The statistics are for diagnosis and the live run; the records remain the
 contract.
 
 ## Configuration
@@ -1048,16 +1089,17 @@ search over 1,001 trade prices. Whether every market uses this recipe is
 open.
 
 **Recommended default: verify, with these rules.** Fetch `min_order_size`
-and `neg_risk` through lookup when a token is first subscribed; until they
-arrive, or if they cannot be had, do not check that token. Check once per
-burst, after its last entry, using the event's timestamp. On failure, retry
-with the market's current announced trade price, then with every price on
-the 0.001 grid. Treat a failure as divergence only when checks have failed
-without a verifying check in between across at least `hash_grace` (2 s) and
-at least two checks; then T7. A verifying check restores the token (T9).
-If a token's opening `book` does not itself verify, stop checking that token
-on that connection and count it, since the recipe or its inputs, not the
-book, are then wrong.
+and `neg_risk` through lookup when a token enters the desired set; until they
+arrive, or if they cannot be had, do not check that token. Check each `book`
+event's own hash when it arrives, and each burst after its last entry, using
+the event's timestamp. On failure, retry with the market's current announced
+trade price, then with every price on the 0.001 grid; a check that verifies
+after a retry counts as verified. Treat failures as divergence only when at
+least two checks have failed, with no verifying check between them, and the
+first and the latest arrived at least `hash_grace` (2 s) apart; then T7. A
+verifying check restores the token (T9). If a `book` fails its own check,
+stop checking that token until a later `book` verifies, and count it, since
+the recipe or its inputs, not the source's book, are then wrong.
 
 ### D5. Supported Python versions, and the package and import names
 
