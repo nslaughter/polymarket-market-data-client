@@ -90,14 +90,23 @@ Needs D5: the supported Python versions and the package and import names.
   lints, type-checks, runs the tests, builds the wheel, installs it in a
   clean virtual environment, and imports the package from it.
 - Every record, enum, exception, `ClientConfig`, and `ReconnectPolicy` the
-  contract names, with their fields, types, and defaults. Records are
-  frozen dataclasses with slots. Configuration validation raises
-  `ConfigError` as the contract says.
+  contract names, with their fields and types. Records are frozen
+  dataclasses with slots. Configuration validation raises `ConfigError` as
+  the contract says.
+- Defaults only where no open decision sets them. A field whose default
+  belongs to D1, D2, D3, D4, or D6, as the contract's
+  [Configuration](../spec/client.md#configuration) table marks it, and
+  every field of `ReconnectPolicy`, has no default: it is a required
+  keyword argument until the step that depends on the decision gives it
+  the operator's value. Until every such field has one, `MarketDataClient`
+  takes a `config` without a default, and tests and the conformance
+  profile give every field.
 - Tests: each invalid configuration value is refused; records are frozen;
   every public name is importable from the top level.
 
-Out of scope: any behavior. `MarketDataClient` may exist only as a stub that
-raises `NotImplementedError`.
+Out of scope: any behavior, and the defaults that open decisions set.
+`MarketDataClient` may exist only as a stub that raises
+`NotImplementedError`.
 
 ### 2. Decode frames
 
@@ -180,6 +189,8 @@ Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
   `subscription_change`; the `PONG` timeout; reconnection with backoff,
   jitter, `connect_timeout`, and both bounds; capture gaps; `failed` and
   `RecoveryFailed`.
+- The defaults of `pong_timeout`, `reconnect`, and `ReconnectPolicy`'s
+  fields, as D1 and D2 decide.
 - Unit tests: with `jitter` on, every `retry_in` lies in [0, the delay
   for its attempt), and the values vary; with it off, each equals that
   delay. No scenario can show a random delay. Frames that arrive while
@@ -200,6 +211,8 @@ Needs D6: how the pinned SDK serves lookup and settlement confirmation.
   all-resolved close, and by lookup, with its polling and timeout; `ended`
   and `idle`; and `subscribe` on an idle client, which connects it, as
   `resolve-by-slug` needs. Changes to a running connection are step 8.
+- The defaults of `settlement_poll_interval`,
+  `settlement_confirm_timeout`, and `lookup_timeout`, as D6 decides.
 - The default lookup is tested with the SDK's HTTP layer replaced by
   recorded synthetic responses, never against the live service.
 - Turn on: `resolve-by-slug`, `settle-announced-others-open`,
@@ -225,6 +238,8 @@ Needs D3: the queue size and the response at the limit.
 - `queue_size`, checked once per frame, `Backlog` records, and the
   overflow response D3 decides, including resuming after a `disconnect`;
   holding back reconnection while too many status records are waiting.
+- The defaults of `queue_size`, `backlog_warning`, `overflow`, and
+  `resume_below`, as D3 decides.
 - Turn on: `consumer-stops-reading`, `frame-larger-than-queue`,
   `status-records-bounded`, `consumer-pause-outlasts-recovery-time`.
 
@@ -237,6 +252,7 @@ Needs D4: whether and how to verify the hash.
   feeding T7 and T9 in `_state.py`. Statistics for checks.
 - If D4 rejects it: the operator removes or rewrites the `hash-*` scenarios
   in a new version of the specification first.
+- The defaults of `verify_hash` and `hash_grace`, as D4 decides.
 - Turn on: `hash-checks-pass`, `hash-single-failure`, `hash-divergence`,
   `hash-trade-before-announcement`. The harness now checks that every
   scenario is enabled.
