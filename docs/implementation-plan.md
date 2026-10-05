@@ -235,6 +235,9 @@ Follows D6: how the pinned SDK serves lookup and settlement confirmation.
   `resolve-by-slug` needs. Changes to a running connection are step 8.
 - The default lookup is tested with the SDK's HTTP layer replaced by
   recorded synthetic responses, never against the live service.
+- A unit test that `resolve` raises `ClientStateError` when no lookup is
+  available, with `verify_hash` off and no lookup passed or installed. No
+  scenario can show this: the harness always passes its scripted lookup.
 - Turn on: `resolve-by-slug`, `settle-announced-others-open`,
   `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`,
   `settle-unannounced-drop`, `settled-at-subscription`,

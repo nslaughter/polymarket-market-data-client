@@ -159,7 +159,7 @@ asyncio.run(main())
 | `client.records()` | The async iterator of [records](#records). It can be called once. |
 | `client.backlog` | The number of market-event records waiting for the consumer. |
 | `client.stats()` | A snapshot of the client's [counters](#statistics). |
-| `await client.resolve(slug)` | Looks a market up by slug and returns its `Market`. Raises `MarketNotFound` if the lookup finds none, and `LookupFailed` if the lookup raises or times out. |
+| `await client.resolve(slug)` | Looks a market up by slug and returns its `Market`. Raises `MarketNotFound` if the lookup finds none, `LookupFailed` if the lookup raises or times out, and `ClientStateError` if no lookup is available ([Market lookup](#market-lookup)). |
 
 `Market` is a frozen dataclass (D8): `condition_id: str`, `token_ids:
 tuple[str, ...]` in outcome order, and `slug: str | None`. A token may
@@ -177,7 +177,7 @@ effect. Calling either after the client has shut down raises
 | --- | --- | --- |
 | `ClientError` | | Base class of the exceptions below. |
 | `ConfigError(ClientError, ValueError)` | `ClientConfig(...)`, `ReconnectPolicy(...)`, and `MarketDataClient(...)` | A configuration value is invalid ([Configuration](#configuration)), or, for `MarketDataClient`, `verify_hash` is on and no lookup is available (D4). |
-| `ClientStateError(ClientError, RuntimeError)` | any member | The client is used in a way its lifecycle does not allow: `records()` called twice, the block entered twice, or a change after shutdown. |
+| `ClientStateError(ClientError, RuntimeError)` | any member | The client is used in a way its state does not allow: `records()` called twice, the block entered twice, a change after shutdown, or `resolve` called when no lookup is available ([Market lookup](#market-lookup)). |
 | `MarketNotFound(ClientError, LookupError)` | `resolve` | The lookup found no market for the slug. |
 | `LookupFailed(ClientError)` | `resolve` | The lookup raised or exceeded `lookup_timeout`. Its `__cause__` is the lookup's exception, or the `TimeoutError`. |
 | `RecoveryFailed(ClientError)` | the iterator | Reconnection exhausted its bounds (D2). It is raised after the records that report the failure ([Reconnecting](#reconnecting)). |
