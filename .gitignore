@@ -1,3 +1,10 @@
 # Raw captures from the source-behavior spike. The findings quote excerpts.
 spikes/captures/
 __pycache__/
+
+# The development environment, build outputs, and tool caches.
+.venv/
+dist/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
