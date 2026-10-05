@@ -1388,7 +1388,7 @@ stay as the record of the choice.
 | Dataclasses and a hand-written decoder, as drafted | No dependency beyond `websockets`; records take positional `match` patterns and slots; the decoder decides exactly which failures become `UndecodableFrame` | Every field check is written and tested by hand; configuration is validated in `__post_init__`; the example's JSON lines need hand-written serialization of `Decimal` and `datetime` |
 | Pydantic for `ClientConfig` only | Declared ranges and cross-field rules, with `ConfigError` wrapping the validation error | A dependency for one class; decoding stays by hand |
 | Pydantic for configuration and decoding, with the public records left as dataclasses | One declared model per event type, validated at the wire; an error names the failing entry, which gives an undecodable event its affected tokens; non-finite decimals refused by default | Two sets of types, wire models and records, to keep in step; a core dependency on Pydantic unless D6 makes the SDK required |
-| Pydantic throughout: the records are frozen models | One set of types; `model_dump_json` for the example's timeline and for the pipeline | The public types, and so the pipeline, are tied to Pydantic's major version; no positional `match` patterns |
+| Pydantic throughout: the records are frozen models | One set of types, with no mapping from wire models to records | The public types, and so the pipeline, are tied to Pydantic's major version; no positional `match` patterns; a wire field could fill a client-set field of the same name unless guarded |
 
 Evidence:
 
@@ -1415,6 +1415,14 @@ Evidence:
   - Decoding a two-entry `price_change` took 2.7 µs, against 4.1 µs with
     `json.loads(text, parse_float=Decimal)` and dataclasses. At the peak of
     about 840 frames a second ([§2]), neither approach matters for speed.
+  - Pydantic serializes dataclasses that are not models.
+    `TypeAdapter(BookEvent).dump_json(record)`, on a frozen dataclass with
+    slots, wrote `Decimal("0.480")` as `"0.480"`, a timezone-aware
+    `datetime` in ISO 8601, and an enum as its value. `validate_json` read
+    the result back to an equal record, and `json_schema()` gave the type's
+    JSON Schema.
+  - Constructing a small frozen dataclass took 0.27 µs, against 0.52 µs for
+    a validated model.
 - Two cautions for a Pydantic decoder. A frame first parsed by plain
   `json.loads` has already turned numbers into `float`s, so validate the JSON
   text or parse with `parse_float=Decimal` first. And an array frame must be
@@ -1433,8 +1441,22 @@ tokens. The public types stay plain, take positional `match` patterns, and
 do not tie the pipeline to Pydantic's major version. The cost is a core
 dependency on Pydantic, which nothing adds if D6 requires the SDK, and a
 mapping from wire models to records that the decoder's tests cover.
-Pydantic throughout was the alternative if the pipeline should serialize
-records directly; the pipeline can serialize the dataclasses instead.
+
+**Records are serialized through `TypeAdapter`.** The example's timeline,
+and any consumer such as the pipeline, writes records as JSON with
+`TypeAdapter(<record type>).dump_json(record)`, reads them back with
+`validate_json`, and takes their JSON Schema from `json_schema()`. The
+records do not need to be models for any of this, so serialization is no
+reason to make them models.
+
+The operator weighed switching to Pydantic throughout and, on 2026-10-05,
+kept the records as dataclasses. The switch would remove the wire models
+and the mapping for the seven event types with a record, about 100 to 150
+lines and a few mapping tests by estimate, and add back aliases, a copy step
+for the client's own fields, and a guard against wire fields filling them.
+The rest of the client, the status records, and the conformance scenarios
+would not change. The saving did not outweigh tying the public types to
+Pydantic's major version.
 
 ## Open questions
 
