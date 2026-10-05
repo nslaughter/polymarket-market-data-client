@@ -1055,9 +1055,11 @@ expect-no-connect 1.0
 
 The server stops answering `PING`. Once the oldest unanswered `PING` has
 waited `pong_timeout`, the connection counts as interrupted and the client
-closes it ([§2]; D1 sets the timeout). The first unanswered `PING` goes out
-within `ping_interval` of the server's change, so the interruption comes 2.0
-to 2.5 s after it.
+closes it ([§2]; D1 sets the timeout). The scenario times the interruption
+from the first unanswered `PING`, from which D1 measures. A client that
+measured from the last `PONG`, or from the subscription before any `PONG`,
+would interrupt `ping_interval` sooner, about 1.5 s after that `PING`, and
+fail.
 
 ```scenario
 scenario pong-withheld
@@ -1065,9 +1067,10 @@ markets A
 owner-spec D1 D2
 
 start A
-o: pong off
+pong off
+p: recv-ping
 expect conn interrupted reason=pong_timeout connection=1
-  last_confirmed_at=set within 2.0..2.5 of o
+  last_confirmed_at=set within 2.0..2.1 of p
 expect token A1 uncertain reason=interrupted
 expect token A2 uncertain reason=interrupted
 expect conn recovering attempt=1 retry_in=0.1
