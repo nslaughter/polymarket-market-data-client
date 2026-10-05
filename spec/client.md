@@ -950,10 +950,15 @@ by the slug it is given, and settlement confirmation by the market's
 `slug`. Whether the SDK finds a market by condition ID was not checked
 (D6).
 
-`MarketInfo` holds `condition_id`, `slug`, `question`, `token_ids` and
-`outcomes` in the same order, `closed: bool`, `end_date`, and, when known,
-`winning_asset_id` and `resolution_status`. `BookParameters` holds
-`min_order_size: Decimal` and `neg_risk: bool`. `None` means not found.
+`MarketInfo` and `BookParameters` are frozen dataclasses (D8).
+`MarketInfo` holds `condition_id: str`; `slug`, `question: str | None`;
+`token_ids`, `outcomes: tuple[str, ...]`, in the same order; `closed:
+bool`; `end_date: datetime | None`; and `winning_asset_id`,
+`resolution_status: str | None`, set when known and `None` by default.
+The draft named these fields without all their types; the operator set
+them on 2026-10-05, when plan step 1 defined the type. `BookParameters`
+holds `min_order_size: Decimal` and `neg_risk: bool`. `None` means not
+found.
 The default lookup returns `None` from `book_parameters` when the REST book
 returns HTTP 404, as it did for settled tokens (Observed, [§6]). The client
 counts every `None` from `book_parameters` in `rest_book_not_found`
