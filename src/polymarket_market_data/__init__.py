@@ -3,6 +3,7 @@
 spec/client.md is the contract this package implements.
 """
 
+from ._config import ClientConfig, ReconnectPolicy
 from ._errors import (
     ClientError,
     ClientStateError,
@@ -41,6 +42,7 @@ __all__ = [
     "BookEvent",
     "BookParameters",
     "CaptureGap",
+    "ClientConfig",
     "ClientError",
     "ClientStateError",
     "ClientStats",
@@ -58,6 +60,7 @@ __all__ = [
     "NewMarketEvent",
     "PriceChange",
     "PriceChangeEvent",
+    "ReconnectPolicy",
     "RecoveryFailed",
     "Side",
     "TickSizeChangeEvent",
