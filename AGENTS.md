@@ -67,6 +67,10 @@ The README describes the project for people; it is not a specification.
   validate each object with its Pydantic model (D8). Never validate the
   frame's text with `model_validate_json`, which keeps only a float's
   precision. Refuse non-finite values.
+- `json.loads` also accepts an unpaired surrogate escape, such as
+  `"\ud800"`, and makes a string that no record can serialize. Treat a
+  frame holding one as invalid JSON, as
+  [Unpaired surrogates](spec/client.md#unpaired-surrogates) says.
 - Pydantic validates input; dataclasses carry output. See
   [Pydantic and dataclasses](#pydantic-and-dataclasses).
 - Deadlines use the event loop's monotonic clock; `at` and `received_at`

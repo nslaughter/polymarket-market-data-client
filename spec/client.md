@@ -61,8 +61,9 @@ findings. Each says so where it appears:
 - The names of the SDK methods the investigation's scripts called:
   `AsyncPublicClient`, `list_markets`, `get_market`, and `get_order_book`.
 - How Pydantic 2.13.5 decodes decimals, refuses non-finite values, reports
-  where validation failed, how fast it decodes, and how it serializes
-  records, measured locally on synthetic frames (D8).
+  where validation failed, how fast it decodes, how it serializes
+  records, and how it and `json.loads` read an unpaired surrogate escape,
+  measured locally on synthetic frames (D8).
 
 The findings' open questions stay open. The client is designed to behave
 sensibly whichever way they resolve, and no conformance scenario assumes an
@@ -758,7 +759,7 @@ the object it is, is decoded by its `event_type`:
 | A known `event_type` whose fields decode | Its typed record | As the state machine says |
 | A known `event_type` with a missing or invalid field the client uses | `UndecodableFrame`, `invalid_event` | For `book`, `price_change`, and `tick_size_change`: T8 for each `ready` desired token the event names. If any part of it names no token the client can read, such as a `price_change` entry without a readable `asset_id`, T8 also for each `ready` token of the market it names, or, if it names no market the client can read, for every `ready` token on the connection. For other types: none. |
 | An object with an unknown or missing `event_type` | `UnknownEvent` | None |
-| Text that is not JSON | `UndecodableFrame`, `invalid_json` | T8 for every `ready` token on the connection |
+| Text that is not JSON, or JSON holding an [unpaired surrogate](#unpaired-surrogates) | `UndecodableFrame`, `invalid_json` | T8 for every `ready` token on the connection |
 | JSON that is not an object or an array of objects | `UndecodableFrame`, `not_object`, per item | T8 for every `ready` token on the connection |
 | A binary frame | `UndecodableFrame`, `binary` | T8 for every `ready` token on the connection |
 
@@ -796,6 +797,25 @@ for `market_resolved` ([§6]). Unknown fields are ignored. `side` is `BUY` or
 
 `tick_size_change` updates the token's tick size and `last_trade_price`
 updates its market's announced trade price; the hash check (D4) uses both.
+
+### Unpaired surrogates
+
+A JSON string can hold a `\u` escape of one half of a UTF-16 surrogate pair
+without the other half, such as `"\ud800"`, in a value or a member name. It
+encodes no character. `json.loads` accepts it and makes a Python string
+that cannot be encoded as UTF-8. `TypeAdapter`'s `dump_json` then refuses
+any record holding that string in a value, even with `ensure_ascii`, and
+writes replacement characters for it in a member name, so the record does
+not read back equal. Pydantic's own JSON parser refuses the escape as
+invalid JSON (D8).
+
+So the client treats a frame holding an unpaired surrogate anywhere as text
+that is not JSON: one `UndecodableFrame`, `invalid_json`, for the whole
+frame, with `event_type` and `index` `None`, and never a record that holds
+the string. Its `raw` is the frame's text, which keeps the escape as
+written, since a text frame is UTF-8 and cannot carry a surrogate itself
+(RFC 6455). Its `error` holds no surrogate either, so the record serializes
+like any other.
 
 ### Repeated messages
 
@@ -1466,12 +1486,17 @@ Evidence:
     `datetime` in ISO 8601, and an enum as its value. `validate_json` read
     the result back to an equal record, and `json_schema()` gave the type's
     JSON Schema.
-  - `dump_json` refused two values a record could otherwise hold: bytes
-    that are not UTF-8, such as the binary frame `00ff`, and a
-    `MappingProxyType`. A `Decimal` held under `Any`, as in a parsed
-    payload, was written as a string, and `validate_json` read it back as
-    a string. So a binary frame's `raw` is hexadecimal text, and a
-    `payload` a plain `dict` ([Records](#records)).
+  - `dump_json` refused three values a record could otherwise hold: bytes
+    that are not UTF-8, such as the binary frame `00ff`; a
+    `MappingProxyType`; and, even with `ensure_ascii`, a string holding an
+    unpaired surrogate, which `json.loads` makes from an escape such as
+    `"\ud800"`. In a member name, it wrote replacement characters for the
+    surrogate instead. `model_validate_json` refused such an escape as
+    invalid JSON. A `Decimal` held under `Any`, as in a parsed payload, was
+    written as a string, and `validate_json` read it back as a string. So
+    a binary frame's `raw` is hexadecimal text, a `payload` a plain `dict`
+    ([Records](#records)), and a frame holding an unpaired surrogate
+    undecodable ([Unpaired surrogates](#unpaired-surrogates)).
   - Constructing a small frozen dataclass took 0.27 µs, against 0.52 µs for
     a validated model.
 - Two cautions for a Pydantic decoder. A frame first parsed by plain

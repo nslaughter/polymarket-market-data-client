@@ -1775,8 +1775,11 @@ expect-stats unknown=2 interruptions=0
 
 Frames that cannot be decoded are kept with their raw payload and reported.
 One that cannot be attributed to a token puts every ready book on the
-connection in doubt; a later book restores each. Nothing undecodable stops
-the connection.
+connection in doubt; a later book restores each. JSON holding an unpaired
+surrogate counts as text that is not JSON, so that no record holds a
+string that cannot be serialized
+([client contract](client.md#unpaired-surrogates)). Nothing undecodable
+stops the connection.
 
 ```scenario
 scenario malformed-frames
@@ -1814,9 +1817,17 @@ expect token B1 ready
 send book B2
 expect book B2
 expect token B2 ready
+send-text {"event_type":"future","note":"\ud800"}
+expect undecodable reason=invalid_json event_type=none index=none
+  raw="{\"event_type\":\"future\",\"note\":\"\\ud800\"}"
+  affected=A1,A2,B1,B2
+expect token A1 uncertain previous=ready reason=undecodable
+expect token A2 uncertain previous=ready reason=undecodable
+expect token B1 uncertain previous=ready reason=undecodable
+expect token B2 uncertain previous=ready reason=undecodable
 expect-nothing 0.5
-expect-stats undecodable.invalid_json=1 undecodable.binary=1
-  undecodable.not_object=2 interruptions=0
+expect-stats undecodable.invalid_json=2 undecodable.binary=1
+  undecodable.not_object=2 unknown=0 interruptions=0
 ```
 
 #### `invalid-known-event`

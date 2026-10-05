@@ -134,7 +134,10 @@ that raises `NotImplementedError`.
   type, `NaN` and `Infinity` refused as strings and as literals, numbers
   sent as JSON numbers, one with more digits than a float holds and
   `1e400` among them, a `new_market` with a string `game_start_time`, and
-  repeats inside and outside the window.
+  repeats inside and outside the window. Frames holding an unpaired
+  surrogate escape, in a value of an unknown event and in a member name,
+  each become an `invalid_json` record that reads back equal through
+  `TypeAdapter`'s `dump_json` and `validate_json`.
 
 Out of scope: books, states, and I/O.
 
