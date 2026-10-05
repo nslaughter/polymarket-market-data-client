@@ -831,6 +831,11 @@ def test_binary_frame(data: bytes, raw: str) -> None:
         '{"event_type":"future","\\ud800":"x"}',
         '{"event_type":"future","nested":[{"\\udbff":1}]}',
         f'[{LATER_BOOK},{{"event_type":"future","note":"\\ud800"}}]',
+        # In a member that a later one of the same name overwrites.
+        '{"event_type":"future","note":"\\ud800","note":"safe"}',
+        '{"event_type":"future","note":{"inner":["\\udfff"]},"note":1}',
+        '{"event_type":"future","note":{"inner":"\\udc00","inner":2},"note":3}',
+        LATER_BOOK[:-1] + ',"note":"\\ud800","note":"safe"}',
     ],
 )
 def test_an_unpaired_surrogate_makes_the_frame_invalid_json(text: str) -> None:
@@ -852,6 +857,16 @@ def test_a_paired_surrogate_escape_is_one_character() -> None:
     item = decode_one('{"event_type":"future","note":"\\ud83d\\ude00"}')
     assert isinstance(item, UnknownEvent)
     assert item.payload["note"] == "\U0001f600"
+
+
+def test_a_repeated_name_keeps_its_last_value_in_a_frame_with_surrogates() -> None:
+    # A surrogate escape makes the decoder search overwritten members; the
+    # object is built as json.loads builds it.
+    text = '{"event_type":"future","a":"\\ud83d\\ude00","b":1,"a":"last","c":2}'
+    item = decode_one(text)
+    assert isinstance(item, UnknownEvent)
+    assert item.payload == json.loads(text)
+    assert list(item.payload.items()) == list(json.loads(text).items())
 
 
 def test_an_escaped_backslash_before_u_is_not_a_surrogate() -> None:

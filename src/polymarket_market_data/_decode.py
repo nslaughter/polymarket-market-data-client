@@ -23,6 +23,7 @@ from collections.abc import Hashable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, PlainValidator, ValidationError
@@ -158,8 +159,19 @@ _SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 def _decode_text(context: _Frame) -> list[Decoded]:
+    # A member that a later one of the same name overwrites is not in the
+    # parsed value. So when the text may hold a surrogate, the values of
+    # every object whose names repeat are kept as it is parsed, and searched
+    # too.
+    escapes = _SURROGATE_ESCAPE.search(context.text) is not None
+    overwritten: list[object] = []
     try:
-        parsed = json.loads(context.text, parse_float=Decimal, parse_constant=Decimal)
+        parsed = json.loads(
+            context.text,
+            parse_float=Decimal,
+            parse_constant=Decimal,
+            object_pairs_hook=partial(_object, overwritten) if escapes else None,
+        )
     except ValueError as error:
         # JSONDecodeError, or an integer too long to convert.
         return [_invalid_json(context, str(error))]
@@ -167,13 +179,26 @@ def _decode_text(context: _Frame) -> list[Decoded]:
         # A number whose exponent is beyond Decimal's range, such as
         # 1e9999999999999999999, which parse_float cannot convert.
         return [_invalid_json(context, "a number's exponent is beyond Decimal's range")]
-    if _SURROGATE_ESCAPE.search(context.text) and _holds_surrogate(parsed):
-        # No record may hold a string that cannot be encoded as UTF-8
+    if escapes and _holds_surrogate([parsed, overwritten]):
+        # A frame holding an unpaired surrogate anywhere is not JSON, so no
+        # record holds a string that cannot be encoded as UTF-8
         # (spec/client.md, Unpaired surrogates).
         return [_invalid_json(context, "a string holds an unpaired surrogate escape")]
     if isinstance(parsed, list):
         return [_decode_item(context, item, index) for index, item in enumerate(parsed)]
     return [_decode_item(context, parsed, None)]
+
+
+def _object(
+    overwritten: list[object], members: list[tuple[str, Any]]
+) -> dict[str, Any]:
+    """Build an object as json.loads does, where the last member of a name
+    gives its value, and keep the values of every member when a name
+    repeats."""
+    value = dict(members)
+    if len(value) < len(members):
+        overwritten.extend(member for _, member in members)
+    return value
 
 
 def _holds_surrogate(value: object) -> bool:
