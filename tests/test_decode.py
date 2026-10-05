@@ -902,6 +902,31 @@ def test_a_repeated_name_keeps_its_last_value_in_a_frame_with_surrogates() -> No
     assert list(item.payload.items()) == list(json.loads(text).items())
 
 
+def test_overwritten_members_are_searched_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Each object whose names repeat keeps its members, and each member holds
+    # the objects nested in it, so the search must not go through those again
+    # for every level: a thousand levels, each with one name, take about a
+    # thousand searches, not half a million.
+    searches = 0
+    surrogate = re.compile("[\ud800-\udfff]")
+
+    class Counting:
+        def search(self, text: str) -> re.Match[str] | None:
+            nonlocal searches
+            searches += 1
+            return surrogate.search(text)
+
+    monkeypatch.setattr("polymarket_market_data._decode._SURROGATE", Counting())
+    levels = 1000
+    deep = '{"a":0,"a":' * levels + "0" + "}" * levels
+    item = decode_one(LATER_BOOK[:-1] + f',"note":"\\ud83d\\ude00","x":{deep}}}')
+    assert isinstance(item, DecodedEvent)
+    assert item.record == event(LATER_BOOK)
+    assert levels <= searches < 2 * levels
+
+
 def test_an_escaped_backslash_before_u_is_not_a_surrogate() -> None:
     item = decode_one('{"event_type":"future","note":"\\\\ud800"}')
     assert isinstance(item, UnknownEvent)

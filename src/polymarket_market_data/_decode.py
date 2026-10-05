@@ -202,19 +202,25 @@ def _object(
 
 
 def _holds_surrogate(value: object) -> bool:
+    # An overwritten member's value holds the objects and arrays nested in
+    # it, which the parsed value or another overwritten value may hold too,
+    # so each is searched only the first time it is reached.
     pending = [value]
+    searched: set[int] = set()
     while pending:
         item = pending.pop()
         if isinstance(item, str):
             if _SURROGATE.search(item):
                 return True
-        elif isinstance(item, dict):
+        elif isinstance(item, dict | list) and id(item) not in searched:
+            searched.add(id(item))
+            if isinstance(item, list):
+                pending.extend(item)
+                continue
             for name, member in item.items():
                 if _SURROGATE.search(name):
                     return True
                 pending.append(member)
-        elif isinstance(item, list):
-            pending.extend(item)
     return False
 
 
