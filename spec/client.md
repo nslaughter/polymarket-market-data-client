@@ -1106,11 +1106,12 @@ duration, `True` for `queue_size`, and `1` or `"true"` for `verify_hash`.
 Building `ClientConfig` or `ReconnectPolicy` with any other value, or with
 a field the table does not list, raises `ConfigError`, with Pydantic's
 validation error as its `__cause__`, never the `ValidationError` itself;
-`ClientConfig` raises it for an invalid nested policy too. A Pydantic model validates in its own constructor, so
-the error comes from there, before any client exists. A validator that
-raised `ConfigError` would not do: Pydantic turns a `ValueError` raised in
-a validator into its own `ValidationError`, and `ConfigError` is a
-`ValueError` (measured for this document with Pydantic 2.13.5).
+`ClientConfig` raises it for an invalid nested policy too. A Pydantic
+model validates in its own constructor, so the error comes from there,
+before any client exists. A validator that raised `ConfigError` would not
+do: Pydantic turns a `ValueError` raised in a validator into its own
+`ValidationError`, and `ConfigError` is a `ValueError` (measured for this
+document with Pydantic 2.13.5).
 
 `MarketDataClient` validates the configuration it is given again and
 raises `ConfigError` the same way, since `model_copy(update=…)` and
