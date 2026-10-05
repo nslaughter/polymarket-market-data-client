@@ -260,12 +260,16 @@ Follows D4: verification with the recipe, and its burst rule.
 
 - `_hash.py` with the recipe, the trade-price retries, when a burst is
   checked, with `burst_quiet`'s timer as an input, the divergence rule, and
-  the parameters fetched through lookup, feeding T7 and T9 in `_state.py`.
-  Statistics for checks.
+  the parameters fetched through lookup and retried every
+  `settlement_poll_interval` after a failure, feeding T7 and T9 in
+  `_state.py`. Statistics for checks.
+- A unit test that the constructor raises `ConfigError` when `verify_hash`
+  is on and no lookup is available. No scenario can show this: the harness
+  always passes its scripted lookup.
 - Turn on: `hash-checks-pass`, `hash-burst-across-frames`,
   `hash-single-failure`, `hash-divergence`, `hash-trade-before-announcement`,
-  `hash-check-predates-undecodable`. The harness now checks that every
-  scenario is enabled.
+  `hash-check-predates-undecodable`, `hash-parameters-retried`. The harness
+  now checks that every scenario is enabled.
 
 ### 11. Add the research example and check the built wheel
 
@@ -274,7 +278,9 @@ Follows D4: verification with the recipe, and its burst rule.
   as one JSON line, an inspectable recovery timeline. A controlled mode
   runs the same code against the scripted server and a built-in scenario,
   with a dropped connection and a settlement, so it needs no access to the
-  live service.
+  live service. The live mode needs the SDK extra, which provides the
+  lookup that market selection and, with `verify_hash` on, hash checks
+  need.
 - The README gains an installation quickstart and the example's commands.
 - CI builds the wheel, installs it in a clean virtual environment on each
   supported Python version, runs the whole conformance suite against the

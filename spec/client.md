@@ -149,7 +149,7 @@ asyncio.run(main())
 
 | Member | Behavior |
 | --- | --- |
-| `MarketDataClient(config=ClientConfig(), *, markets=(), lookup=None)` | Validates the configuration and records the initial desired set. Does no I/O. Raises `ConfigError` for an invalid value. `lookup` replaces the default [market lookup](#market-lookup). |
+| `MarketDataClient(config=ClientConfig(), *, markets=(), lookup=None)` | Validates the configuration and records the initial desired set. Does no I/O. Raises `ConfigError` for an invalid value, or when `verify_hash` is on and no lookup is available (D4). `lookup` replaces the default [market lookup](#market-lookup). |
 | `async with client` | Starts the client. It connects once the desired set is non-empty. Leaving the block, by any path, shuts it down ([Cancellation and shutdown](#cancellation-and-shutdown)). A client can be entered once. |
 | `client.subscribe(*markets: Market)` | Adds markets to the end of the desired set. A market already in it is left where it is. A market that was removed or settled can be added again; its tokens [start over](#adding-a-market-again). Allowed before and inside the block. |
 | `client.unsubscribe(*condition_ids: str)` | Removes markets from the desired set. An ID not in it is ignored. |
@@ -174,7 +174,7 @@ effect. Calling either after the client has shut down raises
 | Exception | Raised by | When |
 | --- | --- | --- |
 | `ClientError` | | Base class of the exceptions below. |
-| `ConfigError(ClientError, ValueError)` | the constructor | A configuration value is invalid. |
+| `ConfigError(ClientError, ValueError)` | the constructor | A configuration value is invalid, or `verify_hash` is on and no lookup is available (D4). |
 | `ClientStateError(ClientError, RuntimeError)` | any member | The client is used in a way its lifecycle does not allow: `records()` called twice, the block entered twice, or a change after shutdown. |
 | `MarketNotFound(ClientError, LookupError)` | `resolve` | The lookup found no market for the slug. |
 | `LookupFailed(ClientError)` | `resolve` | The lookup raised or exceeded `lookup_timeout`. Its `__cause__` is the lookup's exception, or the `TimeoutError`. |
@@ -940,14 +940,18 @@ by the slug it is given, and settlement confirmation by the market's
 
 If no lookup is available, as when the SDK, an optional extra under D6, is
 not installed, `resolve` raises `ClientStateError`, and no settlement can
-be confirmed ([Settlement](#settlement)). Nor is any hash checked, even
-with `verify_hash` on: D4 checks no token whose hash inputs cannot be had.
+be confirmed ([Settlement](#settlement)). Hash checks need lookup too, so
+with `verify_hash` on the constructor refuses to go without one and raises
+`ConfigError` (D4): install the SDK extra, pass a lookup, or turn
+`verify_hash` off.
 
 Lookup calls run outside the reading task, each limited to `lookup_timeout`.
 An exception or a timeout counts as a failed call: it is counted, and for
 settlement confirmation it is treated as "still open" until
-`settlement_confirm_timeout`. Failures of the calls the client makes on its
-own are never raised to the consumer. A failure of the call `resolve`
+`settlement_confirm_timeout`. A failed `book_parameters` call is retried
+every `settlement_poll_interval` until it succeeds or the token leaves the
+desired set (D4). Failures of the calls the client makes on its own are
+never raised to the consumer. A failure of the call `resolve`
 makes is raised to its caller as `LookupFailed`.
 
 ## Order-book hash
@@ -1068,7 +1072,9 @@ Every duration must be positive, `queue_size` at least 1, each fraction
 greater than 0 and at most 1, with `resume_below` below `backlog_warning`,
 and `overflow` and `new_market` one of the values listed above; otherwise
 the constructor raises `ConfigError`, with Pydantic's validation error as
-its `__cause__`.
+its `__cause__`. The constructor also raises `ConfigError` when
+`verify_hash` is on and no lookup is available, since no hash could then be
+checked (D4).
 
 ## Decisions
 
@@ -1288,8 +1294,12 @@ them with the same timestamp. They followed it by at most 0.27 s, and 143
 came after other frames in between.
 
 **Specification: verify, with these rules.** Fetch `min_order_size`
-and `neg_risk` through lookup when a token enters the desired set; until they
-arrive, or if they cannot be had, do not check that token. Check each `book`
+and `neg_risk` through lookup when a token enters the desired set. If the
+call fails, by raising or timing out, retry it every
+`settlement_poll_interval` until it succeeds or the token leaves the desired
+set. Until the parameters arrive, or if lookup finds no REST book for the
+token, do not check that token. With `verify_hash` on, a client with no
+lookup is refused at construction with `ConfigError`. Check each `book`
 event's own hash when it arrives, and each burst when it ends (below), using
 the event's timestamp. On failure, retry with the market's current announced
 trade price, then with every price on the 0.001 grid; a check that verifies
@@ -1303,6 +1313,17 @@ predates any change it may have carried, though the burst's check may still
 be pending when it comes. If a `book` fails its own check, stop checking
 that token until a later `book` verifies, and count it, since the recipe or
 its inputs, not the source's book, are then wrong.
+
+**Hash inputs without a lookup: decided by the operator on 2026-10-05.**
+Only lookup supplies `min_order_size` and `neg_risk`, and D6 makes the SDK,
+which provides the default lookup, an optional extra. Review found that a
+client installed without it would check no hash at all and say nothing, and
+that one failed fetch would leave a token unchecked until it was removed.
+The operator chose two remedies: refuse `verify_hash` without a lookup, with
+`ConfigError` at construction, so the gap cannot pass unnoticed; and retry a
+failed fetch every `settlement_poll_interval`, so one transient failure does
+not switch checking off. Reporting unchecked tokens in a status record or a
+counter, and leaving the gap documented only, were the options not chosen.
 
 **When a burst has ended: decided by the operator on 2026-10-05.** A live
 client cannot tell a burst's last entry when it arrives. The investigation's

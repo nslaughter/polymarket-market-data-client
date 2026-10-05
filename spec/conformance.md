@@ -437,7 +437,7 @@ The last two lines alternate, token by token.
 | A change stamped before an opening `book` can arrive after it | `change-before-book` |
 | Opening `book` timestamps are the book's last change | `initial-books` |
 | A trade's price enters the hash before it is announced, and a tick-size change seemed to | `hash-trade-before-announcement`, `hash-single-failure` |
-| The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-burst-across-frames`, `hash-trade-before-announcement` |
+| The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-burst-across-frames`, `hash-trade-before-announcement`, `hash-parameters-retried` |
 | The stream can omit a change | `hash-divergence`, `mid-connection-book` |
 | The all-resolved close when every market has settled | `settle-all-resolved-close`, `settle-all-resolved-close-unannounced` |
 | A settlement can go unannounced | `settle-unannounced-drop`, `settle-all-resolved-close-unannounced` |
@@ -2382,6 +2382,37 @@ expect price_change A t=200 applied=true
 expect token A1 ready previous=uncertain reason=hash_verified
   within 0.1..0.3 of g
 expect-stats hash_verified>=2 hash_failed=0
+```
+
+#### `hash-parameters-retried`
+
+The hash inputs that only lookup supplies cannot be fetched at first, so
+no hash is checked, not even a wrong one. A failed fetch is retried every
+`settlement_poll_interval`; once one succeeds, checks begin, and a wrong
+hash fails one check and a right one verifies ([§4]).
+
+```scenario
+scenario hash-parameters-retried
+markets A
+config verify_hash=true
+lookup A error
+owner-spec D4 D6
+
+start A
+send pc A t=100 A1:BUY:0.49:50 hash=bad
+expect price_change A t=100 applied=true
+expect-nothing 0.3
+expect-stats hash_verified=0 hash_failed=0 lookup_failures>=2
+lookup A open
+wait 0.8
+send pc A t=200 A1:BUY:0.49:60 hash=bad
+expect price_change A t=200 applied=true
+expect-nothing 0.3
+expect-stats hash_failed=1
+send pc A t=300 A1:BUY:0.49:70
+expect price_change A t=300 applied=true
+expect-nothing 1.0
+expect-stats hash_verified>=1 hash_failed=1
 ```
 
 ## Failure reports
