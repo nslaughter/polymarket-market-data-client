@@ -64,11 +64,8 @@ The README describes the project for people; it is not a specification.
   parse frames with `json.loads(text, parse_float=Decimal)`, then validate
   each object with its Pydantic model (D8). Never validate `json.loads`
   output that holds floats. Refuse non-finite values.
-- The Pydantic wire models declare only the fields the decoder uses and
-  ignore the rest, unlike the SDK's, whose strictness dropped most
-  `new_market` events. A validation error becomes an `UndecodableFrame`,
-  never an exception out of the reader. Public records are frozen
-  dataclasses, not models.
+- Pydantic validates input; dataclasses carry output. See
+  [Pydantic and dataclasses](#pydantic-and-dataclasses).
 - Deadlines use the event loop's monotonic clock; `at` and `received_at`
   use `datetime.now(UTC)`.
 - Records are produced in one place, in the contract's
@@ -85,6 +82,31 @@ The README describes the project for people; it is not a specification.
   or its tests.
 - Logs supplement records and never replace them: anything the consumer
   needs to act on is a record.
+
+### Pydantic and dataclasses
+
+D8 settles where each is used. Keep to it:
+
+| What | Built as | Why |
+| --- | --- | --- |
+| `ClientConfig` and `ReconnectPolicy` | Frozen Pydantic models | They validate the caller's input. A validation error is raised as `ConfigError`, with Pydantic's error as its `__cause__`. |
+| Wire models, one per event type | Pydantic models, private to `_decode.py` | They validate the source's input, declaring only the fields the decoder uses and ignoring the rest. A validation error becomes an `UndecodableFrame`, never an exception out of the reader. |
+| Records, `Market`, `ClientStats`, and every other public type | Frozen dataclasses with slots | They carry data already validated. The public API stays free of Pydantic's version, and records take positional `match` patterns. |
+| Records as JSON, in the example, tests, or a consumer | `TypeAdapter(<type>).dump_json`, `validate_json`, and `json_schema` | Serialization needs no record to be a model. |
+
+- The decoder copies the fields it uses from a wire model into its record,
+  and sets the client's own fields, such as `received_at`, `connection`,
+  `repeat`, and `held_book_matched`, itself. A wire model never fills a
+  record directly, so a field the source adds can never overwrite one the
+  client sets.
+- No public signature, record field, or exception exposes a wire model or
+  a Pydantic type. `ConfigError` keeps Pydantic's error only as its cause.
+- Don't make a record a model, add `model_dump`-style methods to it, or
+  subclass `BaseModel` outside configuration and `_decode.py`. Changing
+  that is a new version of D8, which is the operator's.
+- Keep the wire models lenient, unlike the SDK's, whose strict validation
+  dropped most `new_market` events
+  ([findings §1](docs/source-behavior.md#1-reconnection-and-subscription-restoration-in-the-sdk)).
 
 ## Commands
 
