@@ -39,6 +39,7 @@ from polymarket_market_data._decode import (
     DecodedEvent,
     EventRecord,
     Impact,
+    RepeatDetector,
     Undecodable,
     content_key,
     decode_frame,
@@ -1037,6 +1038,62 @@ def test_content_does_not_depend_on_the_frame() -> None:
     assert isinstance(first, DecodedEvent)
     assert isinstance(again, DecodedEvent)
     assert first.content == again.content
+
+
+def test_a_repeat_inside_the_window() -> None:
+    detector = RepeatDetector(1.0)
+    assert detector.check("x", 10.0) is False
+    assert detector.check("x", 10.12) is True
+    assert detector.check("x", 11.12) is True
+
+
+def test_not_a_repeat_outside_the_window() -> None:
+    detector = RepeatDetector(1.0)
+    assert detector.check("x", 10.0) is False
+    assert detector.check("x", 11.2) is False
+    assert detector.check("y", 11.3) is False
+
+
+def test_each_arrival_extends_the_window() -> None:
+    detector = RepeatDetector(1.0)
+    assert [detector.check("x", t) for t in (0.0, 0.9, 1.8, 3.0)] == [
+        False,
+        True,
+        True,
+        False,
+    ]
+
+
+def test_expiry_keeps_the_latest_arrival() -> None:
+    detector = RepeatDetector(1.0)
+    detector.check("x", 0.0)
+    detector.check("x", 0.9)
+    detector.check("y", 1.5)  # expires the arrival at 0.0
+    assert detector.check("x", 1.6) is True
+
+
+def test_repeats_as_the_repeated_messages_scenario_sends_them() -> None:
+    # x, a later change, x again with its entries reversed, a best_bid_ask
+    # twice, and that best_bid_ask again 1.2 s later, outside the window.
+    later = edit(PRICE_CHANGE, set_to(("timestamp",), str(T0 + 105)))
+    again = edit(PRICE_CHANGE, lambda v: v["price_changes"].reverse())
+    detector = RepeatDetector(1.0)
+    arrivals = [
+        (PRICE_CHANGE, 0.0),
+        (later, 0.05),
+        (again, 0.1),
+        (BEST_BID_ASK, 0.15),
+        (BEST_BID_ASK, 0.2),
+        (BEST_BID_ASK, 1.45),
+    ]
+    assert [detector.check(content(text), now) for text, now in arrivals] == [
+        False,
+        False,
+        True,
+        False,
+        True,
+        False,
+    ]
 
 
 # Every record the decoder produces serializes (D8).

@@ -18,7 +18,7 @@ for the state machine to set: ``repeat``, ``PriceChange.applied`` and
 
 import json
 import re
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Hashable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -593,7 +593,7 @@ _MODELS: dict[str, type[_EventWire]] = {
 }
 
 
-# Content for repeat detection (spec/client.md, Repeated messages).
+# Repeat detection (spec/client.md, Repeated messages).
 
 
 def content_key(item: Mapping[str, Any]) -> Hashable:
@@ -628,3 +628,28 @@ def _canonical(value: object) -> Hashable:
     if isinstance(value, str):
         return ("string", value)
     return ("null",)
+
+
+class RepeatDetector:
+    """Judges events repeats on one connection: an event is a repeat when
+    one with the same content arrived within ``window`` seconds before it.
+
+    Times are seconds on a monotonic clock, given by the caller.
+    """
+
+    def __init__(self, window: float) -> None:
+        self._window = window
+        self._last: dict[Hashable, float] = {}
+        self._arrivals: deque[tuple[float, Hashable]] = deque()
+
+    def check(self, content: Hashable, now: float) -> bool:
+        """Record that an event with this content arrived at ``now``, and
+        return whether it is a repeat."""
+        while self._arrivals and now - self._arrivals[0][0] > self._window:
+            arrived, expired = self._arrivals.popleft()
+            if self._last.get(expired) == arrived:
+                del self._last[expired]
+        previous = self._last.get(content)
+        self._last[content] = now
+        self._arrivals.append((now, content))
+        return previous is not None and now - previous <= self._window
