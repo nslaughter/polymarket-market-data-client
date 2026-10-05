@@ -429,8 +429,10 @@ follow the delays.
 Before waiting for an attempt, the client fails instead if `max_attempts`
 attempts in a row have failed, or if the wait would end more than
 `max_recovery_time` after the interruption that began the recovery (at
-startup, after the first attempt began). An attempt under way is bounded
-by `connect_timeout`, not cut short.
+startup, after the first attempt began). Time spent waiting for the
+consumer (`waiting_for_consumer`) does not count toward it, since that wait
+says nothing about the server. An attempt under way is bounded by
+`connect_timeout`, not cut short.
 
 The client also waits for the consumer before an attempt while `queue_size`
 or more status records are waiting for it, which keeps them bounded
@@ -833,7 +835,8 @@ applied, and the client reads nothing more from that connection. The
 interruption's `last_confirmed_at` is the receipt time of the last frame
 whose records were queued, so the gap includes the frame that overflowed.
 The client reconnects, with no delay, once the consumer's reading brings
-the count to `resume_below × queue_size`, rounded down, or lower. When one
+the count to `resume_below × queue_size`, rounded down, or lower. However
+long that takes, it does not count toward `max_recovery_time`. When one
 read both brings the count below the warning level and lets the client
 resume, the `Backlog` record comes before `connecting`.
 

@@ -400,7 +400,7 @@ The last two lines alternate, token by token.
 | Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
 | A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
-| A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded` |
+| A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded`, `consumer-pause-outlasts-recovery-time` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, and `hash-divergence` |
 | A bounded retry policy (README step 4) | `startup-retry`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time`, `recovery-exhausted-no-frame` |
 | Cancellation (README design choices) | `exit-while-connected`, `cancel-during-recovery`, `read-timeout` |
@@ -1937,6 +1937,56 @@ expect token A1 ready previous=synchronizing reason=book
 expect book A2 held_book_matched=none
 expect token A2 ready
 expect-stats connections=3 interruptions.dropped=2
+```
+
+#### `consumer-pause-outlasts-recovery-time`
+
+The consumer stops reading for longer than `max_recovery_time`. Time spent
+waiting for the consumer does not count toward that bound, so once the
+backlog drains the client reconnects instead of failing.
+
+```scenario
+scenario consumer-pause-outlasts-recovery-time
+markets A
+config queue_size=4 backlog_warning=0.75 resume_below=0.25
+  reconnect.max_recovery_time=0.5
+pending D2 D3
+
+start A
+send pc A t=100 A1:BUY:0.49:10
+send pc A t=101 A1:BUY:0.49:11
+send pc A t=102 A1:BUY:0.49:12
+send pc A t=103 A1:BUY:0.49:13
+send pc A t=104 A1:BUY:0.49:14
+expect-client-close 1000 "client backlog"
+wait 1.0
+expect price_change A t=100
+expect price_change A t=101
+expect price_change A t=102
+expect backlog queued=3 limit=4 rising=true
+expect price_change A t=103
+expect conn interrupted reason=consumer_overflow connection=1
+expect token A1 uncertain previous=ready reason=interrupted
+expect token A2 uncertain previous=ready reason=interrupted
+expect conn recovering attempt=1 reason=waiting_for_consumer
+  retry_in=none
+expect backlog queued=2 limit=4 rising=false
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+send opening A1 A2
+expect book A1 t=104 held_book_matched=false
+expect gap A1 cause=consumer_overflow end=book
+expect token A1 ready
+expect book A2 held_book_matched=true
+expect gap A2 cause=consumer_overflow end=book
+expect token A2 ready
+expect-backlog 0
+expect-stats interruptions.consumer_overflow=1
 ```
 
 ### Shutdown and cancellation

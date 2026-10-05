@@ -220,7 +220,7 @@ Needs D3: the queue size and the response at the limit.
   overflow response D3 decides, including resuming after a `disconnect`;
   holding back reconnection while too many status records are waiting.
 - Turn on: `consumer-stops-reading`, `frame-larger-than-queue`,
-  `status-records-bounded`.
+  `status-records-bounded`, `consumer-pause-outlasts-recovery-time`.
 
 ### 10. Verify order-book hashes
 
