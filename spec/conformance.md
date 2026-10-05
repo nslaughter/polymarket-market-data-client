@@ -470,7 +470,9 @@ expect-stats frames=1 connections=1
 #### `resolve-by-slug`
 
 Resolving a market through lookup, then subscribing it to a client that
-started with an empty desired set, which needs no connection until then.
+started with an empty desired set, which needs no connection until then. A
+lookup that finds nothing raises `MarketNotFound`, and one that fails raises
+`LookupFailed`; neither affects the client.
 
 ```scenario
 scenario resolve-by-slug
@@ -479,8 +481,12 @@ expect-no-connect 0.5
 expect-nothing 0.1
 resolve synthetic-a
 resolve synthetic-u raises MarketNotFound
+lookup A error
+resolve synthetic-a raises LookupFailed
+lookup A open
 subscribe A
 start A
+expect-stats lookups=3 lookup_failures=1
 ```
 
 #### `market-event-types`

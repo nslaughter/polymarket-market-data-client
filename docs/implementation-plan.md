@@ -195,10 +195,10 @@ Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
 
 Needs D6: how the pinned SDK serves lookup and settlement confirmation.
 
-- `MarketLookup`, the default lookup as D6 decides, and `resolve`;
-  `book_timeout`; settlement by `market_resolved`, by the all-resolved
-  close, and by lookup, with its polling and timeout; `ended` and `idle`;
-  and `subscribe` on an idle client, which connects it, as
+- `MarketLookup`, the default lookup as D6 decides, and `resolve` with its
+  errors; `book_timeout`; settlement by `market_resolved`, by the
+  all-resolved close, and by lookup, with its polling and timeout; `ended`
+  and `idle`; and `subscribe` on an idle client, which connects it, as
   `resolve-by-slug` needs. Changes to a running connection are step 8.
 - The default lookup is tested with the SDK's HTTP layer replaced by
   recorded synthetic responses, never against the live service.

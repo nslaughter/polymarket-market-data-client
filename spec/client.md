@@ -148,7 +148,7 @@ asyncio.run(main())
 | `client.records()` | The async iterator of [records](#records). It can be called once. |
 | `client.backlog` | The number of market-event records waiting for the consumer. |
 | `client.stats()` | A snapshot of the client's [counters](#statistics). |
-| `await client.resolve(slug)` | Looks a market up by slug and returns its `Market`. Raises `MarketNotFound` if the lookup finds none. |
+| `await client.resolve(slug)` | Looks a market up by slug and returns its `Market`. Raises `MarketNotFound` if the lookup finds none, and `LookupFailed` if the lookup raises or times out. |
 
 `Market` is a frozen dataclass: `condition_id: str`, `token_ids:
 tuple[str, ...]` in outcome order, and `slug: str | None`. A token may
@@ -168,11 +168,16 @@ effect. Calling either after the client has shut down raises
 | `ConfigError(ClientError, ValueError)` | the constructor | A configuration value is invalid. |
 | `ClientStateError(ClientError, RuntimeError)` | any member | The client is used in a way its lifecycle does not allow: `records()` called twice, the block entered twice, or a change after shutdown. |
 | `MarketNotFound(ClientError, LookupError)` | `resolve` | The lookup found no market for the slug. |
+| `LookupFailed(ClientError)` | `resolve` | The lookup raised or exceeded `lookup_timeout`. Its `__cause__` is the lookup's exception, or the `TimeoutError`. |
 | `RecoveryFailed(ClientError)` | the iterator | Reconnection exhausted its bounds (D2). It is raised after the records that report the failure ([Reconnecting](#reconnecting)). |
 | `ConsumerTooSlow(ClientError)` | the iterator | Only if D3 settles on failing at the limit. |
 
-A failed lookup, an undecodable frame, and a lost connection are not
-exceptions; they are reported in records. A defect in the client's own code
+A lookup that fails while the client confirms a settlement or fetches hash
+inputs, an undecodable frame, and a lost connection are not exceptions. The
+lookup failure is counted (`lookup_failures`), and if lookup never confirms
+the settlement the tokens become `settlement_unconfirmed` (T13); the others
+are reported in records. Only `resolve`, which the application awaits
+itself, raises a lookup failure. A defect in the client's own code
 ends the client: the exception is raised once, chained as the `__cause__`
 of a `ClientError`, by the iterator if a consumer is reading and otherwise
 when the block is left. The client never stops silently. The SDK's stream
@@ -880,8 +885,9 @@ is not installed, `resolve` raises `ClientStateError`, and a token reaching
 Lookup calls run outside the reading task, each limited to `lookup_timeout`.
 An exception or a timeout counts as a failed call: it is counted, and for
 settlement confirmation it is treated as "still open" until
-`settlement_confirm_timeout`. Lookup failures are never raised to the
-consumer.
+`settlement_confirm_timeout`. Failures of the calls the client makes on its
+own are never raised to the consumer. A failure of the call `resolve`
+makes is raised to its caller as `LookupFailed`.
 
 ## Order-book hash
 
