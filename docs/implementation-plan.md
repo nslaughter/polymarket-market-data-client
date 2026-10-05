@@ -22,7 +22,9 @@ start until the operator records the decision and changes the status here.
 The contract's design decisions, D1 to D8, are all
 [owner specifications](../spec/client.md#owner-specifications), decided on
 2026-10-05; the **Owner specifications** column names those each step
-follows. Only step 13 still waits on the operator.
+follows. Steps 12 and 13 still wait on the operator: step 12 for the live
+run's period and markets, and step 13 for the release's version and tag
+scheme.
 
 | Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
@@ -37,7 +39,7 @@ follows. Only step 13 still waits on the operator.
 | 9. Bound the consumer handoff | D3 | Not started | |
 | 10. Verify order-book hashes | D4 | Not started | |
 | 11. Add the research example and check the built wheel | | Not started | |
-| 12. Record a limited live run | | Not started | |
+| 12. Record a limited live run | live-run period and markets | Needs operator decision | |
 | 13. Release a tagged wheel | release name | Needs operator decision | |
 
 If the operator changes an owner specification, the scenarios marked
@@ -276,6 +278,9 @@ Follows D4: verification with the recipe, and its burst rule.
   installed wheel, and runs the controlled example.
 
 ### 12. Record a limited live run
+
+Needs the operator to agree the run's period and its markets, or how the
+example chooses them. Only this step contacts the live service.
 
 - Run the example against the live service for a limited period chosen
   with the operator, with the client's configuration recorded.
