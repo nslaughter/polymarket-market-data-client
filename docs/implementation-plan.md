@@ -176,7 +176,9 @@ Out of scope: I/O, timers, and hash computation. Timers are inputs here.
 - A pytest entry point runs each scenario in `enabled.txt` as its own test.
   `enabled.txt` starts empty.
 - Tests: every block in `spec/conformance.md` parses, and every label it
-  uses is defined; each frame notation expands to the documented members in
+  uses is defined; a quoted value with spaces, such as
+  `close_reason="going away"`, is one word whose value is read as a JSON
+  string; each frame notation expands to the documented members in
   order; each server step behaves as documented against a plain
   `websockets` client; the matcher's rules, one test per rule.
 

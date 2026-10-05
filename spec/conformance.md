@@ -164,8 +164,11 @@ attempt 2 is 0.2 s, and before attempts 3 and later is 0.4 s.
   are ignored.
 - A line that begins with a space continues the line above; the two are
   joined with one space.
-- Words are separated by spaces. A word that starts with `"` is a JSON
-  string literal and may contain spaces.
+- Words are separated by spaces. A JSON string literal, from its opening
+  `"` to its closing quote, stays within one word and may contain spaces.
+  It is either a whole word that starts with `"`, or the value of a
+  `<field>=<value>` word whose value starts with `"`, such as
+  `close_reason="going away"`.
 - A step may begin with a label, `<label>:`, made of lowercase letters,
   digits, and hyphens. Labels name times for `within`.
 
