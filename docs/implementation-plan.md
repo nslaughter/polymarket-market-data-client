@@ -182,7 +182,8 @@ Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
 - Turn on: `drop-without-close`, `close-frames`, `close-slow-consumer`,
   `pong-withheld`, `pong-late-within-timeout`, `startup-retry`,
   `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`,
-  `recovery-exhausted-time`, `cancel-during-recovery`.
+  `recovery-exhausted-time`, `recovery-exhausted-no-frame`,
+  `cancel-during-recovery`.
 
 ### 7. Settle markets through the stream and lookup
 

@@ -402,7 +402,7 @@ The last two lines alternate, token by token.
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, and `hash-divergence` |
-| A bounded retry policy (README step 4) | `startup-retry`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time` |
+| A bounded retry policy (README step 4) | `startup-retry`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time`, `recovery-exhausted-no-frame` |
 | Cancellation (README design choices) | `exit-while-connected`, `cancel-during-recovery`, `read-timeout` |
 
 ### The findings' catalog
@@ -411,7 +411,7 @@ The last two lines alternate, token by token.
 | --- | --- |
 | The SDK's stream reconnects and resubscribes without telling its consumer | every scenario with an interruption: each asserts the records an interruption produces |
 | The SDK drops events its parser rejects | `new-market-delivered`, `invalid-known-event` |
-| The SDK stops reconnecting after an error other than its own | `recovery-exhausted-attempts`, `recovery-exhausted-time` |
+| The SDK stops reconnecting after an error other than its own | `recovery-exhausted-attempts`, `recovery-exhausted-time`, `recovery-exhausted-no-frame` |
 | Nothing is replayed after a reconnect | `drop-without-close`, `consumer-stops-reading` |
 | A connection with no traffic is closed after about 125 s, without a close frame | `quiet-subscription-pings`, `drop-without-close` |
 | The server ends slow consumers, with 1013 or no close frame; `PONG` waits behind data | `close-slow-consumer`, `pong-late-within-timeout`, `drop-without-close` |
@@ -919,6 +919,69 @@ expect gap A2 end=recovery_failed resumed=false
 expect conn failed reason=max_recovery_time within 1.0..1.4 of d
 expect-error RecoveryFailed
 expect-end
+```
+
+#### `recovery-exhausted-no-frame`
+
+The server accepts each attempt and takes the subscription, then drops the
+connection before sending anything. Each such connection is an
+interruption, since its tokens were `synchronizing`, and a failed attempt:
+attempt numbers follow on, and the third failure exhausts the bounds
+(client decision 26).
+
+```scenario
+scenario recovery-exhausted-no-frame
+markets A
+pending D2
+
+start A
+drop
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1 retry_in=0.1
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+drop
+expect conn interrupted reason=dropped connection=2
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=2 retry_in=0.2
+expect conn connecting attempt=2
+accept
+recv-subscribe A1 A2
+expect conn open connection=3
+expect conn subscribed connection=3
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+drop
+expect conn interrupted reason=dropped connection=3
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=3 retry_in=0.4
+expect conn connecting attempt=3
+accept
+recv-subscribe A1 A2
+expect conn open connection=4
+expect conn subscribed connection=4
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+f: drop
+expect conn interrupted reason=dropped connection=4
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect gap A1 cause=dropped end=recovery_failed resumed=false
+  connection_before=1 connection_after=none
+expect gap A2 cause=dropped end=recovery_failed resumed=false
+expect conn failed reason=max_attempts within 0..0.5 of f
+expect-error RecoveryFailed
+expect-end
+expect-no-connect 1.0
 ```
 
 ### Heartbeat

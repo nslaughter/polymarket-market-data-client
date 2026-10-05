@@ -351,7 +351,10 @@ of `book` events, one for each subscribed token that is still trading, and
 inactive token is left out without an error (Observed, [§6]).
 
 A connection that ends before its subscription frame is sent counts as a
-failed attempt, not an interruption.
+failed attempt, not an interruption. One that ends after it but before
+delivering a frame is both: an interruption, since its tokens were
+`synchronizing` on it, and a failed attempt
+([Reconnecting](#reconnecting)).
 
 ### Heartbeat
 
@@ -403,8 +406,10 @@ On an interruption the client records:
 2. A `TokenStateChange` to `uncertain`, reason `interrupted`, for each
    desired token on the connection that is `synchronizing`, `ready`, or
    `uncertain`, carrying the same `last_confirmed_at`.
-3. `ConnectionStateChange(recovering)` for the first attempt, unless no
-   desired token remains.
+3. `ConnectionStateChange(recovering)` for the next attempt, unless no
+   desired token remains or the bounds are exhausted. It is attempt 1,
+   unless the connection ended before delivering a frame; then it is the
+   attempt after the one that opened that connection.
 
 A capture gap opens for each of those tokens that holds a book, starting at
 `last_confirmed_at` and detected at the interruption record's `at`. A token
@@ -423,9 +428,9 @@ follow the delays.
 
 Before waiting for an attempt, the client fails instead if `max_attempts`
 attempts in a row have failed, or if the wait would end more than
-`max_recovery_time` after the interruption (at startup, after the first
-attempt began). An attempt under way is bounded by `connect_timeout`, not
-cut short.
+`max_recovery_time` after the interruption that began the recovery (at
+startup, after the first attempt began). An attempt under way is bounded
+by `connect_timeout`, not cut short.
 
 The client also waits for the consumer before an attempt while `queue_size`
 or more status records are waiting for it, which keeps them bounded
@@ -445,16 +450,20 @@ leaves fewer than `queue_size` waiting.
 | `failed`, `reason=max_attempts` or `max_recovery_time` | When the bounds are exhausted. |
 
 Attempt numbers and the recovery clock start again when a new connection
-delivers its first frame after subscribing. A connection that opens and ends
-without one leaves them running, so an endpoint that accepts connections and
-drops them at once still exhausts the bounds.
+delivers its first frame after subscribing. A connection that ends without
+one, before or after its subscription frame, is a failed attempt and leaves
+them running: the next attempt's number follows on from it, and the time
+bound still runs from the interruption that began the recovery. So an
+endpoint that accepts connections and drops them, at once or after the
+subscription frame, still exhausts the bounds.
 
-When the bounds are exhausted the client emits, in order, a `CaptureGap`
-with `end` `recovery_failed` and `resumed_at` `None` for each token with an
-open gap, then `failed`, with no `recovering` record for the attempt it will
-not make. The iterator then raises `RecoveryFailed`, and the
-client stays shut down until the block is left. Tokens keep their last
-state, `uncertain`.
+When the bounds are exhausted the client emits, in order, after the
+`interrupted` and `uncertain` records if a subscribed connection's end
+exhausted them, a `CaptureGap` with `end` `recovery_failed` and
+`resumed_at` `None` for each token with an open gap, then `failed`, with no
+`recovering` record for the attempt it will not make. The iterator then
+raises `RecoveryFailed`, and the client stays shut down until the block is
+left. Tokens keep their last state, `uncertain`.
 
 The SDK, by contrast, retries without limit and reports neither the
 disconnect nor the reconnect to its consumer (SDK source and Observed,
@@ -1060,8 +1069,9 @@ it. Each can be revisited in a later version.
     for this document, is 68,573 bytes: the probe's opening frame for 16
     tokens (about 4 KB per token).
 26. **Attempt counting restarts only when a connection delivers a frame.**
-    An endpoint that accepts and drops connections then still exhausts the
-    bounds.
+    A connection that ends before its first frame is a failed attempt,
+    whether or not the subscription frame was sent, so an endpoint that
+    accepts and drops connections still exhausts the bounds.
 
 ## Decisions awaiting the operator
 
