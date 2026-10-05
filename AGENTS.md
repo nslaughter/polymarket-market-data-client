@@ -62,9 +62,11 @@ The README describes the project for people; it is not a specification.
 - The task that reads the socket never awaits the consumer's queue. Use
   non-blocking puts and apply the overflow response instead.
 - A price, size, tick size, spread, or fee never passes through `float`:
-  parse frames with `json.loads(text, parse_float=Decimal)`, then validate
-  each object with its Pydantic model (D8). Never validate `json.loads`
-  output that holds floats. Refuse non-finite values.
+  parse frames with `json.loads(text, parse_float=Decimal,
+  parse_constant=Decimal)`, so that no value becomes a `float`, then
+  validate each object with its Pydantic model (D8). Never validate the
+  frame's text with `model_validate_json`, which keeps only a float's
+  precision. Refuse non-finite values.
 - Pydantic validates input; dataclasses carry output. See
   [Pydantic and dataclasses](#pydantic-and-dataclasses).
 - Deadlines use the event loop's monotonic clock; `at` and `received_at`

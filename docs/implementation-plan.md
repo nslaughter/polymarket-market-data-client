@@ -119,8 +119,9 @@ that raises `NotImplementedError`.
 - In `_decode.py`, turn one received frame into decoded events, an
   `UnknownEvent`, or `UndecodableFrame`s, exactly as
   [Decoding](../spec/client.md#decoding) says, with one Pydantic model per
-  event type (D8): `json.loads` with `parse_float=Decimal`, then each object
-  validated by its model, the required and optional fields per type, finite
+  event type (D8): `json.loads` with `parse_float=Decimal` and
+  `parse_constant=Decimal`, then each object validated by its model, never
+  `model_validate_json`; the required and optional fields per type, finite
   decimals only, `side` values, integer timestamps, and the affected tokens
   of an undecodable event, named from the validation error's location. The
   decoder maps each model to its public record.
@@ -128,9 +129,10 @@ that raises `NotImplementedError`.
   entries as a multiset.
 - Tests build frames with the conformance notation's shapes, written out as
   JSON in the tests. Cover every row of the decoding table, every event
-  type, `NaN` and `Infinity` refused, numbers sent as JSON numbers, a
-  `new_market` with a string `game_start_time`, and repeats inside and
-  outside the window.
+  type, `NaN` and `Infinity` refused as strings and as literals, numbers
+  sent as JSON numbers, one with more digits than a float holds and
+  `1e400` among them, a `new_market` with a string `game_start_time`, and
+  repeats inside and outside the window.
 
 Out of scope: books, states, and I/O.
 

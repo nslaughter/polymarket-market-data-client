@@ -300,15 +300,19 @@ this document; a client must not add values without a new version of it.
 
 Prices, sizes, tick sizes, spreads, and fee rates are `Decimal`, built from
 the source's strings. Each frame is parsed with `json.loads(text,
-parse_float=Decimal)`, and each object in it is then validated by the
-Pydantic model for its `event_type` (D8, decided), so a number sent as a
-JSON number never passes through `float`, and one bad item in an array does
-not reject the others. The models declare only the fields
-[Decoding](#decoding) lists and ignore the rest; a validation error makes
-the event undecodable, never an exception. A value that is not a finite
-decimal makes its event undecodable. `Decimal` keeps the source's digits,
-so `str(level.price)` returns the text that was sent. Timestamps are
-integers of milliseconds, also exactly as sent.
+parse_float=Decimal, parse_constant=Decimal)`, and each object in it is
+then validated by the Pydantic model for its `event_type` (D8, decided).
+So no value passes through `float`, neither a number sent as a JSON number
+nor a `NaN` or `Infinity` literal, and one bad item in an array does not
+reject the others. Validating the frame's text directly, with
+`model_validate_json`, would not do: it keeps only a float's precision
+(D8). The models declare only the fields [Decoding](#decoding) lists and
+ignore the rest; a validation error makes the event undecodable, never an
+exception. A value that is not a finite decimal, such as `NaN` or
+`Infinity`, makes its event undecodable; a large finite one, such as
+`1e400`, does not. `Decimal` keeps the source's digits, so
+`str(level.price)` returns the text that was sent. Timestamps are integers
+of milliseconds, also exactly as sent.
 
 ### Record order
 
@@ -1403,11 +1407,18 @@ Evidence:
   failure into an `UndecodableFrame`, never an exception or a silent drop.
 - Measured for this document with Pydantic 2.13.5, the version the findings
   record beside the SDK ([Versions]), on CPython 3.12.13:
-  - `model_validate_json` reads a JSON number into a `Decimal` exactly, with
-    no `float` on the way: `0.30000000000000004` stays as written. A string
-    keeps its digits: `"0.480"` gives `Decimal("0.480")`.
-  - `NaN`, `Infinity`, and `1e400` are refused by default, as
-    [Values](#values) requires.
+  - `model_validate_json` does not keep a JSON number's digits: it read
+    `0.12345678901234567890123456789` as
+    `Decimal("0.12345678901234568")`, a float's precision;
+    `0.30000000000000004` survived only because a float holds it. Parsed
+    first with `json.loads(text, parse_float=Decimal)` and then validated,
+    the number kept every digit. A string keeps its digits either way:
+    `"0.480"` gives `Decimal("0.480")`.
+  - On that path, `NaN` and `Infinity` are refused, sent as strings or as
+    literals. `json.loads` makes the literals `float`s, or `Decimal`s with
+    `parse_constant=Decimal`, and the model refuses both. `1e400` becomes
+    `Decimal("1E+400")` and is accepted, since [Values](#values) refuses
+    only values that are not finite; `model_validate_json` refuses it.
   - Extra fields are ignored by default, and a frozen model refuses
     assignment.
   - A model matches keyword `match` patterns, such as the
@@ -1415,9 +1426,11 @@ Evidence:
     has no `__match_args__`.
   - A validation error's location names the entry that failed, such as
     `('price_changes', 1, 'price')`.
-  - Decoding a two-entry `price_change` took 2.7 µs, against 4.1 µs with
-    `json.loads(text, parse_float=Decimal)` and dataclasses. At the peak of
-    about 840 frames a second ([§2]), neither approach matters for speed.
+  - Decoding a two-entry `price_change` took 2.7 µs with
+    `model_validate_json`, 4.7 µs by the path [Values](#values) requires,
+    `json.loads` and then `model_validate`, and 4.1 µs with `json.loads`
+    and dataclasses. At the peak of about 840 frames a second ([§2]), none
+    of these matters for speed.
   - Pydantic serializes dataclasses that are not models.
     `TypeAdapter(BookEvent).dump_json(record)`, on a frozen dataclass with
     slots, wrote `Decimal("0.480")` as `"0.480"`, a timezone-aware
@@ -1433,9 +1446,10 @@ Evidence:
   - Constructing a small frozen dataclass took 0.27 µs, against 0.52 µs for
     a validated model.
 - Two cautions for a Pydantic decoder. A frame first parsed by plain
-  `json.loads` has already turned numbers into `float`s, so validate the JSON
-  text or parse with `parse_float=Decimal` first. And an array frame must be
-  validated item by item, so that one bad item does not reject the others.
+  `json.loads` has already turned numbers into `float`s, and validating the
+  JSON text is no better (above), so parse with `parse_float=Decimal` and
+  `parse_constant=Decimal` first. And an array frame must be validated item
+  by item, so that one bad item does not reject the others.
 - Pydantic 2.13.5 brings `pydantic-core`, `annotated-types`,
   `typing-extensions`, and `typing-inspection`. The SDK 0.12.0 wheel requires
   `pydantic` from 2 to below 3 (its metadata, read for this document), so if
