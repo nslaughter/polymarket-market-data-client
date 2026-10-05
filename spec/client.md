@@ -92,7 +92,7 @@ real-time feeds; continuous operation.
 - The **desired set** is the markets the application wants, in the order it
   added them. The client builds every subscription frame from it, and it
   survives interruptions. A market leaves it when the application removes
-  it or when it settles.
+  it or when it settles, and the application can add it again.
 - A **connection** is one WebSocket connection to the market endpoint. Each
   connection the client opens gets the next **generation**, starting at 1.
 - A token's **book** is the client's copy of its order book: a size for each
@@ -142,7 +142,7 @@ asyncio.run(main())
 | --- | --- |
 | `MarketDataClient(config=ClientConfig(), *, markets=(), lookup=None)` | Validates the configuration and records the initial desired set. Does no I/O. Raises `ConfigError` for an invalid value. `lookup` replaces the default [market lookup](#market-lookup). |
 | `async with client` | Starts the client. It connects once the desired set is non-empty. Leaving the block, by any path, shuts it down ([Cancellation and shutdown](#cancellation-and-shutdown)). A client can be entered once. |
-| `client.subscribe(*markets: Market)` | Adds markets to the end of the desired set. A market already in it is left where it is. Allowed before and inside the block. |
+| `client.subscribe(*markets: Market)` | Adds markets to the end of the desired set. A market already in it is left where it is. A market that was removed or settled can be added again; its tokens [start over](#adding-a-market-again). Allowed before and inside the block. |
 | `client.unsubscribe(*condition_ids: str)` | Removes markets from the desired set. An ID not in it is ignored. |
 | `client.desired` | The desired set: a tuple of `Market`, in order. |
 | `client.records()` | The async iterator of [records](#records). It can be called once. |
@@ -401,8 +401,8 @@ On an interruption the client records:
    the receipt time of the last frame of any kind on the connection. A
    `PONG` confirms the data before it, since it is queued behind that data.
 2. A `TokenStateChange` to `uncertain`, reason `interrupted`, for each
-   desired token on the connection that is not settled, carrying the same
-   `last_confirmed_at`.
+   desired token on the connection that is `synchronizing`, `ready`, or
+   `uncertain`, carrying the same `last_confirmed_at`.
 3. `ConnectionStateChange(recovering)` for the first attempt, unless no
    desired token remains.
 
@@ -486,8 +486,8 @@ causes no extra reconnect.
 | `synchronizing` | Subscribed on the current connection and waiting for the token's opening `book`. | No |
 | `ready` | The client holds a book taken from the stream on the current connection and has applied every later change in arrival order. | Yes |
 | `uncertain` | The book may be out of date or wrong, or there is none when there should be. `reason` says why. | No |
-| `settled` | The market has resolved. Terminal: the market has left the desired set. | Final |
-| `removed` | The application removed the market. Terminal. | No |
+| `settled` | The market has resolved. Terminal: the market has left the desired set, unless the application adds it again. | Final |
+| `removed` | The application removed the market. Terminal, unless the application adds it again. | No |
 
 Only `ready` means the token's book and the events after it can be used as
 current. `ready` does not mean the source sent every event: no source signal
@@ -501,7 +501,7 @@ under [The connection](#the-connection).
 
 | # | From | Trigger | To (`reason`) | Records |
 | --- | --- | --- | --- | --- |
-| T1 | none | A subscription frame naming the token is sent. | `synchronizing` (`subscribed`) | `TokenStateChange` |
+| T1 | none, `removed`, or `settled` | A subscription frame naming the token is sent. | `synchronizing` (`subscribed`) | `TokenStateChange` |
 | T2 | `uncertain` | A subscription frame naming the token is sent on a new connection. | `synchronizing` (`subscribed`) | `TokenStateChange`; an open gap stays open |
 | T3 | `synchronizing` | A `book` for the token arrives on the current connection. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
 | T4 | `synchronizing` | `book_timeout` passes after the subscription frame with no `book` for it. | `uncertain` (`no_book`) | `TokenStateChange`; [settlement confirmation](#settlement) starts |
@@ -536,6 +536,17 @@ These change nothing about a token's state:
   book, and settlement is confirmed only as described below;
 - `best_bid_ask`, `last_trade_price`, `tick_size_change`, unknown events,
   and a late `PONG` within `pong_timeout`.
+
+### Adding a market again
+
+A market the application adds again after it was removed or settled starts
+over. Its tokens hold no book and no open gap from before. They stay
+`removed` or `settled`, and their events are discarded as
+[outside the desired set](#events-outside-the-desired-set), until a
+subscription frame names them; then T1 makes them `synchronizing`, with
+`previous` set to `removed` or `settled`. They take no part in an
+interruption before then. With D7's recommended default, the addition
+reconnects at once, as any addition does.
 
 ### Catalogued behavior
 
@@ -746,7 +757,9 @@ An event that names only tokens outside the desired set, or a market outside
 it, is discarded and counted as such, before repeat detection, so it does not
 count as a repeat. This covers removed and settled markets and
 any `market_resolved` for a market not subscribed; no run received one of
-those ([§6]). `new_market` events name new markets, not subscribed ones, and
+those ([§6]). It also covers a market added again, until a subscription
+frame names it ([Adding a market again](#adding-a-market-again)).
+`new_market` events name new markets, not subscribed ones, and
 follow `new_market` below. `UnknownEvent` and `UndecodableFrame` are always
 delivered.
 

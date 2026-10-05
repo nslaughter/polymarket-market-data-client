@@ -206,9 +206,10 @@ Needs D6: how the pinned SDK serves lookup and settlement confirmation.
 Needs D7: how subscription changes are applied.
 
 - `subscribe` and `unsubscribe` while running, as D7 decides, including the
-  `subscription_change` interruption and changes made during recovery.
+  `subscription_change` interruption, changes made during recovery, and a
+  market added again after it was removed.
 - Turn on: `subscribe-while-connected`, `subscribe-during-outage`,
-  `unsubscribe`, `unsubscribe-all-then-subscribe`.
+  `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed`.
 
 ### 9. Bound the consumer handoff
 

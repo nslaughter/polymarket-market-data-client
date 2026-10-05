@@ -397,7 +397,7 @@ The last two lines alternate, token by token.
 | A close frame | `close-frames`, `close-slow-consumer` |
 | A withheld `PONG` | `pong-withheld`; and a late one that is not a failure, `pong-late-within-timeout` |
 | Subscription restoration | `drop-without-close`, `settled-with-active`, `settle-announced-others-open`, `unsubscribe` |
-| Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe` |
+| Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
 | A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue` |
@@ -1484,6 +1484,54 @@ expect book B1
 expect token B1 ready
 expect book B2
 expect token B2 ready
+```
+
+#### `resubscribe-removed`
+
+A market removed and then added again starts over: it joins the end of the
+desired set, its tokens take no part in the interruption the addition
+causes, and they become `synchronizing` from `removed` and get a book with
+nothing held to compare it with.
+
+```scenario
+scenario resubscribe-removed
+markets A B
+pending D7
+
+start A B
+unsubscribe A
+expect token A1 removed previous=ready reason=removed
+expect token A2 removed previous=ready reason=removed
+add: subscribe A
+expect conn interrupted reason=subscription_change connection=1
+  within 0..0.5 of add
+expect token B1 uncertain previous=ready reason=interrupted
+expect token B2 uncertain previous=ready reason=interrupted
+expect conn recovering attempt=1 reason=subscription_change retry_in=0
+expect-client-close 1000 "subscription change"
+expect conn connecting attempt=1
+accept
+recv-subscribe B1 B2 A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token B1 synchronizing previous=uncertain
+expect token B2 synchronizing previous=uncertain
+expect token A1 synchronizing previous=removed reason=subscribed
+  connection=2
+expect token A2 synchronizing previous=removed reason=subscribed
+send opening B1 B2 A1 A2
+expect book B1 held_book_matched=true
+expect gap B1 cause=subscription_change end=book
+expect token B1 ready
+expect book B2 held_book_matched=true
+expect gap B2 cause=subscription_change end=book
+expect token B2 ready
+expect book A1 opening=true held_book_matched=none
+expect token A1 ready previous=synchronizing reason=book
+expect book A2 held_book_matched=none
+expect token A2 ready previous=synchronizing reason=book
+expect-nothing 0.5
+expect-stats connections=2
 ```
 
 ### Decoding
