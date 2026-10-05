@@ -39,13 +39,16 @@ milliseconds.
 | `B` | `0x00000000000000000000000000000000000000000000000000000000000000b2` | `B1` `10000000000000000000000000000000000000000000000000000000000000000000000000021`<br>`B2` `10000000000000000000000000000000000000000000000000000000000000000000000000022` | Yes, No | `synthetic-b` |
 | `S` | `0x000000000000000000000000000000000000000000000000000000000000005e` | `S1` `10000000000000000000000000000000000000000000000000000000000000000000000000031`<br>`S2` `10000000000000000000000000000000000000000000000000000000000000000000000000032` | Up, Down | `synthetic-s` |
 | `U` | `0x000000000000000000000000000000000000000000000000000000000000000e` | `U1` `10000000000000000000000000000000000000000000000000000000000000000000000000041`<br>`U2` `10000000000000000000000000000000000000000000000000000000000000000000000000042` | Yes, No | `synthetic-u` |
+| `N` | `0x00000000000000000000000000000000000000000000000000000000000000c3` | `N1` `10000000000000000000000000000000000000000000000000000000000000000000000000051`<br>`N2` `10000000000000000000000000000000000000000000000000000000000000000000000000052` | Yes, No | none |
 
 `A` and `B` are trading. Each has `min_order_size` `"5"`, `neg_risk` false,
 and tick size `"0.01"`; the last trade price is `"0.500"` for `A` and
 `"0.400"` for `B`. `S` has settled, with `S2` winning, and the server sends
 no book for it. `U` is unknown to market lookup, and the server sends no book
-for it either. A scenario passes a market to the client as
-`Market(condition_id, token_ids, slug)` from this table.
+for it either. `N` has settled like `S`, with `N2` winning, but has no slug,
+so lookup cannot be asked about it. A scenario passes a market to the
+client as `Market(condition_id, token_ids, slug)` from this table, with
+`None` for a slug it lacks.
 
 Standard books, each last changed at `t=-30000`, so that opening books carry
 old timestamps as real ones do ([§3]):
@@ -108,7 +111,8 @@ Without a step telling it otherwise, the server:
 
 The lookup implements `MarketLookup` for the synthetic markets. Unless a
 `lookup` line or step says otherwise, `A` and `B` answer `open`, `S`
-answers `closed winner=S2`, and `U` answers `missing`.
+answers `closed winner=S2`, `N` answers `closed winner=N2`, and `U` answers
+`missing`.
 
 | Answer | `market(...)` returns | `book_parameters(token)` returns |
 | --- | --- | --- |
@@ -117,7 +121,9 @@ answers `closed winner=S2`, and `U` answers `missing`.
 | `missing` | `None` | `None` |
 | `error` | raises `RuntimeError` | raises `RuntimeError` |
 
-It finds a market by slug or by condition ID, and counts every call.
+It finds a market by slug, the only way the client looks one up (D6), and
+counts every call. A call `MarketLookup` does not define, such as a lookup
+by condition ID, fails the scenario.
 
 ### Profile
 
@@ -409,7 +415,7 @@ The last two lines alternate, token by token.
 | A withheld `PONG` | `pong-withheld`; and a late one that is not a failure, `pong-late-within-timeout` |
 | Subscription restoration | `drop-without-close`, `settled-with-active`, `settle-announced-others-open`, `unsubscribe` |
 | Subscription changes | `subscribe-while-connected`, `subscribe-before-first-frame`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
-| A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
+| A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `settlement-without-slug`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event`, `hash-check-predates-undecodable` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded`, `consumer-pause-outlasts-recovery-time` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, `hash-divergence`, and `hash-check-predates-undecodable` |
@@ -1422,6 +1428,36 @@ expect token A2 uncertain previous=uncertain
   reason=settlement_unconfirmed
 expect-nothing 1.0
 expect-stats lookup_failures>=2
+```
+
+#### `settlement-without-slug`
+
+A market added without a slug gets no book. Lookup finds markets only by
+slug (D6), so the client cannot confirm the settlement. Once `book_timeout`
+passes, it reports the settlement unconfirmed at once, without calling
+lookup.
+
+```scenario
+scenario settlement-without-slug
+markets N
+owner-spec D6
+
+expect conn connecting attempt=1
+accept
+s: recv-subscribe N1 N2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token N1 synchronizing previous=none
+expect token N2 synchronizing previous=none
+send opening
+n: expect token N1 uncertain previous=synchronizing reason=no_book
+  within 0.9..1.3 of s
+expect token N2 uncertain previous=synchronizing reason=no_book
+expect token N1 uncertain previous=uncertain reason=settlement_unconfirmed
+  within 0..0.1 of n
+expect token N2 uncertain previous=uncertain reason=settlement_unconfirmed
+expect-nothing 1.0
+expect-stats lookups=0
 ```
 
 #### `settle-lookup-after-late-book`

@@ -569,7 +569,7 @@ under [The connection](#the-connection).
 | T10 | `uncertain` (any reason but `interrupted`) | A `book` for the token. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
 | T11 | any but `settled` or `removed` | Market lookup, confirming a settlement, shows the market closed (D6). | `settled` (`lookup_closed`) | per token: `CaptureGap` if open; `TokenStateChange` |
 | T12 | `uncertain` (`no_book`) | Market lookup finds no such market. | `uncertain` (`unknown_market`) | `TokenStateChange` |
-| T13 | `uncertain` (`no_book`) | `settlement_confirm_timeout` passes without lookup showing the market closed. | `uncertain` (`settlement_unconfirmed`) | `TokenStateChange` |
+| T13 | `uncertain` (`no_book`) | `settlement_confirm_timeout` passes without lookup showing the market closed; or, at once, lookup cannot be asked: the market has no slug, or no lookup is available. | `uncertain` (`settlement_unconfirmed`) | `TokenStateChange` |
 | T14 | `synchronizing`, `ready`, or `uncertain`, on the connection | The connection is interrupted. | `uncertain` (`interrupted`) | `TokenStateChange`, after `interrupted`; a gap opens if the token holds a book |
 | T15 | any but `settled` or `removed` | `market_resolved` for its market. | `settled` (`market_resolved`) | `MarketResolvedEvent`; then, per token, `CaptureGap` if open and `TokenStateChange` |
 | T16 | any but `settled` or `removed`, on the connection | The server closes with `1000 all subscribed assets resolved`. | `settled` (`all_resolved_close`) | after `ended`, per token: `CaptureGap` if open; `TokenStateChange` |
@@ -715,20 +715,27 @@ covers an application subscribing to a market that has already settled.
 
 A missing book is not settlement on its own. An unknown token would also get
 no book, according to the findings, though no run subscribed one (Inferred,
-[§6]). So the client confirms through [market lookup](#market-lookup), once
-per market: it asks at once when a token of the market reaches T4, then every
-`settlement_poll_interval` seconds, until lookup shows the market closed
-(T11), finds no market (T12), or `settlement_confirm_timeout` passes (T13).
-T11 settles every token of the market that is not already `settled` or
-`removed`, whatever its state, since the market then leaves the desired
-set. T12 and T13 apply only to the market's tokens that are still
-`uncertain` with `no_book`. Lookup lags the stream: the market lookup the
-investigation used first showed settled markets as closed 51 s, 186 s, and
-about three minutes after `market_resolved`, and its `closedTime` does not
-say when a client could first see that (Observed, [§6]). A `book` that
-arrives meanwhile makes the token `ready` (T10), and lookup goes on; if it
-then shows the market closed, T11 settles that token too. A token left
-`uncertain` by T12 or T13 is subscribed again on the next connection.
+[§6]). So the client confirms through [market lookup](#market-lookup), by
+the market's slug, once per market: it calls `market(slug=…)` at once when a
+token of the market reaches T4, then every `settlement_poll_interval`
+seconds, until lookup shows the market closed (T11), finds no market (T12),
+or `settlement_confirm_timeout` passes (T13). T11 settles every token of the
+market that is not already `settled` or `removed`, whatever its state, since
+the market then leaves the desired set. T12 and T13 apply only to the
+market's tokens that are still `uncertain` with `no_book`. Lookup lags the
+stream: the market lookup the investigation used first showed settled
+markets as closed 51 s, 186 s, and about three minutes after
+`market_resolved`, and its `closedTime` does not say when a client could
+first see that (Observed, [§6]). A `book` that arrives meanwhile makes the
+token `ready` (T10), and lookup goes on; if it then shows the market closed,
+T11 settles that token too. A token left `uncertain` by T12 or T13 is
+subscribed again on the next connection.
+
+A market without a slug cannot be confirmed (D6), nor can any market when
+no lookup is available ([Market lookup](#market-lookup)). Lookup is then
+not called, and T13 follows T4 at once: after the `no_book` records, each
+token that reached T4 gets its `settlement_unconfirmed` record, in the same
+order.
 
 A settled market leaves the desired set at once, so no later subscription
 frame names it. Events for it that still arrive, such as a repeated
@@ -897,10 +904,14 @@ replace it with a scripted one:
 
 ```python
 class MarketLookup(Protocol):
-    async def market(self, *, slug: str | None = None,
-                     condition_id: str | None = None) -> MarketInfo | None: ...
+    async def market(self, *, slug: str) -> MarketInfo | None: ...
     async def book_parameters(self, token_id: str) -> BookParameters | None: ...
 ```
+
+The client looks a market up only by its slug, as D6 specifies: `resolve`
+by the slug it is given, and settlement confirmation by the market's
+`slug`. Whether the SDK finds a market by condition ID was not checked
+(D6).
 
 `MarketInfo` holds `condition_id`, `slug`, `question`, `token_ids` and
 `outcomes` in the same order, `closed: bool`, `end_date`, and, when known,
@@ -908,8 +919,8 @@ class MarketLookup(Protocol):
 `min_order_size: Decimal` and `neg_risk: bool`. `None` means not found.
 
 If no lookup is available, as when the SDK, an optional extra under D6, is
-not installed, `resolve` raises `ClientStateError`, and a token reaching
-`no_book` moves straight to `settlement_unconfirmed` (T13).
+not installed, `resolve` raises `ClientStateError`, and no settlement can
+be confirmed ([Settlement](#settlement)).
 
 Lookup calls run outside the reading task, each limited to `lookup_timeout`.
 An exception or a timeout counts as a failed call: it is counted, and for
