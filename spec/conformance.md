@@ -399,7 +399,7 @@ The last two lines alternate, token by token.
 
 | Criterion | Scenarios |
 | --- | --- |
-| Initial states match independently prepared expectations | `initial-books`, `market-event-types`, `resolve-by-slug` |
+| Initial states match independently prepared expectations | `initial-books`, `market-event-types`, `resolve-by-slug`, `change-before-any-book` |
 | Recovered states match them | `drop-without-close`, `close-frames`, `close-slow-consumer`, `pong-withheld`, `reconnect-refused-then-accepted` |
 | A dropped connection | `drop-without-close` |
 | A close frame | `close-frames`, `close-slow-consumer` |
