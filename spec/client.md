@@ -252,7 +252,7 @@ the client keeps both and reorders nothing.
 | --- | --- |
 | `BookEvent` | `asset_id: str`; `hash: str`; `bids`, `asks: tuple[Level, ...]`, in the order sent; `tick_size`, `last_trade_price: Decimal \| None`, present only on a subscription's opening books (Observed, [§4]); `opening: bool`, true when the book arrived in the connection's first frame; `held_book_matched: bool \| None` (below). |
 | `PriceChangeEvent` | `changes: tuple[PriceChange, ...]`, in the order sent. |
-| `BestBidAskEvent` | `asset_id`; `best_bid`, `best_ask`, `spread: Decimal \| None`. |
+| `BestBidAskEvent` | `asset_id`; `best_bid`, `best_ask: Decimal`; `spread: Decimal \| None`. |
 | `LastTradePriceEvent` | `asset_id`; `price`, `size: Decimal`; `side: Side`; `fee_rate_bps: Decimal \| None`; `transaction_hash: str \| None`. |
 | `TickSizeChangeEvent` | `asset_id`; `old_tick_size`, `new_tick_size: Decimal`. |
 | `MarketResolvedEvent` | `id: str \| None`; `assets_ids: tuple[str, ...]`; `winning_asset_id: str`; `winning_outcome: str \| None`; `tags: tuple[str, ...]`. |
