@@ -1090,10 +1090,13 @@ specification sets.
 | `keep_raw` | `False` | Attach each frame's text to its event records. |
 | `max_message_bytes` | `16777216` | The largest frame the client accepts. |
 
-Every duration must be positive, `queue_size` at least 1, each fraction
-greater than 0 and at most 1, with `resume_below` below `backlog_warning`,
-and `overflow` and `new_market` one of the values listed above. Building
-`ClientConfig` or `ReconnectPolicy` with any other value raises
+Every duration, the policy's included, must be finite and greater than 0,
+so infinity is refused as well as NaN; `queue_size`, `max_message_bytes`,
+and the policy's `max_attempts` must be integers of at least 1; each
+fraction greater than 0 and at most 1, with `resume_below` below
+`backlog_warning`; and `overflow` and `new_market` one of the values
+listed above. Building `ClientConfig` or `ReconnectPolicy` with any other
+value, or with a field the table does not list, raises
 `ConfigError`, with Pydantic's validation error as its `__cause__`, never
 the `ValidationError` itself; `ClientConfig` raises it for an invalid
 nested policy too. A Pydantic model validates in its own constructor, so
@@ -1107,6 +1110,19 @@ raises `ConfigError` the same way, since `model_copy(update=…)` and
 `model_construct` build a model without validating it (measured likewise).
 It also raises `ConfigError` when `verify_hash` is on and no lookup is
 available, since no hash could then be checked (D4).
+
+**Bounds the draft left open: decided by the operator on 2026-10-05.**
+Building the configuration (plan step 1) found the draft silent on three
+things: what `max_attempts` and `max_message_bytes` accept, whether
+infinity counts as a positive duration, and what happens to a field the
+table does not list. The operator chose integers of at least 1 for both
+counts, since `max_attempts` 0 would fail before any attempt and
+`max_message_bytes` 0 would refuse every frame. Durations must be finite,
+since an infinite `max_recovery_time` would remove one of the two bounds
+D2 specifies. And an unlisted field is refused, so a misspelt one cannot
+leave its default in force unnoticed. Accepting any integer, accepting
+infinity, and ignoring unlisted fields, as Pydantic does by default, were
+the options not taken.
 
 ## Decisions
 
