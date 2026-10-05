@@ -416,6 +416,14 @@ A capture gap opens for each of those tokens that holds a book, starting at
 whose gap is already open, because it never got a fresh book after an
 earlier interruption, keeps that gap.
 
+From the `interrupted` record on, nothing more from that connection is
+delivered or applied. When the client closes the connection itself, after
+`pong_timeout`, `consumer_overflow`, or `subscription_change`, frames can
+still arrive before the close completes: the stream may be sending data,
+and `PONG` waits behind it (Observed, [§2]). Those frames are counted
+(`frames_after_interruption`) and discarded, so `last_confirmed_at` stays
+the end of what the client applied.
+
 ### Reconnecting
 
 The client reconnects with exponential backoff, within the bounds D2 sets.
@@ -831,7 +839,8 @@ limit loses events, and each must report the loss as a capture gap.
 
 With D3's recommended `disconnect`, a frame that reaches the limit starts
 the `consumer_overflow` interruption. That frame is neither delivered nor
-applied, and the client reads nothing more from that connection. The
+applied, nor is anything after it on that connection
+([Detecting an interruption](#detecting-an-interruption)). The
 interruption's `last_confirmed_at` is the receipt time of the last frame
 whose records were queued, so the gap includes the frame that overflowed.
 The client reconnects, with no delay, once the consumer's reading brings
@@ -936,6 +945,7 @@ conformance scenarios check them by name:
 | Field | Type | Counts |
 | --- | --- | --- |
 | `frames` | `int` | Frames received after subscription frames, except `PONG` |
+| `frames_after_interruption` | `int` | Frames received on a connection after its interruption, discarded |
 | `events` | `Mapping[str, int]` | Decoded events, by `event_type` |
 | `repeats` | `int` | Events judged repeats |
 | `unknown` | `int` | `UnknownEvent` records |

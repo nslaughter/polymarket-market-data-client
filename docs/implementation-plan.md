@@ -182,7 +182,9 @@ Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
   `RecoveryFailed`.
 - Unit tests: with `jitter` on, every `retry_in` lies in [0, the delay
   for its attempt), and the values vary; with it off, each equals that
-  delay. No scenario can show a random delay.
+  delay. No scenario can show a random delay. Frames that arrive while
+  the client closes a connection after a `pong_timeout` are neither
+  delivered nor applied, and are counted; a scenario cannot time them.
 - Turn on: `drop-without-close`, `close-frames`, `close-slow-consumer`,
   `pong-withheld`, `pong-late-within-timeout`, `startup-retry`,
   `connect-timeout`, `reconnect-refused-then-accepted`,
