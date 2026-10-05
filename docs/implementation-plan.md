@@ -30,7 +30,7 @@ scheme.
 | --- | --- | --- | --- |
 | 1. Create the package, records, and configuration | D5, D8 | Done | [#6](https://github.com/nslaughter/polymarket-market-data-client/pull/6) |
 | 2. Decode frames | D8 | Done | [#8](https://github.com/nslaughter/polymarket-market-data-client/pull/8) |
-| 3. Keep books and token states | | Done | |
+| 3. Keep books and token states | | Done | [#10](https://github.com/nslaughter/polymarket-market-data-client/pull/10) |
 | 4. Build the conformance harness | | Not started | |
 | 5. Connect, subscribe, and deliver records | | Not started | |
 | 6. Detect interruptions and recover | D1, D2 | Not started | |
