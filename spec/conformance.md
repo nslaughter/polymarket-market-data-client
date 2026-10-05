@@ -261,6 +261,13 @@ value is compared depends on the field:
   or `buy`.
 - A tuple of IDs matches a comma-separated list of names in that order;
   `()` matches an empty tuple.
+- A tuple of `Level`, as `bids` and `asks`, matches `<price>:<size>` pairs
+  separated by commas, in the record's order, each compared as a `Decimal`
+  field is; `-` matches an empty tuple. The expected levels are written
+  out in the scenario, not taken from the server's reference book.
+- A tuple of `PriceChange`, as `changes`, matches entries written as in the
+  frame notation, `<T>:<BUY or SELL>:<price>:<size>`, separated by commas,
+  in order: each entry's `asset_id`, `side`, `price`, and `size`.
 - `t=<offset>` matches `source_timestamp_ms` equal to `T0` plus the offset.
 - `resumed=true` and `resumed=false` match a `CaptureGap` whose
   `resumed_at` is or is not set.
@@ -455,13 +462,16 @@ expect-nothing 0.3
 o: send opening A1 A2 B1 B2
 expect book A1 opening=true connection=1 frame=1 index=0 t=-30000
   held_book_matched=none tick_size=0.01 last_trade_price=0.500
-  within 0..0.3 of o
+  bids=0.47:250,0.48:100 asks=0.53:300,0.52:120 within 0..0.3 of o
 expect token A1 ready previous=synchronizing reason=book connection=1
 expect book A2 opening=true frame=1 index=1
+  bids=0.47:300,0.48:120 asks=0.53:250,0.52:100
 expect token A2 ready
 expect book B1 opening=true frame=1 index=2 last_trade_price=0.400
+  bids=0.38:200,0.39:80 asks=0.42:150,0.41:90
 expect token B1 ready
 expect book B2 opening=true frame=1 index=3
+  bids=0.58:150,0.59:90 asks=0.62:200,0.61:80
 expect token B2 ready
 expect-nothing 1.0
 expect-stats frames=1 connections=1
@@ -501,7 +511,7 @@ markets A
 start A
 send pc A t=100 A1:BUY:0.49:50 A1:SELL:0.51:75
 expect price_change A t=100 connection=1 frame=2 applied=true
-  before_book=false repeat=false
+  before_book=false repeat=false changes=A1:BUY:0.49:50,A1:SELL:0.51:75
 send bba A1 t=100
 expect best_bid_ask A1 t=100 best_bid=0.49 best_ask=0.51 spread=0.02
 send ltp A1 t=150 price=0.51 size=10 side=BUY
@@ -529,13 +539,16 @@ send pc A t=100 A1:BUY:0.49:50 A2:SELL:0.51:50
 expect price_change A t=100 applied=true
 send book A1
 expect book A1 opening=false t=100 held_book_matched=true
+  bids=0.47:250,0.48:100,0.49:50 asks=0.53:300,0.52:120
 silent A1 t=200 BUY:0.46:500
 send book A1
 expect book A1 opening=false t=200 held_book_matched=false
+  bids=0.46:500,0.47:250,0.48:100,0.49:50 asks=0.53:300,0.52:120
 send pc A t=300 A1:BUY:0.49:0
-expect price_change A t=300 applied=true
+expect price_change A t=300 applied=true changes=A1:BUY:0.49:0
 send book A1
 expect book A1 t=300 held_book_matched=true
+  bids=0.46:500,0.47:250,0.48:100 asks=0.53:300,0.52:120
 expect-nothing 0.5
 ```
 
@@ -675,19 +688,23 @@ expect token A1 synchronizing previous=uncertain reason=subscribed
 expect token A2 synchronizing previous=uncertain reason=subscribed
 o: send opening A1 A2
 expect book A1 opening=true connection=2 frame=1 t=2000
-  held_book_matched=false
+  held_book_matched=false bids=0.46:500,0.47:250,0.48:100,0.49:50
+  asks=0.53:300,0.52:120
 expect gap A1 cause=dropped end=book connection_before=1
   connection_after=2 resumed=true held_book_matched=false
   last_confirmed_at=set detected_at=set discarded=none
 expect token A1 ready previous=synchronizing reason=book connection=2
   within 0..0.3 of o
 expect book A2 opening=true t=-30000 held_book_matched=true
+  bids=0.47:300,0.48:120 asks=0.53:250,0.52:100
 expect gap A2 cause=dropped end=book resumed=true held_book_matched=true
 expect token A2 ready
 send pc A t=2100 A1:BUY:0.49:0
 expect price_change A t=2100 connection=2 frame=2 applied=true
+  changes=A1:BUY:0.49:0
 send book A1
 expect book A1 t=2100 held_book_matched=true
+  bids=0.46:500,0.47:250,0.48:100 asks=0.53:300,0.52:120
 expect-nothing 0.5
 expect-stats connections=2 interruptions.dropped=1
 ```
@@ -1852,6 +1869,7 @@ expect token A1 synchronizing previous=uncertain
 expect token A2 synchronizing previous=uncertain
 send opening A1 A2
 expect book A1 t=104 held_book_matched=false
+  bids=0.47:250,0.48:100,0.49:14 asks=0.53:300,0.52:120
 expect gap A1 cause=consumer_overflow end=book held_book_matched=false
 expect token A1 ready
 expect book A2 held_book_matched=true
