@@ -48,9 +48,10 @@ findings. Each says so where it appears:
   same excerpts. The excerpts keep only parts of the captures, so these are
   samples, not totals.
 - That a burst's entries, which share a hash, came in separate frames: of
-  20,096 `price_change` entries in those excerpts, repeats aside, 1,849
-  carried the hash of their token's previous entry, which had come in an
-  earlier frame, at most 0.27 s before (D4).
+  20,038 `price_change` entries in those excerpts, repeats aside and with
+  excerpts cut from the same capture merged, 1,793 from 7 captures carried
+  the hash of their token's previous entry, which had come in an earlier
+  frame, at most 0.27 s before (D4).
 - That no frame other than JSON and `PONG` appears in those excerpts.
 - From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
   Python 3.11 or later and `websockets` from 13 to below 16, and lists
@@ -1206,11 +1207,12 @@ the probe, failed four consecutive checks on each token over about 4 s.
 Checks need `min_order_size` and `neg_risk` from REST, and on busy markets a
 search over 1,001 trade prices. Whether every market uses this recipe is
 open. Measured for this document from the committed excerpts, which keep
-only parts of the captures, a burst's entries arrive in separate frames: of
-20,096 `price_change` entries, repeats aside, 1,849 carried the same hash
-as their token's previous entry, which had come in an earlier frame, 1,847
-of them with the same timestamp. They followed it by at most 0.27 s, and
-143 came after other frames in between.
+only parts of the captures, with excerpts cut from the same capture merged,
+a burst's entries arrive in separate frames: of 20,038 `price_change`
+entries, repeats aside, 1,793 from 7 captures carried the same hash as
+their token's previous entry, which had come in an earlier frame, 1,791 of
+them with the same timestamp. They followed it by at most 0.27 s, and 143
+came after other frames in between.
 
 **Recommended default: verify, with these rules.** Fetch `min_order_size`
 and `neg_risk` through lookup when a token enters the desired set; until they
