@@ -400,7 +400,7 @@ The last two lines alternate, token by token.
 | Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
 | A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
-| A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue` |
+| A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, and `hash-divergence` |
 | A bounded retry policy (README step 4) | `startup-retry`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time` |
 | Cancellation (README design choices) | `exit-while-connected`, `cancel-during-recovery`, `read-timeout` |
@@ -1818,6 +1818,62 @@ expect token A2 ready
 expect backlog queued=0 limit=1 rising=false
 expect-backlog 0
 expect-stats interruptions.consumer_overflow=1
+```
+
+#### `status-records-bounded`
+
+The consumer is not reading, and the server accepts connections, sends
+`[]`, and drops them. Each cycle adds status records and no market-event
+record, so the queue limit never applies. Once `queue_size` status records
+are waiting, the client starts no attempt until the consumer reads.
+
+```scenario
+scenario status-records-bounded
+markets A
+config queue_size=10
+pending D2
+
+accept
+recv-subscribe A1 A2
+send opening
+drop
+accept
+recv-subscribe A1 A2
+send opening
+drop
+expect-no-connect 1.0
+expect conn connecting attempt=1
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing previous=none
+expect token A2 synchronizing previous=none
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=1 retry_in=0.1 reason=backoff
+expect conn connecting attempt=1
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+expect conn interrupted reason=dropped connection=2
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=1 reason=waiting_for_consumer
+  retry_in=none
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=3
+expect conn subscribed connection=3
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+send opening A1 A2
+expect book A1 held_book_matched=none
+expect token A1 ready previous=synchronizing reason=book
+expect book A2 held_book_matched=none
+expect token A2 ready
+expect-stats connections=3 interruptions.dropped=2
 ```
 
 ### Shutdown and cancellation

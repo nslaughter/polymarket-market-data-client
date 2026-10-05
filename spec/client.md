@@ -427,11 +427,18 @@ attempts in a row have failed, or if the wait would end more than
 attempt began). An attempt under way is bounded by `connect_timeout`, not
 cut short.
 
+The client also waits for the consumer before an attempt while `queue_size`
+or more status records are waiting for it, which keeps them bounded
+([Consumer handoff](#consumer-handoff)). It then emits `recovering` with
+reason `waiting_for_consumer` in place of the record it would otherwise
+emit, and starts the attempt, with no delay, once the consumer's reading
+leaves fewer than `queue_size` waiting.
+
 | Record | When |
 | --- | --- |
 | `recovering`, `attempt=k`, `retry_in`, `reason=backoff` | Before the delay for attempt *k*. After a failed attempt, `detail` says how it failed. |
 | `recovering`, `attempt=1`, `reason=subscription_change`, `retry_in=0` | Before reconnecting to apply a change (D7). |
-| `recovering`, `attempt=1`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, until the queue drains (D3). |
+| `recovering`, `attempt=k`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, with `attempt=1`, until the queue drains (D3); or before attempt *k* while `queue_size` or more status records are waiting. |
 | `connecting`, `attempt=k` | When attempt *k* starts. |
 | `open`, `connection=g` | When the handshake completes. |
 | `subscribed`, `connection=g` | When the subscription frame has been sent. The tokens' `synchronizing` records follow. |
@@ -784,9 +791,15 @@ Records pass to the consumer through one bounded FIFO queue:
   frame for more tokens than that, still gets through once the backlog is
   below the limit. The queue holds at most `queue_size − 1` market-event
   records plus one frame's.
-- Status records never count against it and are never dropped. Each
-  interruption produces at most a few per token, and while the client waits
-  for the consumer it opens no connection, so they stay bounded.
+- Status records never count against it and are never dropped. They are
+  bounded another way: while `queue_size` or more status records are
+  waiting, the client starts no connection attempt
+  ([Reconnecting](#reconnecting)). Status records come with market-event
+  records, which the limit bounds; from connecting and interruptions, a
+  few per token for each connection; or from lookup and the application's
+  own changes. So an endpoint that keeps accepting connections and dropping
+  them cannot grow the queue without limit while the consumer is not
+  reading.
 - The task that reads the socket never waits for the consumer. It must keep
   reading `PONG` and close frames, and a reader blocked on a full queue
   would turn a slow consumer into a heartbeat timeout or a server close
@@ -1026,7 +1039,8 @@ it. Each can be revisited in a later version.
     conformance scenarios compare records in order.
 20. **Status records bypass the queue limit; the reader never blocks.** A
     state change or gap must never be lost, and a reader that stops reading
-    loses the connection ([§2]).
+    loses the connection ([§2]). Status records are bounded instead by
+    holding back reconnection while too many are waiting.
 21. **Values are `Decimal` and timestamps integer milliseconds, as sent.**
     The README requires exact values.
 22. **Client-initiated closes use code 1000 with a reason naming the
