@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each supported release from 3.12 on (D5).
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - name: Install the development environment
+        run: uv sync --locked
+      - name: Check formatting
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type-check
+        run: uv run mypy
+      - name: Test
+        run: uv run pytest
+      - name: Build the wheel
+        run: uv build
+      - name: Install the wheel in a clean virtual environment and import it
+        run: |
+          wheel=$(ls "$PWD"/dist/*.whl)
+          uv venv "$RUNNER_TEMP/wheel"
+          uv pip install --python "$RUNNER_TEMP/wheel/bin/python" "$wheel"
+          cd "$RUNNER_TEMP"
+          wheel/bin/python -c "import polymarket_market_data as p; print(p.__file__)"
+      - name: Install the wheel with the sdk extra and import both
+        run: |
+          wheel=$(ls "$PWD"/dist/*.whl)
+          uv venv "$RUNNER_TEMP/wheel-sdk"
+          uv pip install --python "$RUNNER_TEMP/wheel-sdk/bin/python" "$wheel[sdk]"
+          cd "$RUNNER_TEMP"
+          wheel-sdk/bin/python -c "import polymarket, polymarket_market_data as p; print(p.__file__)"
+
+  oldest:
+    name: Oldest dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+      - name: Build the wheel
+        run: uv build
+      - name: Install the wheel with the lowest dependencies pyproject.toml allows
+        run: |
+          uv venv "$RUNNER_TEMP/oldest"
+          python="$RUNNER_TEMP/oldest/bin/python"
+          uv pip install --python "$python" --resolution lowest-direct --only-binary :all: -r pyproject.toml
+          uv pip install --python "$python" --no-deps dist/*.whl
+          uv pip install --python "$python" "pytest>=8"
+          "$python" -c "import pydantic, websockets; print(pydantic.VERSION, websockets.__version__)"
+      - name: Test against the installed wheel
+        run: |
+          cd "$RUNNER_TEMP"
+          oldest/bin/python -m pytest -p no:cacheprovider --rootdir="$GITHUB_WORKSPACE" -c "$GITHUB_WORKSPACE/pyproject.toml" "$GITHUB_WORKSPACE/tests"
