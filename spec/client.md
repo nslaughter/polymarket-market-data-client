@@ -47,6 +47,10 @@ findings. Each says so where it appears:
   connections whose excerpts keep the opening frame), measured from the
   same excerpts. The excerpts keep only parts of the captures, so these are
   samples, not totals.
+- That a burst's entries, which share a hash, came in separate frames: of
+  20,096 `price_change` entries in those excerpts, repeats aside, 1,849
+  carried the hash of their token's previous entry, which had come in an
+  earlier frame, at most 0.27 s before (D4).
 - That no frame other than JSON and `PONG` appears in those excerpts.
 - From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
   Python 3.11 or later and `websockets` from 13 to below 16, and lists
@@ -915,6 +919,9 @@ book checked, [§4]):
   ([`spikes/orderbook.py`](../spikes/orderbook.py)).
 - Consecutive entries for a token in one burst share a hash, that of the
   book after the last of them, so a check applies once per burst ([§4]).
+  In the excerpts, measured for this document, a burst's entries came in
+  separate frames, so a live client cannot tell when one has ended; D4
+  leaves that open.
 - A trade's price enters the hash shortly before the stream announces it.
   On busy markets the price in the hash did not follow announced trades at
   all and was found only by trying the 1,001 prices on the 0.001 grid; a
@@ -1198,7 +1205,12 @@ within 48 ms by a check that verified. Over 45 minutes on busy markets,
 the probe, failed four consecutive checks on each token over about 4 s.
 Checks need `min_order_size` and `neg_risk` from REST, and on busy markets a
 search over 1,001 trade prices. Whether every market uses this recipe is
-open.
+open. Measured for this document from the committed excerpts, which keep
+only parts of the captures, a burst's entries arrive in separate frames: of
+20,096 `price_change` entries, repeats aside, 1,849 carried the same hash
+as their token's previous entry, which had come in an earlier frame, 1,847
+of them with the same timestamp. They followed it by at most 0.27 s, and
+143 came after other frames in between.
 
 **Recommended default: verify, with these rules.** Fetch `min_order_size`
 and `neg_risk` through lookup when a token enters the desired set; until they
@@ -1212,6 +1224,24 @@ first and the latest arrived at least `hash_grace` (2 s) apart; then T7. A
 verifying check restores the token (T9). If a `book` fails its own check,
 stop checking that token until a later `book` verifies, and count it, since
 the recipe or its inputs, not the source's book, are then wrong.
+
+**Open within this default: when a burst has ended.** A live client cannot
+tell a burst's last entry when it arrives. The investigation's replay
+checked each run of entries sharing a hash once the token's next entry,
+with another hash, or its next `book` had arrived (`check_hashes.py`),
+which a replay of a finished capture can always do. The ways to end a
+burst live:
+
+| Option | For | Against |
+| --- | --- | --- |
+| Check when the token's next entry carries another hash or its next `book` arrives, or after a quiet period with no entry for it | One check per burst, as in the replay, so its counts carry over | A new setting; detection waits for the quiet period, which must exceed the 0.27 s above |
+| Check at the end of each frame, and withdraw a failed check when the token's next entry carries the same hash | No new setting; nothing waits | Every frame of a burst but its last fails a check and runs a trade-price search: about one entry in eleven in the excerpts |
+| Check only when the token's next entry carries another hash or its next `book` arrives | No new setting; the replay's rule exactly | Divergence shows one change later, and a token's last burst before it goes quiet is not checked |
+
+Until the operator decides, the `pending D4` scenarios hold under the first
+option with a quiet period of at most 0.3 s, and under the second. Under
+the third, `hash-divergence` needs one more change before its token becomes
+`uncertain`.
 
 ### D5. Supported Python versions, and the package and import names
 

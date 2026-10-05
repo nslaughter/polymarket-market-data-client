@@ -2112,7 +2112,10 @@ expect-stats interruptions=0
 
 ### Hash verification
 
-These follow D4's recommended default and run with `verify_hash` on.
+These follow D4's recommended default and run with `verify_hash` on. D4
+leaves open when a live client checks a burst
+([client contract](client.md#d4-hash-verification)); `hash-divergence`
+assumes a check within 0.3 s of a burst's last entry.
 
 #### `hash-checks-pass`
 
