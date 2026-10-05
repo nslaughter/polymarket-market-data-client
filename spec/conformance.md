@@ -1706,7 +1706,7 @@ send book A1
 expect book A1 held_book_matched=true
 expect token A1 ready previous=uncertain reason=book
 send-binary 00ff
-expect undecodable reason=binary affected=A1
+expect undecodable reason=binary raw=00ff affected=A1
 expect token A1 uncertain reason=undecodable
 send-text 42
 expect undecodable reason=not_object index=none affected=()

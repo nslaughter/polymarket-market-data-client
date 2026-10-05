@@ -105,7 +105,11 @@ Follows D8 for the types.
   [Configuration](../spec/client.md#configuration) table gives it,
   including those D1 to D4 and D6 specify.
 - Tests: each invalid configuration value is refused; records are frozen;
-  every public name is importable from the top level.
+  every public name is importable from the top level; every record type
+  reads back equal through `TypeAdapter`'s `dump_json` and `validate_json`,
+  except a payload's decimals, which come back as strings (D8). The cases
+  include an `UndecodableFrame` for the binary frame `00ff`, an
+  `UnknownEvent`, and a `NewMarketEvent` whose payload holds a decimal.
 
 Out of scope: any behavior. `MarketDataClient` may exist only as a stub
 that raises `NotImplementedError`.

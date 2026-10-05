@@ -61,8 +61,8 @@ findings. Each says so where it appears:
 - The names of the SDK methods the investigation's scripts called:
   `AsyncPublicClient`, `list_markets`, `get_market`, and `get_order_book`.
 - How Pydantic 2.13.5 decodes decimals, refuses non-finite values, reports
-  where validation failed, and how fast it decodes, measured locally on
-  synthetic frames (D8).
+  where validation failed, how fast it decodes, and how it serializes
+  records, measured locally on synthetic frames (D8).
 
 The findings' open questions stay open. The client is designed to behave
 sensibly whichever way they resolve, and no conformance scenario assumes an
@@ -253,7 +253,7 @@ the client keeps both and reorders nothing.
 | `LastTradePriceEvent` | `asset_id`; `price`, `size: Decimal`; `side: Side`; `fee_rate_bps: Decimal \| None`; `transaction_hash: str \| None`. |
 | `TickSizeChangeEvent` | `asset_id`; `old_tick_size`, `new_tick_size: Decimal`. |
 | `MarketResolvedEvent` | `id: str \| None`; `assets_ids: tuple[str, ...]`; `winning_asset_id: str`; `winning_outcome: str \| None`; `tags: tuple[str, ...]`. |
-| `NewMarketEvent` | `id: str`; `condition_id: str \| None`, from `condition_id` or else `market`; `slug: str \| None`; `question: str \| None`; `assets_ids: tuple[str, ...]`, empty if absent; `payload: Mapping[str, Any]`, the whole event, read-only. Delivered only if `new_market` is `deliver`. The common field `market` is `""` when the event has none. |
+| `NewMarketEvent` | `id: str`; `condition_id: str \| None`, from `condition_id` or else `market`; `slug: str \| None`; `question: str \| None`; `assets_ids: tuple[str, ...]`, empty if absent; `payload: Mapping[str, Any]`, the whole event as parsed ([Values](#values)), held as a plain `dict` so that it serializes (D8). Delivered only if `new_market` is `deliver`. The common field `market` is `""` when the event has none. |
 
 `Level` holds `price` and `size`, both `Decimal`. `PriceChange` holds
 `asset_id`, `side: Side` (`BUY` or `SELL`), `price`, `size`, `hash`,
@@ -277,8 +277,8 @@ overwrote leaves no trace (Observed, [§4]).
 
 | Record | Fields |
 | --- | --- |
-| `UnknownEvent` | `event_type: str \| None`; `payload: Mapping[str, Any]`; `raw: str`; `received_at`, `connection`, `frame`, `index`. A JSON object whose `event_type` the client does not know, or that has none. |
-| `UndecodableFrame` | `reason`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str \| bytes`; `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
+| `UnknownEvent` | `event_type: str \| None`; `payload: Mapping[str, Any]`, the object as parsed, a plain `dict` as on `NewMarketEvent`; `raw: str`; `received_at`, `connection`, `frame`, `index`. A JSON object whose `event_type` the client does not know, or that has none. |
+| `UndecodableFrame` | `reason`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str`, the frame's text, or a `binary` frame's bytes in lowercase hexadecimal, so that the record serializes (D8); `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
 
 [Decoding](#decoding) says which applies and what each does to token states.
 
@@ -1424,6 +1424,12 @@ Evidence:
     `datetime` in ISO 8601, and an enum as its value. `validate_json` read
     the result back to an equal record, and `json_schema()` gave the type's
     JSON Schema.
+  - `dump_json` refused two values a record could otherwise hold: bytes
+    that are not UTF-8, such as the binary frame `00ff`, and a
+    `MappingProxyType`. A `Decimal` held under `Any`, as in a parsed
+    payload, was written as a string, and `validate_json` read it back as
+    a string. So a binary frame's `raw` is hexadecimal text, and a
+    `payload` a plain `dict` ([Records](#records)).
   - Constructing a small frozen dataclass took 0.27 µs, against 0.52 µs for
     a validated model.
 - Two cautions for a Pydantic decoder. A frame first parsed by plain
@@ -1450,7 +1456,10 @@ and any consumer such as the pipeline, writes records as JSON with
 `TypeAdapter(<record type>).dump_json(record)`, reads them back with
 `validate_json`, and takes their JSON Schema from `json_schema()`. The
 records do not need to be models for any of this, so serialization is no
-reason to make them models.
+reason to make them models. Every record reads back equal, with one
+exception: a `payload` is written as a JSON object, its `Decimal`s as
+strings like every `Decimal`, and since `Any` declares no type to restore,
+they read back as strings.
 
 The operator weighed switching to Pydantic throughout and, on 2026-10-05,
 kept the records as dataclasses. The switch would remove the wire models
