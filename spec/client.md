@@ -1033,7 +1033,7 @@ conformance scenarios check them by name:
 | `connections` | `int` | Connections opened |
 | `interruptions` | `Mapping[str, int]` | Interruptions, by cause |
 | `lookups`, `lookup_failures` | `int` | Lookup calls, and those that raised or timed out |
-| `hash_verified`, `hash_retried`, `hash_failed` | `int` | Hash checks that verified at once, verified after a retry, and failed (D4) |
+| `hash_verified`, `hash_retried`, `hash_failed` | `int` | Hash checks, of `book` events and of bursts, that verified at once, verified after a retry, and failed (D4). A `book` that fails its own check counts in `hash_failed`. |
 
 The statistics are for diagnosis and the live run; the records remain the
 contract.

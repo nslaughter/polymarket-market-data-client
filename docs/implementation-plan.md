@@ -267,9 +267,10 @@ Follows D4: verification with the recipe, and its burst rule.
   is on and no lookup is available. No scenario can show this: the harness
   always passes its scripted lookup.
 - Turn on: `hash-checks-pass`, `hash-burst-across-frames`,
-  `hash-single-failure`, `hash-divergence`, `hash-trade-before-announcement`,
-  `hash-check-predates-undecodable`, `hash-parameters-retried`. The harness
-  now checks that every scenario is enabled.
+  `hash-single-failure`, `hash-divergence`, `hash-book-fails-own-check`,
+  `hash-trade-before-announcement`, `hash-check-predates-undecodable`,
+  `hash-parameters-retried`. The harness now checks that every scenario is
+  enabled.
 
 ### 11. Add the research example and check the built wheel
 

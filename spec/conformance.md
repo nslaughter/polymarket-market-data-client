@@ -437,7 +437,7 @@ The last two lines alternate, token by token.
 | A change stamped before an opening `book` can arrive after it | `change-before-book` |
 | Opening `book` timestamps are the book's last change | `initial-books` |
 | A trade's price enters the hash before it is announced, and a tick-size change seemed to | `hash-trade-before-announcement`, `hash-single-failure` |
-| The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-burst-across-frames`, `hash-trade-before-announcement`, `hash-parameters-retried` |
+| The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-burst-across-frames`, `hash-trade-before-announcement`, `hash-book-fails-own-check`, `hash-parameters-retried` |
 | The stream can omit a change | `hash-divergence`, `mid-connection-book` |
 | The all-resolved close when every market has settled | `settle-all-resolved-close`, `settle-all-resolved-close-unannounced` |
 | A settlement can go unannounced | `settle-unannounced-drop`, `settle-all-resolved-close-unannounced` |
@@ -2325,6 +2325,51 @@ expect token A1 ready previous=uncertain reason=book
 send pc A t=500 A1:BUY:0.49:90
 expect price_change A t=500 applied=true
 expect-nothing 1.0
+```
+
+#### `hash-book-fails-own-check`
+
+A `book` that fails its own check shows that the recipe or its inputs, not
+the source's book, are wrong. The client counts the failure and stops
+checking the token until a later `book` verifies
+([client contract](client.md#d4-hash-verification)). Three bursts with
+wrong hashes then follow, spread over more than `hash_grace`, as in
+`hash-divergence`, and the token stays ready. A verifying `book` turns
+checking back on, and the next wrong hash fails one check.
+
+```scenario
+scenario hash-book-fails-own-check
+markets A
+config verify_hash=true
+owner-spec D4
+
+start A
+send book A1 hash=bad
+expect book A1 opening=false held_book_matched=true
+expect-nothing 0.3
+expect-stats hash_verified=2 hash_failed=1
+send pc A t=100 A1:BUY:0.49:50 hash=bad
+expect price_change A t=100 applied=true
+wait 0.3
+send pc A t=200 A1:BUY:0.49:60 hash=bad
+expect price_change A t=200 applied=true
+wait 0.4
+send pc A t=300 A1:BUY:0.49:70 hash=bad
+expect price_change A t=300 applied=true
+expect-nothing 1.0
+expect-stats hash_verified=2 hash_failed=1
+send book A1
+expect book A1 opening=false t=300 held_book_matched=true
+expect-nothing 0.3
+expect-stats hash_verified=3 hash_failed=1
+send pc A t=400 A1:BUY:0.49:80 hash=bad
+expect price_change A t=400 applied=true
+expect-nothing 0.5
+expect-stats hash_failed=2
+send pc A t=500 A1:BUY:0.49:90
+expect price_change A t=500 applied=true
+expect-nothing 0.5
+expect-stats hash_verified=4 hash_failed=2
 ```
 
 #### `hash-trade-before-announcement`
