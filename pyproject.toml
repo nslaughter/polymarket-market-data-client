@@ -16,9 +16,11 @@ classifiers = [
 # The ranges overlap polymarket-client 0.12.0's, websockets from 13 to below
 # 16 and pydantic from 2 to below 3, so that the sdk extra installs beside
 # them (D6, D8). Pydantic 2.0 made the defaults of a slotted dataclass
-# read-only once a TypeAdapter had used it; 2.1 is the oldest that passes.
+# read-only once a TypeAdapter had used it, and 2.1 validated a Decimal as a
+# union, so an undecodable event's error named its inner validators instead
+# of the field; 2.2 is the oldest that passes.
 dependencies = [
-    "pydantic>=2.1,<3",
+    "pydantic>=2.2,<3",
     "websockets>=13,<16",
 ]
 

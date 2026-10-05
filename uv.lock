@@ -863,7 +863,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "polymarket-client", marker = "extra == 'sdk'", specifier = "==0.12.0" },
-    { name = "pydantic", specifier = ">=2.1,<3" },
+    { name = "pydantic", specifier = ">=2.2,<3" },
     { name = "websockets", specifier = ">=13,<16" },
 ]
 provides-extras = ["sdk"]
