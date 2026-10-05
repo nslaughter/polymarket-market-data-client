@@ -51,7 +51,9 @@ findings. Each says so where it appears:
   the hash of their token's previous entry, which had come in an earlier
   frame, at most 0.27 s before, and more than 0.2 s before only for 4,
   while the receipt lag grew (D4).
-- That no frame other than JSON and `PONG` appears in those excerpts.
+- That no frame other than JSON and `PONG` appears in those excerpts, and
+  that none of their JSON frames nests more than 4 deep
+  ([Nesting depth](#nesting-depth)).
 - From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
   Python 3.11 or later, `websockets` from 13 to below 16, and `pydantic`
   from 2 to below 3, and lists `eth-abi`, `eth-account`, `httpx`, and more;
@@ -65,7 +67,9 @@ findings. Each says so where it appears:
   records, and how it and `json.loads` read an unpaired surrogate escape,
   measured locally on synthetic frames (D8); and, also measured locally,
   where its models raise a validation error and which of their methods
-  skip validation ([Configuration](#configuration)).
+  skip validation ([Configuration](#configuration)), and, with Pydantic
+  2.2.0 too, how deeply nested a record's payload can be and still read
+  back ([Nesting depth](#nesting-depth)).
 
 The findings' open questions stay open. The client is designed to behave
 sensibly whichever way they resolve, and no conformance scenario assumes an
@@ -774,7 +778,7 @@ the object it is, is decoded by its `event_type`:
 | A known `event_type` whose fields decode | Its typed record | As the state machine says |
 | A known `event_type` with a missing or invalid field the client uses | `UndecodableFrame`, `invalid_event` | For `book`, `price_change`, and `tick_size_change`: T8 for each `ready` desired token the event names. If any part of it names no token the client can read, such as a `price_change` entry without a readable `asset_id`, T8 also for each `ready` token of the market it names, or, if it names no market the client can read, for every `ready` token on the connection. For other types: none. |
 | An object with an unknown or missing `event_type` | `UnknownEvent` | None |
-| Text that is not JSON, or JSON holding an [unpaired surrogate](#unpaired-surrogates) | `UndecodableFrame`, `invalid_json` | T8 for every `ready` token on the connection |
+| Text that is not JSON, JSON holding an [unpaired surrogate](#unpaired-surrogates), or JSON [nested more than 64 deep](#nesting-depth) | `UndecodableFrame`, `invalid_json` | T8 for every `ready` token on the connection |
 | JSON that is not an object or an array of objects | `UndecodableFrame`, `not_object`, per item | T8 for every `ready` token on the connection |
 | A binary frame | `UndecodableFrame`, `binary` | T8 for every `ready` token on the connection |
 
@@ -831,6 +835,33 @@ the string. Its `raw` is the frame's text, which keeps the escape as
 written, since a text frame is UTF-8 and cannot carry a surrogate itself
 (RFC 6455). Its `error` holds no surrogate either, so the record serializes
 like any other.
+
+### Nesting depth
+
+A frame's depth is the number of arrays and objects around its deepest
+value, its own outermost one included: `[]` is 1, and an opening frame, an
+array of books whose sides are arrays of levels, is 4. None of the JSON
+frames in the committed excerpts is deeper than 4 (measured for this
+document). The client treats a frame deeper than 64 as text that is not
+JSON: one `UndecodableFrame`, `invalid_json`, for the whole frame, with
+`event_type` and `index` `None`, wherever the deep value is, a member the
+models ignore included.
+
+The limit keeps every record serializable, as the surrogate rule does.
+`UnknownEvent` and `NewMarketEvent` keep the object as parsed in `payload`,
+and Pydantic cannot read back a record whose payload is nested too deeply.
+Measured for this document, on synthetic records: `validate_json` refuses
+an `UnknownEvent` holding a frame of depth 127 under Pydantic 2.2.0, and of
+depth 200 under 2.13.5, and `dump_json` refuses one of depth 255 and 256.
+Sixty-four is sixteen times the deepest frame in the excerpts, and about
+half the lowest of those limits, whichever supported version of Pydantic
+is installed. It also bounds the work the decoder does for one frame.
+
+**Decided by the operator on 2026-10-05,** when plan step 2's review found
+that a deeply nested payload made a record that does not read back. A
+second exception to D8's round trip, which would leave a consumer's writer
+to fail on such a record, and cutting deep values out of `payload`, which
+would no longer be the object as parsed, were the options not taken.
 
 ### Repeated messages
 
