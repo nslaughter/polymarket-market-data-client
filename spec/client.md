@@ -475,11 +475,18 @@ reason `waiting_for_consumer` in place of the record it would otherwise
 emit, and starts the attempt, with no delay, once the consumer's reading
 leaves fewer than `queue_size` waiting.
 
+After a `consumer_overflow` interruption the client is already waiting for
+the consumer, and the one `recovering` record it emitted then covers both
+waits. It emits `connecting`, with no further `recovering`, once the
+consumer's reading has brought the market-event backlog down to
+`resume_below × queue_size`, rounded down, and left fewer than
+`queue_size` status records waiting, in whichever order those happen.
+
 | Record | When |
 | --- | --- |
 | `recovering`, `attempt=k`, `retry_in`, `reason=backoff` | Before the delay for attempt *k*. After a failed attempt, `detail` says how it failed. |
 | `recovering`, `attempt=k`, `reason=subscription_change`, `retry_in=0` | Before reconnecting to apply a change (D7). *k* is 1 unless the closed connection had delivered no frame (below). |
-| `recovering`, `attempt=k`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, with `attempt=1`, until the queue drains (D3); or before attempt *k* while `queue_size` or more status records are waiting. |
+| `recovering`, `attempt=k`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, with `attempt=1`, once for both of its waits: for the queue to drain (D3) and for fewer than `queue_size` status records. Otherwise, before attempt *k* while `queue_size` or more status records are waiting. |
 | `connecting`, `attempt=k` | When attempt *k* starts. |
 | `open`, `connection=g` | When the handshake completes. |
 | `subscribed`, `connection=g` | When the subscription frame has been sent. The tokens' `synchronizing` records follow. |
@@ -910,8 +917,10 @@ applied, nor is anything after it on that connection
 interruption's `last_confirmed_at` is the receipt time of the last frame
 whose records were queued, so the gap includes the frame that overflowed.
 The client reconnects, with no delay, once the consumer's reading brings
-the count to `resume_below × queue_size`, rounded down, or lower. However
-long that takes, it does not count toward `max_recovery_time`. When one
+the count to `resume_below × queue_size`, rounded down, or lower, and
+leaves fewer than `queue_size` status records waiting; the one `recovering`
+record covers both waits ([Reconnecting](#reconnecting)). However long that
+takes, it does not count toward `max_recovery_time`. When one
 read both brings the count below the warning level and lets the client
 resume, the `Backlog` record comes before `connecting`.
 
