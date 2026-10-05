@@ -281,7 +281,7 @@ overwrote leaves no trace (Observed, [§4]).
 | Record | Fields |
 | --- | --- |
 | `UnknownEvent` | `event_type: str \| None`; `payload: Mapping[str, Any]`, the object as parsed, a plain `dict` as on `NewMarketEvent`; `raw: str`; `received_at`, `connection`, `frame`, `index`. A JSON object whose `event_type` the client does not know, or that has none. |
-| `UndecodableFrame` | `reason`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str`, the frame's text, or a `binary` frame's bytes in lowercase hexadecimal, so that the record serializes (D8); `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
+| `UndecodableFrame` | `reason: str`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str`, the frame's text, or a `binary` frame's bytes in lowercase hexadecimal, so that the record serializes (D8); `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
 
 [Decoding](#decoding) says which applies and what each does to token states.
 
