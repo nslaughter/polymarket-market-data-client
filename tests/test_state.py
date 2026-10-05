@@ -1605,6 +1605,26 @@ def test_an_event_before_the_subscription_frame_names_its_token_is_outside() -> 
     assert ("0.49", "50") in sides(run, A1)[0]
 
 
+def test_an_event_naming_a_market_outside_the_desired_set_is_outside() -> None:
+    # Whatever token it names, and before repeat detection.
+    run = started(MARKET_A)
+    held = sides(run, A1)
+    for data in (
+        book(A1, bids=[("0.10", "1")]),
+        bba(A1, 100),
+        ltp(A1, 100),
+        tsc(A1, 100),
+    ):
+        event = json.loads(data)
+        event["market"] = B
+        run.send(text(event))
+        run.send(text(event))
+    assert run.take() == []
+    assert run.machine.counts.discarded_outside == 8
+    assert run.machine.counts.repeats == 0
+    assert sides(run, A1) == held
+
+
 def test_a_price_change_naming_some_desired_tokens_is_delivered() -> None:
     run = started(MARKET_A)
     run.send(pc(A, 100, (A1, "BUY", "0.49", "10"), ("999", "BUY", "0.10", "1")))

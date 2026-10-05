@@ -23,17 +23,14 @@ from ._book import Book
 from ._decode import Decoded, DecodedEvent, EventRecord, RepeatDetector, Undecodable
 from ._lookup import MarketInfo
 from ._records import (
-    BestBidAskEvent,
     BookEvent,
     CaptureGap,
     ConnectionState,
     ConnectionStateChange,
-    LastTradePriceEvent,
     Market,
     MarketResolvedEvent,
     NewMarketEvent,
     PriceChangeEvent,
-    TickSizeChangeEvent,
     TokenState,
     TokenStateChange,
     UndecodableFrame,
@@ -513,19 +510,18 @@ class StateMachine:
         """Whether an event names only tokens outside the desired set, or a
         market outside it. A token counts as inside only on a connection
         whose subscription frame named it."""
+        if isinstance(record, NewMarketEvent):
+            # A new_market names a new market, never a subscribed one.
+            return False
+        if record.market not in self._markets:
+            return True
         if isinstance(record, PriceChangeEvent):
-            return record.market not in self._markets or not any(
+            return not any(
                 self._takes_part(change.asset_id) for change in record.changes
             )
         if isinstance(record, MarketResolvedEvent):
-            return record.market not in self._markets
-        if isinstance(
-            record,
-            BookEvent | BestBidAskEvent | LastTradePriceEvent | TickSizeChangeEvent,
-        ):
-            return not self._takes_part(record.asset_id)
-        # A new_market names a new market, never a subscribed one.
-        return False
+            return False
+        return not self._takes_part(record.asset_id)
 
     def _book(self, record: BookEvent, repeat: bool, received_at: datetime) -> None:
         token = self._tokens[record.asset_id]
