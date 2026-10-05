@@ -768,15 +768,47 @@ def test_a_number_beyond_the_range_of_decimal_is_not_json(text: str) -> None:
     assert adapter.validate_json(adapter.dump_json(item.record)) == item.record
 
 
-@pytest.mark.parametrize("depth", [3000, 100000])
-def test_json_nested_too_deeply_is_not_json(depth: int) -> None:
-    # json.loads refuses the deeper one itself. It accepts the other, but the
-    # decoder cannot walk it to compare repeats; either way the frame is
-    # reported, never raised.
-    text = LATER_BOOK[:-1] + ',"x":' + "[" * depth + "]" * depth + "}"
+def nested(pairs: int) -> str:
+    """An array holding an object, ``pairs`` times over, around an empty
+    array, as JSON text: ``2 * pairs + 1`` levels deep."""
+    return '[{"a":' * pairs + "[]" + "}]" * pairs
+
+
+def test_json_nested_too_deeply_to_parse_is_not_json() -> None:
+    # json.loads refuses nesting this deep on every supported Python; the
+    # frame is reported, never raised.
+    text = LATER_BOOK[:-1] + f',"x":{nested(500_000)}}}'
     item = undecodable(text)
     assert item.record.reason == "invalid_json"
     assert item.record.raw == text
+    assert item.impact == EVERY_TOKEN
+
+
+@pytest.mark.parametrize(
+    ("plain", "text"),
+    [
+        (LATER_BOOK, LATER_BOOK[:-1] + f',"x":{nested(1500)}}}'),
+        (
+            PRICE_CHANGE,
+            PRICE_CHANGE.replace('"side":"BUY",', f'"side":"BUY","x":{nested(1500)},'),
+        ),
+    ],
+    ids=["book", "price_change entry"],
+)
+def test_a_deeply_nested_member_no_model_declares_is_ignored(
+    plain: str, text: str
+) -> None:
+    # Deeper than Python's recursion limit, and parsed by json.loads. Its
+    # content is built, hashed, and compared without recursion.
+    item = decode_one(text)
+    assert isinstance(item, DecodedEvent)
+    assert item.record == event(plain)
+    again = decode_one(text, number=3)
+    assert isinstance(again, DecodedEvent)
+    detector = RepeatDetector(1.0)
+    assert detector.check(item.content, 0.0) is False
+    assert detector.check(again.content, 0.5) is True
+    assert item.content != content(plain)
 
 
 @pytest.mark.parametrize(

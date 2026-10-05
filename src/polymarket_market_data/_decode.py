@@ -149,7 +149,7 @@ def decode_frame(
     try:
         return _decode_text(context)
     except RecursionError:
-        # json.loads accepts deeper nesting than Python code can walk.
+        # Nesting deeper than json.loads can parse.
         return [_invalid_json(context, "JSON nested too deeply to decode")]
 
 
@@ -633,19 +633,49 @@ def content_key(item: Mapping[str, Any]) -> Hashable:
     return frozenset(
         (
             name,
-            ("multiset", frozenset(Counter(map(_canonical, value)).items()))
+            ("multiset", frozenset(Counter(map(_tokens, value)).items()))
             if multiset and name == "price_changes"
-            else _canonical(value),
+            else _tokens(value),
         )
         for name, value in item.items()
     )
 
 
-def _canonical(value: object) -> Hashable:
-    if isinstance(value, dict):
-        return ("object", frozenset((name, _canonical(v)) for name, v in value.items()))
-    if isinstance(value, list):
-        return ("array", tuple(map(_canonical, value)))
+# The end of an object or an array, among a value's tokens.
+_END = ("end",)
+
+
+def _tokens(value: object) -> tuple[Hashable, ...]:
+    """A JSON value as a flat sequence of tokens, with an object's members
+    in order of name, so that two values are equal as JSON values when
+    their tokens are.
+
+    The tokens are built, hashed, and compared without recursion, so that a
+    member nested as deeply as json.loads allows, even one no model
+    declares, never makes a known event undecodable.
+    """
+    tokens: list[Hashable] = []
+    pending: list[object] = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, tuple):
+            # A token pushed below; no JSON value is a tuple.
+            tokens.append(item)
+        elif isinstance(item, dict):
+            tokens.append(("object",))
+            pending.append(_END)
+            for name in sorted(item, reverse=True):
+                pending += (item[name], ("member", name))
+        elif isinstance(item, list):
+            tokens.append(("array",))
+            pending.append(_END)
+            pending += reversed(item)
+        else:
+            tokens.append(_scalar(item))
+    return tuple(tokens)
+
+
+def _scalar(value: object) -> Hashable:
     if isinstance(value, bool):
         return ("boolean", value)
     if isinstance(value, Decimal) and value.is_nan():
