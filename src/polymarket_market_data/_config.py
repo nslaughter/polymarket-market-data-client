@@ -21,10 +21,12 @@ _Count = Annotated[int, Field(ge=1)]
 
 
 class _ConfigModel(BaseModel):
-    # revalidate_instances checks a nested model again, so a policy built
-    # without validation, as by model_copy(update=...), is refused too.
+    # strict converts no value from another type, except an integer where a
+    # float is expected. revalidate_instances checks a nested model again,
+    # so a policy built without validation, as by model_copy(update=...),
+    # is refused too.
     model_config = ConfigDict(
-        frozen=True, extra="forbid", revalidate_instances="always"
+        frozen=True, extra="forbid", strict=True, revalidate_instances="always"
     )
 
     # Hidden from type checkers, so that the Pydantic plugin keeps the typed

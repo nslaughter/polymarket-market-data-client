@@ -28,12 +28,26 @@ POLICY_COUNTS = ["max_attempts"]
 FRACTIONS = ["backlog_warning", "resume_below"]
 CONFIG_FLAGS = ["verify_hash", "keep_raw"]
 
-BAD_DURATIONS = [0, 0.0, -1, -0.5, math.nan, math.inf, -math.inf, "soon", None]
-BAD_COUNTS = [0, -1, 1.5, "many", None]
+# Out of range, not finite, or of another type: no value is converted, so a
+# number given as a string, or a bool, is refused too.
+BAD_DURATIONS = [
+    0,
+    0.0,
+    -1,
+    -0.5,
+    math.nan,
+    math.inf,
+    -math.inf,
+    "soon",
+    "10",
+    True,
+    None,
+]
+BAD_COUNTS = [0, -1, 1.5, 10.0, "many", "10", True, None]
 # Outside (0, 1]. Values inside it that fail only against the other fraction
 # are in test_resume_below_must_be_below_backlog_warning.
-BAD_FRACTIONS = [0, 0.0, -0.1, 1.01, 2, math.nan, math.inf, "half", None]
-BAD_FLAGS = ["maybe", 2, None]
+BAD_FRACTIONS = [0, 0.0, -0.1, 1.01, 2, math.nan, math.inf, "half", "0.5", True, None]
+BAD_FLAGS = ["maybe", "true", "false", 1, 0, 2, None]
 
 
 def config(**fields: Any) -> ClientConfig:
@@ -222,7 +236,7 @@ def test_policy_refuses_bad_jitter(value: object) -> None:
     assert_config_error(info)
 
 
-@pytest.mark.parametrize("value", [5, None])
+@pytest.mark.parametrize("value", [5, b"wss://example.com", None])
 def test_config_refuses_bad_url(value: object) -> None:
     with pytest.raises(ConfigError) as info:
         config(url=value)
@@ -245,6 +259,25 @@ def test_config_refuses_bad_url(value: object) -> None:
 def test_config_refuses_bad_nested_policy(value: object) -> None:
     with pytest.raises(ConfigError) as info:
         config(reconnect=value)
+    assert_config_error(info)
+
+
+def test_integers_are_accepted_where_floats_are_expected() -> None:
+    # The one conversion the contract allows.
+    config = ClientConfig(ping_interval=10, backlog_warning=1, resume_below=0.5)
+    assert config.ping_interval == 10.0
+    assert isinstance(config.ping_interval, float)
+    assert isinstance(config.backlog_warning, float)
+    assert isinstance(ReconnectPolicy(max_delay=30).max_delay, float)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("max_attempts", "3"), ("base_delay", "0.5"), ("jitter", 1)],
+)
+def test_nested_policy_converts_nothing(field: str, value: Any) -> None:
+    with pytest.raises(ConfigError) as info:
+        config(reconnect={field: value})
     assert_config_error(info)
 
 
