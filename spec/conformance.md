@@ -1862,6 +1862,7 @@ stops the connection.
 ```scenario
 scenario malformed-frames
 markets A B
+owner-spec D8
 
 start A B
 send-text not json
