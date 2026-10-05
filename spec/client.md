@@ -764,6 +764,13 @@ Records pass to the consumer through one bounded FIFO queue:
 
 - Market-event records, including `UnknownEvent` and `UndecodableFrame`,
   count against `queue_size`.
+- The limit is checked once per frame. A frame reaches the limit when its
+  first market-event record finds `queue_size` or more waiting; otherwise
+  every record from it is queued, even past `queue_size`. A frame is never
+  split, and one with more events than `queue_size`, such as an opening
+  frame for more tokens than that, still gets through once the backlog is
+  below the limit. The queue holds at most `queue_size − 1` market-event
+  records plus one frame's.
 - Status records never count against it and are never dropped. Each
   interruption produces at most a few per token, and while the client waits
   for the consumer it opens no connection, so they stay bounded.
@@ -785,15 +792,15 @@ source retain events: the server ends a connection whose send buffer fills,
 and nothing is replayed (Observed, [§2], [§3]). So every response at the
 limit loses events, and each must report the loss as a capture gap.
 
-With D3's recommended `disconnect`, a market-event record that finds the
-queue full starts the `consumer_overflow` interruption. The frame it came
-from is neither delivered nor applied, and the client reads nothing more
-from that connection. The interruption's `last_confirmed_at` is the receipt
-time of the last frame whose records were all queued, so the gap includes
-the frame that overflowed. The client reconnects, with no delay, once the
-consumer's reading brings the count to `resume_below × queue_size`, rounded
-down, or lower. When one read both brings the count below the warning level
-and lets the client resume, the `Backlog` record comes before `connecting`.
+With D3's recommended `disconnect`, a frame that reaches the limit starts
+the `consumer_overflow` interruption. That frame is neither delivered nor
+applied, and the client reads nothing more from that connection. The
+interruption's `last_confirmed_at` is the receipt time of the last frame
+whose records were queued, so the gap includes the frame that overflowed.
+The client reconnects, with no delay, once the consumer's reading brings
+the count to `resume_below × queue_size`, rounded down, or lower. When one
+read both brings the count below the warning level and lets the client
+resume, the `Backlog` record comes before `connecting`.
 
 ## Market lookup
 
@@ -922,7 +929,7 @@ recommended defaults, not settled.
 | `reconnect` | `ReconnectPolicy()` (D2) | `base_delay` 0.5, `max_delay` 30.0, `max_attempts` 10, `max_recovery_time` 300.0, `jitter` true. |
 | `book_timeout` | `10.0` | Seconds after the subscription frame before a token without a `book` becomes `uncertain` (`no_book`). |
 | `repeat_window` | `2.0` | Seconds within which an identical event counts as a repeat. |
-| `queue_size` | `10000` (D3) | Market-event records the queue holds. |
+| `queue_size` | `10000` (D3) | Market-event records waiting at which the next frame reaches the limit ([Consumer handoff](#consumer-handoff)). |
 | `backlog_warning` | `0.5` (D3) | Fraction of `queue_size` at which `Backlog` records are emitted. |
 | `overflow` | `"disconnect"` (D3) | The response at the limit. |
 | `resume_below` | `0.1` (D3) | With `disconnect`, the fraction of `queue_size` the backlog must fall to before reconnecting. |

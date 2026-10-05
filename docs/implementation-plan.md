@@ -214,9 +214,9 @@ Needs D7: how subscription changes are applied.
 
 Needs D3: the queue size and the response at the limit.
 
-- `queue_size`, `Backlog` records, and the overflow response D3 decides,
-  including resuming after a `disconnect`.
-- Turn on: `consumer-stops-reading`.
+- `queue_size`, checked once per frame, `Backlog` records, and the
+  overflow response D3 decides, including resuming after a `disconnect`.
+- Turn on: `consumer-stops-reading`, `frame-larger-than-queue`.
 
 ### 10. Verify order-book hashes
 
