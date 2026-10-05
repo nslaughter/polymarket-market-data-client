@@ -1031,7 +1031,7 @@ specification sets.
 | `repeat_window` | `2.0` | Seconds within which an identical event counts as a repeat. |
 | `queue_size` | `10000` (D3) | Market-event records waiting at which the next frame reaches the limit ([Consumer handoff](#consumer-handoff)). |
 | `backlog_warning` | `0.5` (D3) | Fraction of `queue_size` at which `Backlog` records are emitted. |
-| `overflow` | `"disconnect"` (D3) | The response at the limit. |
+| `overflow` | `"disconnect"` (D3) | The response at the limit: `disconnect`, the only one D3 specifies. |
 | `resume_below` | `0.1` (D3) | With `disconnect`, the fraction of `queue_size` the backlog must fall to before reconnecting. |
 | `verify_hash` | `True` (D4) | Whether to verify order-book hashes. |
 | `hash_grace` | `2.0` (D4) | Seconds a mismatch must persist before it counts as divergence. |
@@ -1043,10 +1043,11 @@ specification sets.
 | `keep_raw` | `False` | Attach each frame's text to its event records. |
 | `max_message_bytes` | `16777216` | The largest frame the client accepts. |
 
-Every duration must be positive, `queue_size` at least 1, and each fraction
-greater than 0 and at most 1, with `resume_below` below `backlog_warning`;
-otherwise the constructor raises `ConfigError`, with Pydantic's validation
-error as its `__cause__`.
+Every duration must be positive, `queue_size` at least 1, each fraction
+greater than 0 and at most 1, with `resume_below` below `backlog_warning`,
+and `overflow` and `new_market` one of the values listed above; otherwise
+the constructor raises `ConfigError`, with Pydantic's validation error as
+its `__cause__`.
 
 ## Decisions
 
@@ -1229,6 +1230,11 @@ bursts of 566 a minute are filtered by default (decision 15).
 (an estimate, not an observation). That is close to the backlogs at which
 the server itself ended connections,
 and the README describes the client disconnecting to protect memory.
+
+Only `disconnect` is implemented: `overflow` accepts no other value
+([Configuration](#configuration)). The `drop` and `fail` rows above, with
+their `records_discarded` gap and `ConsumerTooSlow`, record options not
+taken.
 
 ### D4. Hash verification
 
