@@ -351,6 +351,21 @@ def _timestamp(value: object) -> int:
 
 _Timestamp = Annotated[int, PlainValidator(_timestamp)]
 
+
+def _text_or_absent(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _texts_or_absent(value: object) -> list[str] | None:
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    return None
+
+
+# A new_market's metadata: a value of the wrong type counts as absent, and
+# payload keeps it as sent (spec/client.md, new_market).
+_Metadata = Annotated[str | None, PlainValidator(_text_or_absent)]
+_MetadataList = Annotated[list[str] | None, PlainValidator(_texts_or_absent)]
 # A finite decimal; NaN and infinities are refused, as strings or literals.
 _Decimal = Annotated[Decimal, Field(allow_inf_nan=False)]
 _Side = Literal["BUY", "SELL"]
@@ -614,11 +629,11 @@ class _NewMarketWire(_EventWire):
 
     id: str
     timestamp: _Timestamp
-    market: str | None = None
-    condition_id: str | None = None
-    slug: str | None = None
-    question: str | None = None
-    assets_ids: list[str] | None = None
+    market: _Metadata = None
+    condition_id: _Metadata = None
+    slug: _Metadata = None
+    question: _Metadata = None
+    assets_ids: _MetadataList = None
 
     def to_record(
         self, context: _Frame, index: int, item: dict[str, Any]

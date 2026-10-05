@@ -633,14 +633,35 @@ def test_an_optional_field_may_be_null(text: str, path: tuple[str | int, ...]) -
         (MARKET_RESOLVED, ("assets_ids",), [1, 2]),
         (MARKET_RESOLVED, ("tags",), "Crypto"),
         (NEW_MARKET, ("id",), 9100001),
-        (NEW_MARKET, ("slug",), 7),
-        (NEW_MARKET, ("assets_ids",), "token"),
     ],
 )
 def test_a_field_of_the_wrong_type_makes_the_event_undecodable(
     text: str, path: tuple[str | int, ...], value: object
 ) -> None:
     assert undecodable(edit(text, set_to(path, value))).record.reason == "invalid_event"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "field", "expected"),
+    [
+        ("slug", 7, "slug", None),
+        ("question", ["Synthetic?"], "question", None),
+        ("assets_ids", "token", "assets_ids", ()),
+        ("assets_ids", [NEW_MARKET_TOKENS[0], 2], "assets_ids", ()),
+        ("condition_id", 5, "condition_id", NEW_MARKET_ID),
+        ("market", {"id": 1}, "market", ""),
+    ],
+)
+def test_new_market_metadata_of_the_wrong_type_is_absent(
+    name: str, value: object, field: str, expected: object
+) -> None:
+    # The record treats it as absent, and payload keeps it as sent
+    # (spec/client.md, new_market). A condition_id falls back to market.
+    record = event(edit(NEW_MARKET, set_to((name,), value)))
+    assert isinstance(record, NewMarketEvent)
+    assert getattr(record, field) == expected
+    assert record.payload[name] == value
+    assert record.id == "9100001"
 
 
 def test_an_invalid_event_record() -> None:
