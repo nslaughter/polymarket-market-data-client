@@ -130,8 +130,8 @@ class BestBidAskEvent(_Event):
     """A ``best_bid_ask`` event."""
 
     asset_id: str
-    best_bid: Decimal | None
-    best_ask: Decimal | None
+    best_bid: Decimal
+    best_ask: Decimal
     spread: Decimal | None
 
 

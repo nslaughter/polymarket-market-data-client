@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, TypedDict
 
 import pytest
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from polymarket_market_data import (
     Backlog,
@@ -507,6 +507,20 @@ def test_decimals_keep_their_digits() -> None:
     assert str(loaded.bids[0].price) == "0.12345678901234567890123456789"
     assert str(loaded.bids[0].size) == "1E+400"
     assert isinstance(loaded.bids[0].price, Decimal)
+
+
+def test_best_bid_ask_best_prices_are_never_none() -> None:
+    # Decoding requires both best prices; only spread is optional.
+    adapter = TypeAdapter(BestBidAskEvent)
+    record = next(s for s in SAMPLES if isinstance(s, BestBidAskEvent))
+    for field in ("best_bid", "best_ask"):
+        written = json.loads(adapter.dump_json(record))
+        written[field] = None
+        with pytest.raises(ValidationError):
+            adapter.validate_json(json.dumps(written))
+    written = json.loads(adapter.dump_json(record))
+    written["spread"] = None
+    assert adapter.validate_json(json.dumps(written)).spread is None
 
 
 def test_binary_undecodable_frame_reads_back_equal() -> None:
