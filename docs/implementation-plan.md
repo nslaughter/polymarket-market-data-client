@@ -100,13 +100,16 @@ Follows D8 for the types.
 - Every record, enum, exception, `ClientConfig`, and `ReconnectPolicy` the
   contract names, with their fields and types: records, `Market`, and the
   other public types as frozen dataclasses with slots, and `ClientConfig`
-  and `ReconnectPolicy` as frozen Pydantic models (D8). Configuration
-  validation raises `ConfigError` as the contract says, with Pydantic's
+  and `ReconnectPolicy` as frozen Pydantic models (D8). Their constructors
+  raise `ConfigError` for an invalid value, as the contract's
+  [Configuration](../spec/client.md#configuration) says, with Pydantic's
   validation error as its cause.
 - Every default as the contract's
   [Configuration](../spec/client.md#configuration) table gives it,
   including those D1 to D4 and D6 specify.
-- Tests: each invalid configuration value is refused; records are frozen;
+- Tests: each invalid configuration value, a nested policy's included, is
+  refused with `ConfigError`, never with Pydantic's `ValidationError`;
+  records are frozen;
   every public name is importable from the top level; every record type
   reads back equal through `TypeAdapter`'s `dump_json` and `validate_json`,
   except a payload's decimals, which come back as strings (D8). The cases
@@ -186,6 +189,10 @@ Out of scope: the client. No scenario runs yet.
   subscription frame, the heartbeat's `PING`s, and a reader that never
   waits for the consumer; decoding, books, and states from steps 2 and 3;
   the queue; shutdown and cancellation as the contract says.
+- A unit test that `MarketDataClient` refuses, with `ConfigError`, a
+  configuration made invalid by `model_copy(update=…)`, which skips
+  validation. No scenario can show this: the runner builds every
+  configuration by its constructor.
 - Until step 9, a full queue ends the client with an error; no scenario of
   this step fills the profile's `queue_size` of 1000. Until step 6, a
   connection that ends unexpectedly does the same. Both are stopgaps that

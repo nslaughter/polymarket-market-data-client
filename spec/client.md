@@ -63,7 +63,9 @@ findings. Each says so where it appears:
 - How Pydantic 2.13.5 decodes decimals, refuses non-finite values, reports
   where validation failed, how fast it decodes, how it serializes
   records, and how it and `json.loads` read an unpaired surrogate escape,
-  measured locally on synthetic frames (D8).
+  measured locally on synthetic frames (D8); and, also measured locally,
+  where its models raise a validation error and which of their methods
+  skip validation ([Configuration](#configuration)).
 
 The findings' open questions stay open. The client is designed to behave
 sensibly whichever way they resolve, and no conformance scenario assumes an
@@ -149,7 +151,7 @@ asyncio.run(main())
 
 | Member | Behavior |
 | --- | --- |
-| `MarketDataClient(config=ClientConfig(), *, markets=(), lookup=None)` | Validates the configuration and records the initial desired set. Does no I/O. Raises `ConfigError` for an invalid value, or when `verify_hash` is on and no lookup is available (D4). `lookup` replaces the default [market lookup](#market-lookup). |
+| `MarketDataClient(config=ClientConfig(), *, markets=(), lookup=None)` | Validates the configuration again ([Configuration](#configuration)) and records the initial desired set. Does no I/O. Raises `ConfigError` for an invalid value, or when `verify_hash` is on and no lookup is available (D4). `lookup` replaces the default [market lookup](#market-lookup). |
 | `async with client` | Starts the client. It connects once the desired set is non-empty. Leaving the block, by any path, shuts it down ([Cancellation and shutdown](#cancellation-and-shutdown)). A client can be entered once. |
 | `client.subscribe(*markets: Market)` | Adds markets to the end of the desired set. A market already in it is left where it is. A market that was removed or settled can be added again; its tokens [start over](#adding-a-market-again). Allowed before and inside the block. |
 | `client.unsubscribe(*condition_ids: str)` | Removes markets from the desired set. An ID not in it is ignored. |
@@ -174,7 +176,7 @@ effect. Calling either after the client has shut down raises
 | Exception | Raised by | When |
 | --- | --- | --- |
 | `ClientError` | | Base class of the exceptions below. |
-| `ConfigError(ClientError, ValueError)` | the constructor | A configuration value is invalid, or `verify_hash` is on and no lookup is available (D4). |
+| `ConfigError(ClientError, ValueError)` | `ClientConfig(...)`, `ReconnectPolicy(...)`, and `MarketDataClient(...)` | A configuration value is invalid ([Configuration](#configuration)), or, for `MarketDataClient`, `verify_hash` is on and no lookup is available (D4). |
 | `ClientStateError(ClientError, RuntimeError)` | any member | The client is used in a way its lifecycle does not allow: `records()` called twice, the block entered twice, or a change after shutdown. |
 | `MarketNotFound(ClientError, LookupError)` | `resolve` | The lookup found no market for the slug. |
 | `LookupFailed(ClientError)` | `resolve` | The lookup raised or exceeded `lookup_timeout`. Its `__cause__` is the lookup's exception, or the `TimeoutError`. |
@@ -1070,11 +1072,21 @@ specification sets.
 
 Every duration must be positive, `queue_size` at least 1, each fraction
 greater than 0 and at most 1, with `resume_below` below `backlog_warning`,
-and `overflow` and `new_market` one of the values listed above; otherwise
-the constructor raises `ConfigError`, with Pydantic's validation error as
-its `__cause__`. The constructor also raises `ConfigError` when
-`verify_hash` is on and no lookup is available, since no hash could then be
-checked (D4).
+and `overflow` and `new_market` one of the values listed above. Building
+`ClientConfig` or `ReconnectPolicy` with any other value raises
+`ConfigError`, with Pydantic's validation error as its `__cause__`, never
+the `ValidationError` itself; `ClientConfig` raises it for an invalid
+nested policy too. A Pydantic model validates in its own constructor, so
+the error comes from there, before any client exists. A validator that
+raised `ConfigError` would not do: Pydantic turns a `ValueError` raised in
+a validator into its own `ValidationError`, and `ConfigError` is a
+`ValueError` (measured for this document with Pydantic 2.13.5).
+
+`MarketDataClient` validates the configuration it is given again and
+raises `ConfigError` the same way, since `model_copy(update=…)` and
+`model_construct` build a model without validating it (measured likewise).
+It also raises `ConfigError` when `verify_hash` is on and no lookup is
+available, since no hash could then be checked (D4).
 
 ## Decisions
 

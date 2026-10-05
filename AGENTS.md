@@ -96,7 +96,7 @@ D8 settles where each is used. Keep to it:
 
 | What | Built as | Why |
 | --- | --- | --- |
-| `ClientConfig` and `ReconnectPolicy` | Frozen Pydantic models | They validate the caller's input. A validation error is raised as `ConfigError`, with Pydantic's error as its `__cause__`. |
+| `ClientConfig` and `ReconnectPolicy` | Frozen Pydantic models | They validate the caller's input. Their constructors raise a validation error as `ConfigError`, with Pydantic's error as its `__cause__`, and `MarketDataClient` validates its configuration again ([Configuration](spec/client.md#configuration)). |
 | Wire models, one per event type | Pydantic models, private to `_decode.py` | They validate the source's input, declaring only the fields the decoder uses and ignoring the rest. A validation error becomes an `UndecodableFrame`, never an exception out of the reader. |
 | Records, `Market`, `ClientStats`, and every other public type | Frozen dataclasses with slots | They carry data already validated. The public API stays free of Pydantic's version, and records take positional `match` patterns. |
 | Records as JSON, in the example, tests, or a consumer | `TypeAdapter(<type>).dump_json`, `validate_json`, and `json_schema` | Serialization needs no record to be a model. |
@@ -108,6 +108,9 @@ D8 settles where each is used. Keep to it:
   client sets.
 - No public signature, record field, or exception exposes a wire model or
   a Pydantic type. `ConfigError` keeps Pydantic's error only as its cause.
+  Raise it by catching the `ValidationError` in the model's constructor; a
+  validator that raises `ConfigError` gets it turned back into a
+  `ValidationError`, since `ConfigError` is a `ValueError`.
 - Don't make a record a model, add `model_dump`-style methods to it, or
   subclass `BaseModel` outside configuration and `_decode.py`. Changing
   that is a new version of D8, which is the operator's.
