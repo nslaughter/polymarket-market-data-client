@@ -275,7 +275,9 @@ Follows D4: verification with the recipe, and its burst rule.
   checked, with `burst_quiet`'s timer as an input, the divergence rule, and
   the parameters fetched through lookup and retried every
   `settlement_poll_interval` after a failure, feeding T7 and T9 in
-  `_state.py`. Statistics for checks.
+  `_state.py`. Statistics for checks, and `rest_book_not_found` for the
+  `None` answers of `book_parameters` (D6), with a unit test that such an
+  answer is counted and settles nothing.
 - A unit test that the constructor raises `ConfigError` when `verify_hash`
   is on and no lookup is available. No scenario can show this: the harness
   always passes its scripted lookup.

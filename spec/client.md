@@ -954,6 +954,10 @@ by the slug it is given, and settlement confirmation by the market's
 `outcomes` in the same order, `closed: bool`, `end_date`, and, when known,
 `winning_asset_id` and `resolution_status`. `BookParameters` holds
 `min_order_size: Decimal` and `neg_risk: bool`. `None` means not found.
+The default lookup returns `None` from `book_parameters` when the REST book
+returns HTTP 404, as it did for settled tokens (Observed, [§6]). The client
+counts every `None` from `book_parameters` in `rest_book_not_found`
+([Statistics](#statistics)), as D6 specifies, and trusts none alone.
 
 If no lookup is available, as when the SDK, an optional extra under D6, is
 not installed, `resolve` raises `ClientStateError`, and no settlement can
@@ -1050,6 +1054,7 @@ conformance scenarios check them by name:
 | `connections` | `int` | Connections opened |
 | `interruptions` | `Mapping[str, int]` | Interruptions, by cause |
 | `lookups`, `lookup_failures` | `int` | Lookup calls, and those that raised or timed out |
+| `rest_book_not_found` | `int` | `book_parameters` calls that returned `None`, as the default lookup does for the REST book's HTTP 404 ([Market lookup](#market-lookup)). Counted, not trusted alone (D6): the client checks no hash for that token (D4) and settles nothing on it. |
 | `hash_verified`, `hash_retried`, `hash_failed` | `int` | Hash checks, of `book` events and of bursts, that verified at once, verified after a retry, and failed (D4). A `book` that fails its own check counts in `hash_failed`. |
 
 The statistics are for diagnosis and the live run; the records remain the
