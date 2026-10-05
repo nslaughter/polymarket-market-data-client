@@ -509,6 +509,7 @@ def test_timestamps_are_integers(value: str) -> None:
         '"\\u0661\\u0662"',
         "12.5",
         "1e3",
+        "-1",
         "true",
         "null",
         "[]",

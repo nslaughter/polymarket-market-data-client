@@ -314,8 +314,8 @@ def _failed(error: ValidationError) -> set[tuple[int | str, ...]]:
 
 def _timestamp(value: object) -> int:
     """Milliseconds as the source sends them: a string of digits, or an
-    integer."""
-    if isinstance(value, int) and not isinstance(value, bool):
+    integer. Neither may have a sign."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
     if isinstance(value, str) and value.isascii() and value.isdigit():
         return int(value)
