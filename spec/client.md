@@ -546,7 +546,7 @@ under [The connection](#the-connection).
 | T6 | `ready` | A `price_change` entry for the token. | `ready` (reason unchanged) | `PriceChangeEvent`, entry applied |
 | T7 | `ready` | Hash verification reports divergence (D4). | `uncertain` (`hash_mismatch`) | the event that ended the burst, if one did; `TokenStateChange` |
 | T8 | `ready` | An undecodable frame or event that may affect the token ([Decoding](#decoding)). | `uncertain` (`undecodable`) | `UndecodableFrame`; `TokenStateChange` |
-| T9 | `uncertain` (`hash_mismatch` or `undecodable`) | A hash check verifies (D4). | `ready` (`hash_verified`) | the event that ended the burst, if one did; `TokenStateChange` |
+| T9 | `uncertain` (`hash_mismatch` or `undecodable`) | A burst's hash check verifies, and the burst's last entry came after the latest undecodable frame or event that may affect the token (D4). | `ready` (`hash_verified`) | the event that ended the burst, if one did; `TokenStateChange` |
 | T10 | `uncertain` (any reason but `interrupted`) | A `book` for the token. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
 | T11 | any but `settled` or `removed` | Market lookup, confirming a settlement, shows the market closed (D6). | `settled` (`lookup_closed`) | per token: `CaptureGap` if open; `TokenStateChange` |
 | T12 | `uncertain` (`no_book`) | Market lookup finds no such market. | `uncertain` (`unknown_market`) | `TokenStateChange` |
@@ -742,8 +742,13 @@ token, so every book on the connection is in doubt. Likewise, a part of an
 event the client cannot attribute to a token could have changed any token
 of the event's market, or, with no readable market, any token on the
 connection. A `ready` token made `uncertain` this way becomes `ready` again
-with its next `book` (T10) or a verifying hash check (T9). Nothing
-undecodable stops the connection.
+with its next `book` (T10), or with a verifying check of a burst whose last
+entry came after the frame or event (T9). A check of an earlier burst, even
+one still pending when the frame or event came, cannot restore the token:
+its hash predates any change the frame or event may have carried. This
+holds for every token the frame or event may affect, whatever its state,
+so it also applies to a token already `uncertain`. Nothing undecodable
+stops the connection.
 
 The fields the client uses, by event type:
 
@@ -1225,9 +1230,13 @@ trade price, then with every price on the 0.001 grid; a check that verifies
 after a retry counts as verified. Treat failures as divergence only when at
 least two checks have failed, with no verifying check between them, and the
 first and the latest arrived at least `hash_grace` (2 s) apart; then T7. A
-verifying check restores the token (T9). If a `book` fails its own check,
-stop checking that token until a later `book` verifies, and count it, since
-the recipe or its inputs, not the source's book, are then wrong.
+burst's verifying check restores the token (T9), but only if the burst's
+last entry came after the latest undecodable frame or event that may affect
+the token, a frame's items counted in their order. A hash from before it
+predates any change it may have carried, though the burst's check may still
+be pending when it comes. If a `book` fails its own check, stop checking
+that token until a later `book` verifies, and count it, since the recipe or
+its inputs, not the source's book, are then wrong.
 
 **When a burst has ended: decided by the operator on 2026-10-05.** A live
 client cannot tell a burst's last entry when it arrives. The investigation's

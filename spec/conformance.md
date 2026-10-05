@@ -407,9 +407,9 @@ The last two lines alternate, token by token.
 | Subscription restoration | `drop-without-close`, `settled-with-active`, `settle-announced-others-open`, `unsubscribe` |
 | Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
 | A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
-| Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
+| Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event`, `hash-check-predates-undecodable` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded`, `consumer-pause-outlasts-recovery-time` |
-| When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, and `hash-divergence` |
+| When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, `hash-divergence`, and `hash-check-predates-undecodable` |
 | A bounded retry policy (README step 4) | `startup-retry`, `connect-timeout`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time`, `recovery-exhausted-no-frame`; jitter by plan step 6's unit tests, since one run cannot show a random delay |
 | Cancellation (README design choices) | `exit-while-connected`, `cancel-during-recovery`, `read-timeout` |
 
@@ -2219,6 +2219,37 @@ send pc A t=130 A1:BUY:0.49:60
 expect price_change A t=130 applied=true
 expect-nothing 1.0
 expect-stats hash_failed=0 hash_retried>=1
+```
+
+#### `hash-check-predates-undecodable`
+
+A burst's check is still pending when an event the client cannot read
+arrives for the same token. The check verifies, but its hash came before
+that event, which may have carried a change, so the token stays uncertain.
+The next burst's check, `burst_quiet` after its entry, restores it.
+
+```scenario
+scenario hash-check-predates-undecodable
+markets A
+config verify_hash=true
+pending D4
+
+start A
+send pc A t=100 A1:BUY:0.49:50
+send-text {"market":"${A}","price_changes":[{"asset_id":"${A1}",
+  "price":"0.48","size":"NaN","side":"BUY",
+  "hash":"0000000000000000000000000000000000000000"}],
+  "timestamp":"${t:150}","event_type":"price_change"}
+expect price_change A t=100 applied=true
+expect undecodable reason=invalid_event event_type=price_change
+  affected=A1
+expect token A1 uncertain previous=ready reason=undecodable
+expect-nothing 0.5
+g: send pc A t=200 A1:BUY:0.49:60
+expect price_change A t=200 applied=true
+expect token A1 ready previous=uncertain reason=hash_verified
+  within 0.1..0.3 of g
+expect-stats hash_verified>=2 hash_failed=0
 ```
 
 ## Failure reports

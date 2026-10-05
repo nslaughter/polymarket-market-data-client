@@ -256,8 +256,8 @@ Needs D4: whether and how to verify the hash.
 - The defaults of `verify_hash`, `hash_grace`, and `burst_quiet`, as D4
   decides.
 - Turn on: `hash-checks-pass`, `hash-single-failure`, `hash-divergence`,
-  `hash-trade-before-announcement`. The harness now checks that every
-  scenario is enabled.
+  `hash-trade-before-announcement`, `hash-check-predates-undecodable`. The
+  harness now checks that every scenario is enabled.
 
 ### 11. Add the research example and check the built wheel
 
