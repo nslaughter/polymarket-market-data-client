@@ -153,6 +153,9 @@ def decode_frame(
         return [_invalid_json(context, "JSON nested too deeply to decode")]
 
 
+# The deepest a frame may nest, its outermost array or object counting as 1
+# (spec/client.md, Nesting depth).
+_MAX_DEPTH = 64
 # A \u escape of a UTF-16 surrogate, paired or not, as JSON text writes one.
 _SURROGATE_ESCAPE = re.compile(r"\\u[dD][89a-fA-F]")
 _SURROGATE = re.compile("[\ud800-\udfff]")
@@ -179,6 +182,10 @@ def _decode_text(context: _Frame) -> list[Decoded]:
         # A number whose exponent is beyond Decimal's range, such as
         # 1e9999999999999999999, which parse_float cannot convert.
         return [_invalid_json(context, "a number's exponent is beyond Decimal's range")]
+    if _deeper_than(parsed, _MAX_DEPTH):
+        # A payload nested this deep would make a record that does not read
+        # back through TypeAdapter (spec/client.md, Nesting depth).
+        return [_invalid_json(context, f"JSON nested more than {_MAX_DEPTH} deep")]
     if escapes and _holds_surrogate([parsed, overwritten]):
         # A frame holding an unpaired surrogate anywhere is not JSON, so no
         # record holds a string that cannot be encoded as UTF-8
@@ -199,6 +206,20 @@ def _object(
     if len(value) < len(members):
         overwritten.extend(member for _, member in members)
     return value
+
+
+def _deeper_than(value: object, limit: int) -> bool:
+    """Whether arrays and objects nest more than ``limit`` deep in
+    ``value``, its own outermost one counting as 1."""
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if isinstance(item, dict | list):
+            if depth > limit:
+                return True
+            members = item.values() if isinstance(item, dict) else item
+            pending.extend((member, depth + 1) for member in members)
+    return False
 
 
 def _holds_surrogate(value: object) -> bool:
@@ -329,6 +350,7 @@ def _timestamp(value: object) -> int:
 
 
 _Timestamp = Annotated[int, PlainValidator(_timestamp)]
+
 # A finite decimal; NaN and infinities are refused, as strings or literals.
 _Decimal = Annotated[Decimal, Field(allow_inf_nan=False)]
 _Side = Literal["BUY", "SELL"]

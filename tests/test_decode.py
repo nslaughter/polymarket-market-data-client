@@ -775,6 +775,24 @@ def nested(pairs: int) -> str:
     return '[{"a":' * pairs + "[]" + "}]" * pairs
 
 
+def arrays(levels: int) -> str:
+    """Arrays ``levels`` deep, as JSON text."""
+    return "[" * levels + "]" * levels
+
+
+def depth(text: str) -> int:
+    """How deep arrays and objects nest in a frame, its outermost one
+    counting as 1 (spec/client.md, Nesting depth)."""
+    deepest, pending = 0, [(json.loads(text), 1)]
+    while pending:
+        value, level = pending.pop()
+        if isinstance(value, dict | list):
+            deepest = max(deepest, level)
+            members = value.values() if isinstance(value, dict) else value
+            pending.extend((member, level + 1) for member in members)
+    return deepest
+
+
 def test_json_nested_too_deeply_to_parse_is_not_json() -> None:
     # json.loads refuses nesting this deep on every supported Python; the
     # frame is reported, never raised.
@@ -785,31 +803,72 @@ def test_json_nested_too_deeply_to_parse_is_not_json() -> None:
     assert item.impact == EVERY_TOKEN
 
 
-@pytest.mark.parametrize(
-    ("plain", "text"),
-    [
-        (LATER_BOOK, LATER_BOOK[:-1] + f',"x":{nested(1500)}}}'),
-        (
-            PRICE_CHANGE,
-            PRICE_CHANGE.replace('"side":"BUY",', f'"side":"BUY","x":{nested(1500)},'),
+def with_member(text: str, levels: int) -> str:
+    """The frame with an ignored member ``x`` of arrays ``levels`` deep in
+    its first object."""
+    return text.replace('"market":', f'"x":{arrays(levels)},"market":', 1)
+
+
+def frames_at_depth(levels: int) -> dict[str, str]:
+    """Frames nested ``levels`` deep, by where the depth comes from: a known
+    event's ignored member, an unknown event's payload, a new_market's, and
+    an array frame holding a book."""
+    return {
+        "book": with_member(LATER_BOOK, levels - 1),
+        "price_change entry": PRICE_CHANGE.replace(
+            '"side":"BUY",', f'"side":"BUY","x":{arrays(levels - 3)},', 1
         ),
-    ],
-    ids=["book", "price_change entry"],
-)
-def test_a_deeply_nested_member_no_model_declares_is_ignored(
-    plain: str, text: str
-) -> None:
-    # Deeper than Python's recursion limit, and parsed by json.loads. Its
-    # content is built, hashed, and compared without recursion.
+        "unknown event": f'{{"event_type":"future","x":{arrays(levels - 1)}}}',
+        "new_market": NEW_MARKET.replace(
+            '"tags":[]', f'"tags":[],"x":{arrays(levels - 1)}'
+        ),
+        "array frame": f"[{with_member(LATER_BOOK, levels - 2)}]",
+    }
+
+
+# The most a frame may nest (spec/client.md, Nesting depth), and one more.
+AT_THE_LIMIT = frames_at_depth(64)
+PAST_THE_LIMIT = frames_at_depth(65)
+
+
+@pytest.mark.parametrize("text", AT_THE_LIMIT.values(), ids=AT_THE_LIMIT.keys())
+def test_a_frame_64_deep_decodes_and_reads_back(text: str) -> None:
+    assert depth(text) == 64
     item = decode_one(text)
+    assert not isinstance(item, Undecodable)
+    record = item.record if isinstance(item, DecodedEvent) else item
+    # The record holding the deepest payload a frame can carry reads back,
+    # on every supported version of Pydantic.
+    adapter: TypeAdapter[Any] = TypeAdapter(type(record))
+    assert adapter.validate_json(adapter.dump_json(record)) == record
+
+
+def test_a_known_event_64_deep_matches_the_plain_one() -> None:
+    item = decode_one(AT_THE_LIMIT["book"])
     assert isinstance(item, DecodedEvent)
-    assert item.record == event(plain)
-    again = decode_one(text, number=3)
-    assert isinstance(again, DecodedEvent)
+    assert item.record == event(LATER_BOOK)
     detector = RepeatDetector(1.0)
     assert detector.check(item.content, 0.0) is False
-    assert detector.check(again.content, 0.5) is True
-    assert item.content != content(plain)
+    assert detector.check(content(AT_THE_LIMIT["book"]), 0.5) is True
+    assert item.content != content(LATER_BOOK)
+
+
+@pytest.mark.parametrize("text", PAST_THE_LIMIT.values(), ids=PAST_THE_LIMIT.keys())
+def test_a_frame_nested_more_than_64_deep_is_not_json(text: str) -> None:
+    assert depth(text) == 65
+    item = undecodable(text)
+    assert item.record == UndecodableFrame(
+        reason="invalid_json",
+        event_type=None,
+        error="JSON nested more than 64 deep",
+        raw=text,
+        received_at=AT,
+        connection=1,
+        frame=2,
+        index=None,
+        affected=(),
+    )
+    assert item.impact == EVERY_TOKEN
 
 
 @pytest.mark.parametrize(
@@ -907,8 +966,9 @@ def test_overwritten_members_are_searched_once(
 ) -> None:
     # Each object whose names repeat keeps its members, and each member holds
     # the objects nested in it, so the search must not go through those again
-    # for every level: a thousand levels, each with one name, take about a
-    # thousand searches, not half a million.
+    # for every level. A frame may nest 64 deep (spec/client.md, Nesting
+    # depth), so 63 levels below the book, each with one name, take under
+    # twice as many searches, not about two thousand.
     searches = 0
     surrogate = re.compile("[\ud800-\udfff]")
 
@@ -919,9 +979,11 @@ def test_overwritten_members_are_searched_once(
             return surrogate.search(text)
 
     monkeypatch.setattr("polymarket_market_data._decode._SURROGATE", Counting())
-    levels = 1000
+    levels = 63
     deep = '{"a":0,"a":' * levels + "0" + "}" * levels
-    item = decode_one(LATER_BOOK[:-1] + f',"note":"\\ud83d\\ude00","x":{deep}}}')
+    text = LATER_BOOK[:-1] + f',"note":"\\ud83d\\ude00","x":{deep}}}'
+    assert depth(text) == 64
+    item = decode_one(text)
     assert isinstance(item, DecodedEvent)
     assert item.record == event(LATER_BOOK)
     assert levels <= searches < 2 * levels
