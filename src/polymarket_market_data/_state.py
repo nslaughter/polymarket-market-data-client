@@ -509,19 +509,23 @@ class StateMachine:
     def _outside(self, record: EventRecord) -> bool:
         """Whether an event names only tokens outside the desired set, or a
         market outside it. A token counts as inside only on a connection
-        whose subscription frame named it."""
+        whose subscription frame named it, so a market added again stays
+        outside until one names its tokens."""
         if isinstance(record, NewMarketEvent):
             # A new_market names a new market, never a subscribed one.
             return False
-        if record.market not in self._markets:
+        market = self._markets.get(record.market)
+        if market is None:
             return True
+        tokens: Iterable[str]
         if isinstance(record, PriceChangeEvent):
-            return not any(
-                self._takes_part(change.asset_id) for change in record.changes
-            )
-        if isinstance(record, MarketResolvedEvent):
-            return False
-        return not self._takes_part(record.asset_id)
+            tokens = (change.asset_id for change in record.changes)
+        elif isinstance(record, MarketResolvedEvent):
+            # It settles its market's tokens that take part (T15).
+            tokens = market.token_ids
+        else:
+            tokens = (record.asset_id,)
+        return not any(self._takes_part(token) for token in tokens)
 
     def _book(self, record: BookEvent, repeat: bool, received_at: datetime) -> None:
         token = self._tokens[record.asset_id]

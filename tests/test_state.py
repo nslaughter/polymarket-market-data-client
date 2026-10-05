@@ -1264,6 +1264,32 @@ def test_t1_a_settled_market_added_again_starts_over() -> None:
     )
 
 
+@pytest.mark.parametrize("left", [TokenState.REMOVED, TokenState.SETTLED])
+def test_a_market_added_again_is_outside_until_subscribed(left: TokenState) -> None:
+    # A late market_resolved for it is discarded, so the market stays in the
+    # desired set and the next subscription frame names its tokens.
+    run = started(MARKET_A, MARKET_B)
+    if left is TokenState.REMOVED:
+        run.machine.unsubscribe([A], run.now)
+    else:
+        run.send(resolved(A, 1001, A2))
+    run.machine.subscribe([MARKET_A])
+    run.take()
+    run.wait(2.0)  # past repeat_window
+    run.send(resolved(A, 1001, A2))
+    assert run.take() == []
+    assert run.machine.counts.discarded_outside == 1
+    assert run.machine.desired == (MARKET_B, MARKET_A)
+    assert run.machine.subscription() == (B1, B2, A1, A2)
+    assert run.machine.state(A1) is left
+    # Once a subscription frame names its tokens, a resolution settles it.
+    interrupted_and_back(run, B1, B2, A1, A2)
+    run.take()
+    run.send(resolved(A, 1002, A2))
+    assert run.machine.state(A1) is TokenState.SETTLED
+    assert run.machine.subscription() == (B1, B2)
+
+
 # T8, T9, T10, T7: undecodable frames and events, and hash results.
 
 
