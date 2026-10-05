@@ -746,6 +746,28 @@ def test_text_that_is_not_json(text: str) -> None:
     assert item.impact == EVERY_TOKEN
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"event_type":"future","n":1e9999999999999999999}',
+        LATER_BOOK.replace('"price":"0.47"', '"price":-1e-9999999999999999999'),
+    ],
+)
+def test_a_number_beyond_the_range_of_decimal_is_not_json(text: str) -> None:
+    # parse_float cannot make a Decimal of it, so the frame cannot be parsed;
+    # it is reported, never raised.
+    item = undecodable(text)
+    assert (item.record.reason, item.record.event_type, item.record.raw) == (
+        "invalid_json",
+        None,
+        text,
+    )
+    assert item.record.error == "a number's exponent is beyond Decimal's range"
+    assert item.impact == EVERY_TOKEN
+    adapter = TypeAdapter(UndecodableFrame)
+    assert adapter.validate_json(adapter.dump_json(item.record)) == item.record
+
+
 @pytest.mark.parametrize("depth", [3000, 100000])
 def test_json_nested_too_deeply_is_not_json(depth: int) -> None:
     # json.loads refuses the deeper one itself. It accepts the other, but the

@@ -22,7 +22,7 @@ from collections import Counter, deque
 from collections.abc import Hashable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, PlainValidator, ValidationError
@@ -163,6 +163,10 @@ def _decode_text(context: _Frame) -> list[Decoded]:
     except ValueError as error:
         # JSONDecodeError, or an integer too long to convert.
         return [_invalid_json(context, str(error))]
+    except InvalidOperation:
+        # A number whose exponent is beyond Decimal's range, such as
+        # 1e9999999999999999999, which parse_float cannot convert.
+        return [_invalid_json(context, "a number's exponent is beyond Decimal's range")]
     if _SURROGATE_ESCAPE.search(context.text) and _holds_surrogate(parsed):
         # No record may hold a string that cannot be encoded as UTF-8
         # (spec/client.md, Unpaired surrogates).
