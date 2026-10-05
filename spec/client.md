@@ -54,6 +54,9 @@ findings. Each says so where it appears:
 - That no frame other than JSON and `PONG` appears in those excerpts, and
   that none of their JSON frames nests more than 4 deep
   ([Nesting depth](#nesting-depth)).
+- That every `new_market` in those excerpts, 1,168 of them, has `market`,
+  `condition_id`, `slug`, and `question` as strings and `assets_ids` as a
+  list of strings ([`new_market`](#new_market)).
 - From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
   Python 3.11 or later, `websockets` from 13 to below 16, and `pydantic`
   from 2 to below 3, and lists `eth-abi`, `eth-account`, `httpx`, and more;
@@ -812,7 +815,12 @@ committed excerpts for this document; the findings quote whole frames only
 for `market_resolved` ([§6]). Unknown fields are ignored. `side` is `BUY` or
 `SELL`. `new_market` events carry `game_start_time` as a string such as
 `'2026-10-04 14:25:00+00'`, which the SDK's validator rejects (Observed,
-[§1]); the client keeps it in `payload` without interpreting it.
+[§1]); the client keeps it in `payload` without interpreting it. A
+`new_market`'s record also copies its `market`, `condition_id`, `slug`,
+`question`, and `assets_ids` ([Event records](#event-records)). One that is
+not a string, or for `assets_ids` a list of strings, is treated as absent,
+and `payload` keeps it as sent ([`new_market`](#new_market)): only a
+missing or invalid `id` or `timestamp` makes a `new_market` undecodable.
 
 `tick_size_change` updates the token's tick size and `last_trade_price`
 updates its market's announced trade price; the hash check (D4) uses both.
@@ -906,6 +914,19 @@ on Polymarket, in bursts: 3,689 in an hour, 566 in one minute (Observed,
 [§6]). With `new_market` set to `drop`, the default, the client decodes and
 counts them and does not deliver them, so they never fill the consumer's
 queue. With `deliver`, each becomes a `NewMarketEvent`.
+
+**Metadata of the wrong type: decided by the operator on 2026-10-05.** The
+decoding table keeps a `new_market`'s fields beyond `id` and `timestamp`
+uninterpreted, while its record types five of them, and the draft did not
+say which governs a value of the wrong type. The operator chose to treat
+one as absent. Refusing it would make the event an `UndecodableFrame`,
+which is always delivered, so if the source changed the type of one of
+these fields, every `new_market`, thousands an hour, would pass the `drop`
+filter into the consumer's queue. `payload` keeps the value either way, and
+no token's state depends on these fields. Every `new_market` in the
+committed excerpts has them all of the declared type (measured for this
+document). Making the event undecodable, as for the other known types, was
+the option not taken.
 
 ## Consumer handoff
 
