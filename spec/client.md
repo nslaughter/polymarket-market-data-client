@@ -680,16 +680,19 @@ the object it is, is decoded by its `event_type`:
 | Input | Result | Effect on token states |
 | --- | --- | --- |
 | A known `event_type` whose fields decode | Its typed record | As the state machine says |
-| A known `event_type` with a missing or invalid field the client uses | `UndecodableFrame`, `invalid_event` | For `book`, `price_change`, and `tick_size_change`: T8 for each `ready` desired token the event names; if it names none the client can read, those of the market it names. For other types: none. |
+| A known `event_type` with a missing or invalid field the client uses | `UndecodableFrame`, `invalid_event` | For `book`, `price_change`, and `tick_size_change`: T8 for each `ready` desired token the event names. If any part of it names no token the client can read, such as a `price_change` entry without a readable `asset_id`, T8 also for each `ready` token of the market it names, or, if it names no market the client can read, for every `ready` token on the connection. For other types: none. |
 | An object with an unknown or missing `event_type` | `UnknownEvent` | None |
 | Text that is not JSON | `UndecodableFrame`, `invalid_json` | T8 for every `ready` token on the connection |
 | JSON that is not an object or an array of objects | `UndecodableFrame`, `not_object`, per item | T8 for every `ready` token on the connection |
 | A binary frame | `UndecodableFrame`, `binary` | T8 for every `ready` token on the connection |
 
 A frame the client cannot attribute could have carried a change to any
-token, so every book on the connection is in doubt. A `ready` token made
-`uncertain` this way becomes `ready` again with its next `book` (T10) or a
-verifying hash check (T9). Nothing undecodable stops the connection.
+token, so every book on the connection is in doubt. Likewise, a part of an
+event the client cannot attribute to a token could have changed any token
+of the event's market, or, with no readable market, any token on the
+connection. A `ready` token made `uncertain` this way becomes `ready` again
+with its next `book` (T10) or a verifying hash check (T9). Nothing
+undecodable stops the connection.
 
 The fields the client uses, by event type:
 

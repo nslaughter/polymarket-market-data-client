@@ -1560,8 +1560,10 @@ expect-stats undecodable.invalid_json=1 undecodable.binary=1
 #### `invalid-known-event`
 
 An event of a known type with a field the client cannot use is undecodable.
-It makes uncertain only the tokens it names, or, if it names none it can
-read, its market's; and only for the types that change a book.
+It makes uncertain the tokens it names. If any part of it names no token
+the client can read, it also makes uncertain its market's tokens, or, with
+no readable market either, every token on the connection. Only the types
+that change a book do this.
 
 ```scenario
 scenario invalid-known-event
@@ -1593,8 +1595,33 @@ expect undecodable reason=invalid_event event_type=price_change
   affected=B1,B2
 expect token B1 uncertain previous=ready reason=undecodable
 expect token B2 uncertain previous=ready reason=undecodable
+send book A1
+expect book A1 held_book_matched=true
+expect token A1 ready previous=uncertain reason=book
+send book A2
+expect book A2 held_book_matched=true
+expect token A2 ready previous=uncertain reason=book
+send-text {"market":"${A}","price_changes":[{"asset_id":"${A1}",
+  "price":"0.49","size":"10","side":"BUY",
+  "hash":"0000000000000000000000000000000000000000"},
+  {"price":"0.51","size":"10","side":"SELL",
+  "hash":"0000000000000000000000000000000000000000"}],
+  "timestamp":"${t:140}","event_type":"price_change"}
+expect undecodable reason=invalid_event event_type=price_change
+  affected=A1,A2
+expect token A1 uncertain previous=ready reason=undecodable
+expect token A2 uncertain previous=ready reason=undecodable
+send book B1
+expect book B1 held_book_matched=true
+expect token B1 ready previous=uncertain reason=book
+send-text {"price_changes":[{"price":"0.39","size":"1","side":"BUY",
+  "hash":"0000000000000000000000000000000000000000"}],
+  "timestamp":"${t:150}","event_type":"price_change"}
+expect undecodable reason=invalid_event event_type=price_change
+  affected=B1
+expect token B1 uncertain previous=ready reason=undecodable
 expect-nothing 0.5
-expect-stats undecodable.invalid_event=4 interruptions=0
+expect-stats undecodable.invalid_event=6 interruptions=0
 ```
 
 #### `new-market-filtered`
