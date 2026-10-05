@@ -178,12 +178,16 @@ Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
 
 - Detecting every interruption cause except `consumer_overflow` and
   `subscription_change`; the `PONG` timeout; reconnection with backoff,
-  jitter, and both bounds; capture gaps; `failed` and `RecoveryFailed`.
+  jitter, `connect_timeout`, and both bounds; capture gaps; `failed` and
+  `RecoveryFailed`.
+- Unit tests: with `jitter` on, every `retry_in` lies in [0, the delay
+  for its attempt), and the values vary; with it off, each equals that
+  delay. No scenario can show a random delay.
 - Turn on: `drop-without-close`, `close-frames`, `close-slow-consumer`,
   `pong-withheld`, `pong-late-within-timeout`, `startup-retry`,
-  `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`,
-  `recovery-exhausted-time`, `recovery-exhausted-no-frame`,
-  `cancel-during-recovery`.
+  `connect-timeout`, `reconnect-refused-then-accepted`,
+  `recovery-exhausted-attempts`, `recovery-exhausted-time`,
+  `recovery-exhausted-no-frame`, `cancel-during-recovery`.
 
 ### 7. Settle markets through the stream and lookup
 

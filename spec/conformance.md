@@ -178,7 +178,7 @@ The block begins with these lines, before any step.
 
 | Step | Effect |
 | --- | --- |
-| `accept` | Wait for the client's next connection attempt and complete its handshake. It becomes the current connection. |
+| `accept` | Wait for the client's next connection attempt and complete its handshake. It becomes the current connection. An attempt the client abandoned while the server held it is discarded, not accepted. |
 | `refuse <n>` | Answer the next `n` attempts with HTTP 503 instead of a handshake, and wait until all `n` have arrived. |
 | `refuse-all` | Answer every attempt with HTTP 503 until the next `accept`. Does not wait. |
 | `recv-subscribe <T> ...` | Wait for the next text frame other than `PING`. It must be a JSON object with exactly three members: `type` `"market"`, `assets_ids` listing exactly these tokens in this order, and `custom_feature_enabled` `true`. |
@@ -402,7 +402,7 @@ The last two lines alternate, token by token.
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded`, `consumer-pause-outlasts-recovery-time` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, and `hash-divergence` |
-| A bounded retry policy (README step 4) | `startup-retry`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time`, `recovery-exhausted-no-frame` |
+| A bounded retry policy (README step 4) | `startup-retry`, `connect-timeout`, `reconnect-refused-then-accepted`, `recovery-exhausted-attempts`, `recovery-exhausted-time`, `recovery-exhausted-no-frame`; jitter by plan step 6's unit tests, since one run cannot show a random delay |
 | Cancellation (README design choices) | `exit-while-connected`, `cancel-during-recovery`, `read-timeout` |
 
 ### The findings' catalog
@@ -800,6 +800,34 @@ r: refuse 1
 expect conn recovering attempt=2 retry_in=0.2 reason=backoff detail=set
   within 0..0.5 of r
 expect conn connecting attempt=2 within 0.2..0.5 of r
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing previous=none
+expect token A2 synchronizing previous=none
+send opening A1 A2
+expect book A1
+expect token A1 ready
+expect book A2
+expect token A2 ready
+```
+
+#### `connect-timeout`
+
+The server holds the first attempt and never answers its handshake. After
+`connect_timeout` the attempt fails and is retried after the backoff; it
+does not wait forever.
+
+```scenario
+scenario connect-timeout
+markets A
+pending D2
+
+c: expect conn connecting attempt=1
+expect conn recovering attempt=2 retry_in=0.2 reason=backoff detail=set
+  within 1.0..1.2 of c
+expect conn connecting attempt=2 within 1.2..1.5 of c
 accept
 recv-subscribe A1 A2
 expect conn open connection=1
