@@ -3,6 +3,7 @@
 spec/client.md is the contract this package implements.
 """
 
+from ._client import MarketDataClient
 from ._config import ClientConfig, ReconnectPolicy
 from ._errors import (
     ClientError,
@@ -53,6 +54,7 @@ __all__ = [
     "Level",
     "LookupFailed",
     "Market",
+    "MarketDataClient",
     "MarketInfo",
     "MarketLookup",
     "MarketNotFound",
