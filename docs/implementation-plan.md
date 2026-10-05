@@ -255,9 +255,10 @@ Follows D4: verification with the recipe, and its burst rule.
   checked, with `burst_quiet`'s timer as an input, the divergence rule, and
   the parameters fetched through lookup, feeding T7 and T9 in `_state.py`.
   Statistics for checks.
-- Turn on: `hash-checks-pass`, `hash-single-failure`, `hash-divergence`,
-  `hash-trade-before-announcement`, `hash-check-predates-undecodable`. The
-  harness now checks that every scenario is enabled.
+- Turn on: `hash-checks-pass`, `hash-burst-across-frames`,
+  `hash-single-failure`, `hash-divergence`, `hash-trade-before-announcement`,
+  `hash-check-predates-undecodable`. The harness now checks that every
+  scenario is enabled.
 
 ### 11. Add the research example and check the built wheel
 

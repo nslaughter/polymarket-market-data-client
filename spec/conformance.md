@@ -188,6 +188,7 @@ The block begins with these lines, before any step.
 | `send-text <text>` | Send the rest of the line as one text frame, after replacing references: `${A}` with a market's condition ID, `${A1}` with a token's ID, and `${t:<offset>}` with the decimal digits of `T0` plus the offset. |
 | `send-binary <hex>` | Send these bytes as a binary frame. |
 | `send-again <label> [reversed]` | Send the text of the frame sent by the step with that label again. With `reversed`, a `price_change`'s entries are listed in reverse order. The reference books do not change. |
+| `send-burst <M> t=<offset> every=<seconds> <entry> ...` | Send one burst split across frames, as the source can ([client contract](client.md#d4-hash-verification)): apply every entry to the reference books, then send each entry as its own `pc` frame, in order, `<seconds>` apart. Each entry carries the hash, best bid, and best ask of its token's book after all of the step's entries for that token. |
 | `pong auto`, `pong off`, `pong hold` | Answer each `PING` at once; never answer; or keep the answers owed. The setting lasts, across connections, until changed. |
 | `release-pongs` | Send every `PONG` owed, in order. |
 | `silent <T> t=<offset> <side>:<price>:<size>` | Change the reference book as a `price_change` entry would, without sending anything: a change the stream omits. |
@@ -290,6 +291,7 @@ A step's time is when it took effect:
 - for `send`, `send-text`, `send-binary`, `send-again`, `close`, and
   `release-pongs`, when the server sent the frame, before any handshake
   that follows;
+- for `send-burst`, when the server sent its last frame;
 - for `drop`, when the server ended the TCP connection;
 - for `refuse`, when it sent the last of its HTTP 503 responses;
 - for `accept`, `recv-subscribe`, `recv-ping`, and `expect-client-close`,
@@ -370,7 +372,8 @@ Filled in this way:
   `"2026-10-11 14:00:00+00"`, a string as the source sends it ([§1]).
 
 A reference book's last change is the latest `t` of the steps that changed
-it. `opening`, `book`, `pc`, and `silent` change it; `send-again` does not.
+it. `opening`, `book`, `pc`, `send-burst`, and `silent` change it;
+`send-again` does not.
 
 ### The `start` macro
 
@@ -428,7 +431,7 @@ The last two lines alternate, token by token.
 | A change stamped before an opening `book` can arrive after it | `change-before-book` |
 | Opening `book` timestamps are the book's last change | `initial-books` |
 | A trade's price enters the hash before it is announced, and a tick-size change seemed to | `hash-trade-before-announcement`, `hash-single-failure` |
-| The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-trade-before-announcement` |
+| The hash is undocumented; on busy markets its trade price does not follow trades | `hash-checks-pass`, `hash-burst-across-frames`, `hash-trade-before-announcement` |
 | The stream can omit a change | `hash-divergence`, `mid-connection-book` |
 | The all-resolved close when every market has settled | `settle-all-resolved-close`, `settle-all-resolved-close-unannounced` |
 | A settlement can go unannounced | `settle-unannounced-drop`, `settle-all-resolved-close-unannounced` |
@@ -2138,6 +2141,36 @@ send book A1
 expect book A1 held_book_matched=true
 expect-nothing 0.5
 expect-stats hash_verified>=3 hash_failed=0
+```
+
+#### `hash-burst-across-frames`
+
+A burst's entries share the hash of the book after the last of them
+([§4]), and the source can send them in separate frames, as measured for
+the [client contract](client.md#d4-hash-verification). Here one burst comes
+in three frames 0.3 s apart: each gap is shorter than `burst_quiet`, but
+the whole burst is longer. The client checks the burst once, `burst_quiet`
+after its last entry, and the check verifies. A check after an earlier
+frame would fail, since the hash already covers the later entries.
+
+```scenario
+scenario hash-burst-across-frames
+markets A
+config verify_hash=true burst_quiet=0.5
+owner-spec D4
+
+start A
+send-burst A t=100 every=0.3 A1:BUY:0.49:50 A1:BUY:0.47:0 A1:SELL:0.52:60
+expect price_change A t=100 applied=true changes=A1:BUY:0.49:50
+expect price_change A t=100 applied=true changes=A1:BUY:0.47:0
+expect price_change A t=100 applied=true changes=A1:SELL:0.52:60
+expect-nothing 1.0
+expect-stats hash_verified=3 hash_retried=0 hash_failed=0
+send book A1
+expect book A1 t=100 held_book_matched=true
+  bids=0.48:100,0.49:50 asks=0.53:300,0.52:60
+expect-nothing 0.5
+expect-stats hash_verified=4 hash_failed=0
 ```
 
 #### `hash-single-failure`
