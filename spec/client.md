@@ -570,7 +570,7 @@ under [The connection](#the-connection).
 | T1 | none, `removed`, or `settled` | A subscription frame naming the token is sent. | `synchronizing` (`subscribed`) | `TokenStateChange` |
 | T2 | `uncertain` | A subscription frame naming the token is sent on a new connection. | `synchronizing` (`subscribed`) | `TokenStateChange`; an open gap stays open |
 | T3 | `synchronizing` | A `book` for the token arrives on the current connection. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
-| T4 | `synchronizing` | `book_timeout` passes after the subscription frame with no `book` for it. | `uncertain` (`no_book`) | `TokenStateChange`; [settlement confirmation](#settlement) starts |
+| T4 | `synchronizing` | `book_timeout` passes after the subscription frame with no `book` for it. | `uncertain` (`no_book`) | `TokenStateChange`; [settlement confirmation](#settlement) starts, or the token joins its market's running one |
 | T5 | `ready` | A later `book` for the token. | `ready` (reason unchanged) | `BookEvent`; the book is replaced |
 | T6 | `ready` | A `price_change` entry for the token. | `ready` (reason unchanged) | `PriceChangeEvent`, entry applied |
 | T7 | `ready` | Hash verification reports divergence (D4). | `uncertain` (`hash_mismatch`) | the event that ended the burst, if one did; `TokenStateChange` |
@@ -732,13 +732,19 @@ seconds, until lookup shows the market closed (T11), finds no market (T12),
 or `settlement_confirm_timeout` passes (T13). T11 settles every token of the
 market that is not already `settled` or `removed`, whatever its state, since
 the market then leaves the desired set. T12 and T13 apply only to the
-market's tokens that are still `uncertain` with `no_book`. Lookup lags the
-stream: the market lookup the investigation used first showed settled
-markets as closed 51 s, 186 s, and about three minutes after
-`market_resolved`, and its `closedTime` does not say when a client could
-first see that (Observed, [§6]). A `book` that arrives meanwhile makes the
-token `ready` (T10), and lookup goes on; if it then shows the market closed,
-T11 settles that token too. A token left `uncertain` by T12 or T13 is
+market's tokens that are still `uncertain` with `no_book`. A token of the
+market that reaches T4 while that confirmation is running, as after a
+reconnect, joins it: lookup is not called again at once, and the timeout
+still counts from the T4 that started it. Once the confirmation has ended,
+however it ended, the market's next T4 starts a new one, so a token that
+was `synchronizing` on a new connection when the timeout passed is
+confirmed afresh after its own T4. Lookup lags the stream: the market
+lookup the investigation used first showed settled markets as closed 51 s,
+186 s, and about three minutes after `market_resolved`, and its
+`closedTime` does not say when a client could first see that (Observed,
+[§6]). A `book` that arrives meanwhile makes the token `ready` (T10), and
+lookup goes on; if it then shows the market closed, T11 settles that token
+too. A token left `uncertain` by T12 or T13 is
 subscribed again on the next connection.
 
 A market without a slug cannot be confirmed (D6), nor can any market when

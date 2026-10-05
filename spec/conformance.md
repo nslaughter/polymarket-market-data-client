@@ -418,7 +418,7 @@ The last two lines alternate, token by token.
 | A withheld `PONG` | `pong-withheld`; and a late one that is not a failure, `pong-late-within-timeout` |
 | Subscription restoration | `drop-without-close`, `settled-with-active`, `settle-announced-others-open`, `unsubscribe` |
 | Subscription changes | `subscribe-while-connected`, `subscribe-before-first-frame`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
-| A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `settlement-without-slug`, `unknown-market`, `settle-lookup-after-late-book` |
+| A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `settlement-confirmation-across-reconnect`, `settlement-without-slug`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event`, `hash-check-predates-undecodable` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded`, `consumer-pause-outlasts-recovery-time` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, `hash-divergence`, and `hash-check-predates-undecodable` |
@@ -444,7 +444,7 @@ The last two lines alternate, token by token.
 | The stream can omit a change | `hash-divergence`, `mid-connection-book` |
 | The all-resolved close when every market has settled | `settle-all-resolved-close`, `settle-all-resolved-close-unannounced` |
 | A settlement can go unannounced | `settle-unannounced-drop`, `settle-all-resolved-close-unannounced` |
-| Settled tokens are silently left out of a subscription | `settled-at-subscription`, `settled-with-active`, `unknown-market` |
+| Settled tokens are silently left out of a subscription | `settled-at-subscription`, `settled-with-active`, `unknown-market`, `settlement-confirmation-across-reconnect` |
 | `new_market` arrives in bulk for every new market | `new-market-filtered`, `new-market-delivered` |
 
 ## Scenarios
@@ -1434,6 +1434,78 @@ expect token A2 uncertain previous=uncertain
   reason=settlement_unconfirmed
 expect-nothing 1.0
 expect-stats lookup_failures>=2
+```
+
+#### `settlement-confirmation-across-reconnect`
+
+The connection drops while lookup is confirming a settlement, and the
+reconnection gets `[]` again, as a resubscription to a settled market does
+([§6]). The tokens reach `no_book` a second time and join the confirmation
+already running: lookup keeps its schedule, and the timeout still counts
+from the first `no_book`. Once that confirmation has ended, the next
+`no_book` starts a new one, which finds the market closed.
+
+```scenario
+scenario settlement-confirmation-across-reconnect
+markets A
+owner-spec D2 D6
+
+expect conn connecting attempt=1
+accept
+s: recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing previous=none
+expect token A2 synchronizing previous=none
+send opening
+n: expect token A1 uncertain previous=synchronizing reason=no_book
+  within 0.9..1.3 of s
+expect token A2 uncertain previous=synchronizing reason=no_book
+drop
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain previous=uncertain reason=interrupted
+expect token A2 uncertain previous=uncertain reason=interrupted
+expect conn recovering attempt=1 reason=backoff
+expect conn connecting attempt=1
+accept
+s2: recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+send opening
+expect token A1 uncertain previous=synchronizing reason=no_book
+  connection=2 within 0.9..1.3 of s2
+expect token A2 uncertain previous=synchronizing reason=no_book
+expect token A1 uncertain previous=uncertain
+  reason=settlement_unconfirmed within 2.9..3.3 of n
+expect token A2 uncertain previous=uncertain
+  reason=settlement_unconfirmed
+expect-nothing 1.0
+expect-stats lookups<=7
+lookup A closed winner=A2
+drop
+expect conn interrupted reason=dropped connection=2
+expect token A1 uncertain previous=uncertain reason=interrupted
+expect token A2 uncertain previous=uncertain reason=interrupted
+expect conn recovering attempt=1 reason=backoff
+expect conn connecting attempt=1
+accept
+s3: recv-subscribe A1 A2
+expect conn open connection=3
+expect conn subscribed connection=3
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+send opening
+n3: expect token A1 uncertain previous=synchronizing reason=no_book
+  within 0.9..1.3 of s3
+expect token A2 uncertain previous=synchronizing reason=no_book
+expect token A1 settled previous=uncertain reason=lookup_closed
+  winning_asset_id=A2 within 0..0.3 of n3
+expect token A2 settled previous=uncertain reason=lookup_closed
+expect conn idle reason=no_subscriptions connection=3
+expect-client-close 1000 "no subscriptions"
+expect-no-connect 1.0
 ```
 
 #### `settlement-without-slug`

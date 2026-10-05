@@ -242,7 +242,8 @@ Follows D6: how the pinned SDK serves lookup and settlement confirmation.
   `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`,
   `settle-unannounced-drop`, `settled-at-subscription`,
   `settled-with-active`, `unknown-market`, `settlement-unconfirmed`,
-  `settlement-without-slug`, `settle-lookup-after-late-book`.
+  `settlement-confirmation-across-reconnect`, `settlement-without-slug`,
+  `settle-lookup-after-late-book`.
 
 ### 8. Apply subscription changes
 
