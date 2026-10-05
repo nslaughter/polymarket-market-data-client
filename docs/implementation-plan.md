@@ -29,7 +29,7 @@ scheme.
 | Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
 | 1. Create the package, records, and configuration | D5, D8 | Done | [#6](https://github.com/nslaughter/polymarket-market-data-client/pull/6) |
-| 2. Decode frames | D8 | Not started | |
+| 2. Decode frames | D8 | Done | |
 | 3. Keep books and token states | | Not started | |
 | 4. Build the conformance harness | | Not started | |
 | 5. Connect, subscribe, and deliver records | | Not started | |
