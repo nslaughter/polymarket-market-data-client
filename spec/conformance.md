@@ -408,7 +408,7 @@ The last two lines alternate, token by token.
 | A close frame | `close-frames`, `close-slow-consumer` |
 | A withheld `PONG` | `pong-withheld`; and a late one that is not a failure, `pong-late-within-timeout` |
 | Subscription restoration | `drop-without-close`, `settled-with-active`, `settle-announced-others-open`, `unsubscribe` |
-| Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
+| Subscription changes | `subscribe-while-connected`, `subscribe-before-first-frame`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe`, `resubscribe-removed` |
 | A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event`, `hash-check-predates-undecodable` |
 | A consumer that stops reading | `consumer-stops-reading`, `frame-larger-than-queue`, `status-records-bounded`, `consumer-pause-outlasts-recovery-time` |
@@ -1501,6 +1501,55 @@ expect book B1 held_book_matched=none
 expect token B1 ready
 expect book B2
 expect token B2 ready
+```
+
+#### `subscribe-before-first-frame`
+
+A market added after the subscription frame but before the connection's
+first frame. The client closes the connection to apply the change, as for
+any addition. A connection the client closes itself is not a failed
+attempt, so the next attempt is attempt 1 again, with no delay (client
+decision 26). The tokens held no book, so no gap opens.
+
+```scenario
+scenario subscribe-before-first-frame
+markets A
+owner-spec D2 D7
+
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing previous=none
+expect token A2 synchronizing previous=none
+add: subscribe B
+expect conn interrupted reason=subscription_change connection=1
+  within 0..0.5 of add
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=1 reason=subscription_change retry_in=0
+expect-client-close 1000 "subscription change"
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2 B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+send opening A1 A2 B1 B2
+expect book A1 opening=true connection=2 held_book_matched=none
+expect token A1 ready previous=synchronizing reason=book
+expect book A2 held_book_matched=none
+expect token A2 ready
+expect book B1 held_book_matched=none
+expect token B1 ready
+expect book B2
+expect token B2 ready
+expect-nothing 0.5
+expect-stats connections=2 interruptions.subscription_change=1
 ```
 
 #### `subscribe-during-outage`

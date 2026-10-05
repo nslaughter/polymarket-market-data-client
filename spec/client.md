@@ -374,8 +374,8 @@ inactive token is left out without an error (Observed, [§6]).
 A connection that ends before its subscription frame is sent counts as a
 failed attempt, not an interruption. One that ends after it but before
 delivering a frame is both: an interruption, since its tokens were
-`synchronizing` on it, and a failed attempt
-([Reconnecting](#reconnecting)).
+`synchronizing` on it, and a failed attempt, unless the client closed it to
+apply a subscription change ([Reconnecting](#reconnecting)).
 
 ### Heartbeat
 
@@ -430,7 +430,9 @@ On an interruption the client records:
 3. `ConnectionStateChange(recovering)` for the next attempt, unless no
    desired token remains or the bounds are exhausted. It is attempt 1,
    unless the connection ended before delivering a frame; then it is the
-   attempt after the one that opened that connection.
+   attempt after the one that opened that connection, or that attempt
+   again if the client closed it for `subscription_change`
+   ([Reconnecting](#reconnecting)).
 
 A capture gap opens for each of those tokens that holds a book, starting at
 `last_confirmed_at` and detected at the interruption record's `at`. A token
@@ -473,7 +475,7 @@ leaves fewer than `queue_size` waiting.
 | Record | When |
 | --- | --- |
 | `recovering`, `attempt=k`, `retry_in`, `reason=backoff` | Before the delay for attempt *k*. After a failed attempt, `detail` says how it failed. |
-| `recovering`, `attempt=1`, `reason=subscription_change`, `retry_in=0` | Before reconnecting to apply a change (D7). |
+| `recovering`, `attempt=k`, `reason=subscription_change`, `retry_in=0` | Before reconnecting to apply a change (D7). *k* is 1 unless the closed connection had delivered no frame (below). |
 | `recovering`, `attempt=k`, `reason=waiting_for_consumer`, `retry_in=None` | After a `consumer_overflow` interruption, with `attempt=1`, until the queue drains (D3); or before attempt *k* while `queue_size` or more status records are waiting. |
 | `connecting`, `attempt=k` | When attempt *k* starts. |
 | `open`, `connection=g` | When the handshake completes. |
@@ -487,6 +489,13 @@ them running: the next attempt's number follows on from it, and the time
 bound still runs from the interruption that began the recovery. So an
 endpoint that accepts connections and drops them, at once or after the
 subscription frame, still exhausts the bounds.
+
+A connection the client closes for `subscription_change` is never a failed
+attempt, even if it had delivered no frame: the server did not fail it.
+The count of failed attempts and the recovery clock stay as they were, and
+the next attempt starts at once. So its number is 1 if the closed
+connection had delivered a frame, and otherwise the number of the attempt
+that opened it.
 
 When the bounds are exhausted the client emits, in order, after the
 `interrupted` and `uncertain` records if a subscribed connection's end
@@ -1118,7 +1127,9 @@ it. Each can be revisited in a later version.
 26. **Attempt counting restarts only when a connection delivers a frame.**
     A connection that ends before its first frame is a failed attempt,
     whether or not the subscription frame was sent, so an endpoint that
-    accepts and drops connections still exhausts the bounds.
+    accepts and drops connections still exhausts the bounds. One the client
+    closes itself to apply a subscription change is not: the server did
+    not fail it.
 
 ## Owner specifications
 
