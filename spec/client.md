@@ -252,7 +252,7 @@ the client keeps both and reorders nothing.
 | --- | --- |
 | `BookEvent` | `asset_id: str`; `hash: str`; `bids`, `asks: tuple[Level, ...]`, in the order sent; `tick_size`, `last_trade_price: Decimal \| None`, present only on a subscription's opening books (Observed, [§4]); `opening: bool`, true when the book arrived in the connection's first frame; `held_book_matched: bool \| None` (below). |
 | `PriceChangeEvent` | `changes: tuple[PriceChange, ...]`, in the order sent. |
-| `BestBidAskEvent` | `asset_id`; `best_bid`, `best_ask`, `spread: Decimal \| None`. |
+| `BestBidAskEvent` | `asset_id`; `best_bid`, `best_ask: Decimal`; `spread: Decimal \| None`. |
 | `LastTradePriceEvent` | `asset_id`; `price`, `size: Decimal`; `side: Side`; `fee_rate_bps: Decimal \| None`; `transaction_hash: str \| None`. |
 | `TickSizeChangeEvent` | `asset_id`; `old_tick_size`, `new_tick_size: Decimal`. |
 | `MarketResolvedEvent` | `id: str \| None`; `assets_ids: tuple[str, ...]`; `winning_asset_id: str`; `winning_outcome: str \| None`; `tags: tuple[str, ...]`. |
@@ -281,7 +281,7 @@ overwrote leaves no trace (Observed, [§4]).
 | Record | Fields |
 | --- | --- |
 | `UnknownEvent` | `event_type: str \| None`; `payload: Mapping[str, Any]`, the object as parsed, a plain `dict` as on `NewMarketEvent`; `raw: str`; `received_at`, `connection`, `frame`, `index`. A JSON object whose `event_type` the client does not know, or that has none. |
-| `UndecodableFrame` | `reason`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str`, the frame's text, or a `binary` frame's bytes in lowercase hexadecimal, so that the record serializes (D8); `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
+| `UndecodableFrame` | `reason: str`: `invalid_json`, `not_object`, `binary`, or `invalid_event`; `event_type: str \| None`; `error: str`; `raw: str`, the frame's text, or a `binary` frame's bytes in lowercase hexadecimal, so that the record serializes (D8); `received_at`, `connection`, `frame`; `index: int \| None`, the item's position if the frame was a JSON array, otherwise `None`; `affected: tuple[str, ...]`, the tokens it made uncertain. |
 
 [Decoding](#decoding) says which applies and what each does to token states.
 
@@ -950,10 +950,15 @@ by the slug it is given, and settlement confirmation by the market's
 `slug`. Whether the SDK finds a market by condition ID was not checked
 (D6).
 
-`MarketInfo` holds `condition_id`, `slug`, `question`, `token_ids` and
-`outcomes` in the same order, `closed: bool`, `end_date`, and, when known,
-`winning_asset_id` and `resolution_status`. `BookParameters` holds
-`min_order_size: Decimal` and `neg_risk: bool`. `None` means not found.
+`MarketInfo` and `BookParameters` are frozen dataclasses (D8).
+`MarketInfo` holds `condition_id: str`; `slug`, `question: str | None`;
+`token_ids`, `outcomes: tuple[str, ...]`, in the same order; `closed:
+bool`; `end_date: datetime | None`; and `winning_asset_id`,
+`resolution_status: str | None`, set when known and `None` by default.
+The draft named these fields without all their types; the operator set
+them on 2026-10-05, when plan step 1 defined the type. `BookParameters`
+holds `min_order_size: Decimal` and `neg_risk: bool`. `None` means not
+found.
 The default lookup returns `None` from `book_parameters` when the REST book
 returns HTTP 404, as it did for settled tokens (Observed, [§6]). The client
 counts every `None` from `book_parameters` in `rest_book_not_found`
@@ -1090,23 +1095,48 @@ specification sets.
 | `keep_raw` | `False` | Attach each frame's text to its event records. |
 | `max_message_bytes` | `16777216` | The largest frame the client accepts. |
 
-Every duration must be positive, `queue_size` at least 1, each fraction
-greater than 0 and at most 1, with `resume_below` below `backlog_warning`,
-and `overflow` and `new_market` one of the values listed above. Building
-`ClientConfig` or `ReconnectPolicy` with any other value raises
-`ConfigError`, with Pydantic's validation error as its `__cause__`, never
-the `ValidationError` itself; `ClientConfig` raises it for an invalid
-nested policy too. A Pydantic model validates in its own constructor, so
-the error comes from there, before any client exists. A validator that
-raised `ConfigError` would not do: Pydantic turns a `ValueError` raised in
-a validator into its own `ValidationError`, and `ConfigError` is a
-`ValueError` (measured for this document with Pydantic 2.13.5).
+Every duration, the policy's included, must be finite and greater than 0,
+so infinity is refused as well as NaN; `queue_size`, `max_message_bytes`,
+and the policy's `max_attempts` must be integers of at least 1; each
+fraction greater than 0 and at most 1, with `resume_below` below
+`backlog_warning`; and `overflow` and `new_market` one of the values
+listed above. No value is converted from another type, except that an
+integer is accepted where a float is expected: `"10"` is refused for a
+duration, `True` for `queue_size`, and `1` or `"true"` for `verify_hash`.
+Building `ClientConfig` or `ReconnectPolicy` with any other value, or with
+a field the table does not list, raises `ConfigError`, with Pydantic's
+validation error as its `__cause__`, never the `ValidationError` itself;
+`ClientConfig` raises it for an invalid nested policy too. A Pydantic
+model validates in its own constructor, so the error comes from there,
+before any client exists. A validator that raised `ConfigError` would not
+do: Pydantic turns a `ValueError` raised in a validator into its own
+`ValidationError`, and `ConfigError` is a `ValueError` (measured for this
+document with Pydantic 2.13.5).
 
 `MarketDataClient` validates the configuration it is given again and
 raises `ConfigError` the same way, since `model_copy(update=…)` and
 `model_construct` build a model without validating it (measured likewise).
 It also raises `ConfigError` when `verify_hash` is on and no lookup is
 available, since no hash could then be checked (D4).
+
+**Validation the draft left open: decided by the operator on
+2026-10-05.** Building the configuration (plan step 1) found the draft
+silent on four things: what `max_attempts` and `max_message_bytes`
+accept, whether infinity counts as a positive duration, what happens to a
+field the table does not list, and whether a value of another type is
+converted. The operator chose integers of at least 1 for both counts,
+since `max_attempts` 0 would fail before any attempt and
+`max_message_bytes` 0 would refuse every frame. Durations must be finite,
+since an infinite `max_recovery_time` would remove one of the two bounds
+D2 specifies. An unlisted field is refused, so a misspelt one cannot leave
+its default in force unnoticed. And values are not converted, so `True`
+cannot become a `queue_size` of 1, nor `"10"` a duration, without the
+caller knowing; a caller holding text, such as the conformance runner's
+`config` lines, converts it first. This is the caller's input, not the
+source's: the wire models stay lenient (D8), since there strict
+validation lost events ([§1]). Accepting any integer or infinity, and
+ignoring unlisted fields and converting values as Pydantic does by
+default, were the options not taken.
 
 ## Decisions
 
