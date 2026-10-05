@@ -1100,11 +1100,13 @@ so infinity is refused as well as NaN; `queue_size`, `max_message_bytes`,
 and the policy's `max_attempts` must be integers of at least 1; each
 fraction greater than 0 and at most 1, with `resume_below` below
 `backlog_warning`; and `overflow` and `new_market` one of the values
-listed above. Building `ClientConfig` or `ReconnectPolicy` with any other
-value, or with a field the table does not list, raises
-`ConfigError`, with Pydantic's validation error as its `__cause__`, never
-the `ValidationError` itself; `ClientConfig` raises it for an invalid
-nested policy too. A Pydantic model validates in its own constructor, so
+listed above. No value is converted from another type, except that an
+integer is accepted where a float is expected: `"10"` is refused for a
+duration, `True` for `queue_size`, and `1` or `"true"` for `verify_hash`.
+Building `ClientConfig` or `ReconnectPolicy` with any other value, or with
+a field the table does not list, raises `ConfigError`, with Pydantic's
+validation error as its `__cause__`, never the `ValidationError` itself;
+`ClientConfig` raises it for an invalid nested policy too. A Pydantic model validates in its own constructor, so
 the error comes from there, before any client exists. A validator that
 raised `ConfigError` would not do: Pydantic turns a `ValueError` raised in
 a validator into its own `ValidationError`, and `ConfigError` is a
@@ -1116,18 +1118,24 @@ raises `ConfigError` the same way, since `model_copy(update=…)` and
 It also raises `ConfigError` when `verify_hash` is on and no lookup is
 available, since no hash could then be checked (D4).
 
-**Bounds the draft left open: decided by the operator on 2026-10-05.**
-Building the configuration (plan step 1) found the draft silent on three
-things: what `max_attempts` and `max_message_bytes` accept, whether
-infinity counts as a positive duration, and what happens to a field the
-table does not list. The operator chose integers of at least 1 for both
-counts, since `max_attempts` 0 would fail before any attempt and
+**Validation the draft left open: decided by the operator on
+2026-10-05.** Building the configuration (plan step 1) found the draft
+silent on four things: what `max_attempts` and `max_message_bytes`
+accept, whether infinity counts as a positive duration, what happens to a
+field the table does not list, and whether a value of another type is
+converted. The operator chose integers of at least 1 for both counts,
+since `max_attempts` 0 would fail before any attempt and
 `max_message_bytes` 0 would refuse every frame. Durations must be finite,
 since an infinite `max_recovery_time` would remove one of the two bounds
-D2 specifies. And an unlisted field is refused, so a misspelt one cannot
-leave its default in force unnoticed. Accepting any integer, accepting
-infinity, and ignoring unlisted fields, as Pydantic does by default, were
-the options not taken.
+D2 specifies. An unlisted field is refused, so a misspelt one cannot leave
+its default in force unnoticed. And values are not converted, so `True`
+cannot become a `queue_size` of 1, nor `"10"` a duration, without the
+caller knowing; a caller holding text, such as the conformance runner's
+`config` lines, converts it first. This is the caller's input, not the
+source's: the wire models stay lenient (D8), since there strict
+validation lost events ([§1]). Accepting any integer or infinity, and
+ignoring unlisted fields and converting values as Pydantic does by
+default, were the options not taken.
 
 ## Decisions
 
