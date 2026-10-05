@@ -140,6 +140,7 @@ that scenarios run in seconds; they are not recommended defaults.
 | `resume_below` | `0.1` |
 | `verify_hash` | `false` |
 | `hash_grace` | `0.5` |
+| `burst_quiet` | `0.1` |
 | `settlement_poll_interval` | `0.5` |
 | `settlement_confirm_timeout` | `3.0` |
 | `lookup_timeout` | `1.0` |
@@ -2112,10 +2113,11 @@ expect-stats interruptions=0
 
 ### Hash verification
 
-These follow D4's recommended default and run with `verify_hash` on. D4
-leaves open when a live client checks a burst
-([client contract](client.md#d4-hash-verification)); `hash-divergence`
-assumes a check within 0.3 s of a burst's last entry.
+These follow D4's recommended default and run with `verify_hash` on. As
+the operator decided, a burst is checked when the token's next entry
+carries another hash, when its next `book` arrives, or `burst_quiet` after
+its last entry, 0.1 s in the profile
+([client contract](client.md#d4-hash-verification)).
 
 #### `hash-checks-pass`
 

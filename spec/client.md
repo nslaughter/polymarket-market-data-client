@@ -51,7 +51,8 @@ findings. Each says so where it appears:
   20,038 `price_change` entries in those excerpts, repeats aside and with
   excerpts cut from the same capture merged, 1,793 from 7 captures carried
   the hash of their token's previous entry, which had come in an earlier
-  frame, at most 0.27 s before (D4).
+  frame, at most 0.27 s before, and more than 0.2 s before only for 4,
+  while the receipt lag grew (D4).
 - That no frame other than JSON and `PONG` appears in those excerpts.
 - From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
   Python 3.11 or later and `websockets` from 13 to below 16, and lists
@@ -543,9 +544,9 @@ under [The connection](#the-connection).
 | T4 | `synchronizing` | `book_timeout` passes after the subscription frame with no `book` for it. | `uncertain` (`no_book`) | `TokenStateChange`; [settlement confirmation](#settlement) starts |
 | T5 | `ready` | A later `book` for the token. | `ready` (reason unchanged) | `BookEvent`; the book is replaced |
 | T6 | `ready` | A `price_change` entry for the token. | `ready` (reason unchanged) | `PriceChangeEvent`, entry applied |
-| T7 | `ready` | Hash verification reports divergence (D4). | `uncertain` (`hash_mismatch`) | the event; `TokenStateChange` |
+| T7 | `ready` | Hash verification reports divergence (D4). | `uncertain` (`hash_mismatch`) | the event that ended the burst, if one did; `TokenStateChange` |
 | T8 | `ready` | An undecodable frame or event that may affect the token ([Decoding](#decoding)). | `uncertain` (`undecodable`) | `UndecodableFrame`; `TokenStateChange` |
-| T9 | `uncertain` (`hash_mismatch` or `undecodable`) | A hash check verifies (D4). | `ready` (`hash_verified`) | the event; `TokenStateChange` |
+| T9 | `uncertain` (`hash_mismatch` or `undecodable`) | A hash check verifies (D4). | `ready` (`hash_verified`) | the event that ended the burst, if one did; `TokenStateChange` |
 | T10 | `uncertain` (any reason but `interrupted`) | A `book` for the token. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
 | T11 | any but `settled` or `removed` | Market lookup, confirming a settlement, shows the market closed (D6). | `settled` (`lookup_closed`) | per token: `CaptureGap` if open; `TokenStateChange` |
 | T12 | `uncertain` (`no_book`) | Market lookup finds no such market. | `uncertain` (`unknown_market`) | `TokenStateChange` |
@@ -922,7 +923,7 @@ book checked, [§4]):
   book after the last of them, so a check applies once per burst ([§4]).
   In the excerpts, measured for this document, a burst's entries came in
   separate frames, so a live client cannot tell when one has ended; D4
-  leaves that open.
+  says when the client checks one.
 - A trade's price enters the hash shortly before the stream announces it.
   On busy markets the price in the hash did not follow announced trades at
   all and was found only by trying the 1,001 prices on the 0.001 grid; a
@@ -1000,6 +1001,7 @@ recommended defaults, not settled.
 | `resume_below` | `0.1` (D3) | With `disconnect`, the fraction of `queue_size` the backlog must fall to before reconnecting. |
 | `verify_hash` | `True` (D4) | Whether to verify order-book hashes. |
 | `hash_grace` | `2.0` (D4) | Seconds a mismatch must persist before it counts as divergence. |
+| `burst_quiet` | `1.0` (D4) | Seconds with no entry applied to a token after which its latest burst is checked ([D4](#d4-hash-verification)). |
 | `settlement_poll_interval` | `15.0` (D6) | Seconds between settlement lookups. |
 | `settlement_confirm_timeout` | `300.0` (D6) | Seconds after `no_book` to keep looking. |
 | `lookup_timeout` | `10.0` (D6) | Seconds for one lookup call. |
@@ -1217,7 +1219,7 @@ came after other frames in between.
 **Recommended default: verify, with these rules.** Fetch `min_order_size`
 and `neg_risk` through lookup when a token enters the desired set; until they
 arrive, or if they cannot be had, do not check that token. Check each `book`
-event's own hash when it arrives, and each burst after its last entry, using
+event's own hash when it arrives, and each burst when it ends (below), using
 the event's timestamp. On failure, retry with the market's current announced
 trade price, then with every price on the 0.001 grid; a check that verifies
 after a retry counts as verified. Treat failures as divergence only when at
@@ -1227,23 +1229,48 @@ verifying check restores the token (T9). If a `book` fails its own check,
 stop checking that token until a later `book` verifies, and count it, since
 the recipe or its inputs, not the source's book, are then wrong.
 
-**Open within this default: when a burst has ended.** A live client cannot
-tell a burst's last entry when it arrives. The investigation's replay
-checked each run of entries sharing a hash once the token's next entry,
-with another hash, or its next `book` had arrived (`check_hashes.py`),
-which a replay of a finished capture can always do. The ways to end a
-burst live:
+**When a burst has ended: decided by the operator on 2026-10-05.** A live
+client cannot tell a burst's last entry when it arrives. The investigation's
+replay checked each run of entries sharing a hash once the token's next
+entry, with another hash, or its next `book` had arrived
+(`check_hashes.py`), which a replay of a finished capture can always do. A
+client that verifies checks a token's burst at the first of these:
 
-| Option | For | Against |
-| --- | --- | --- |
-| Check when the token's next entry carries another hash or its next `book` arrives, or after a quiet period with no entry for it | One check per burst, as in the replay, so its counts carry over | A new setting; detection waits for the quiet period, which must exceed the 0.27 s above |
-| Check at the end of each frame, and withdraw a failed check when the token's next entry carries the same hash | No new setting; nothing waits | Every frame of a burst but its last fails a check and runs a trade-price search: about one entry in eleven in the excerpts |
-| Check only when the token's next entry carries another hash or its next `book` arrives | No new setting; the replay's rule exactly | Divergence shows one change later, and a token's last burst before it goes quiet is not checked |
+- the token's next applied entry carries another hash;
+- the token's next `book` arrives;
+- `burst_quiet` seconds pass with no entry applied to the token.
 
-Until the operator decides, the `pending D4` scenarios hold under the first
-option with a quiet period of at most 0.3 s, and under the second. Under
-the third, `hash-divergence` needs one more change before its token becomes
-`uncertain`.
+It checks the book as it stood before that entry or `book` changed it. An
+entry applied after its burst was checked starts a new burst, even with the
+same hash. This checks each burst once, as the replay did, so the replay's
+counts carry over. Its costs are a setting and a wait: a token's last burst
+before it goes quiet is checked `burst_quiet` after its last entry.
+
+Two other ways were not chosen. Checking at the end of each frame, and
+withdrawing a failed check when the token's next entry carries the same
+hash, fails a check and runs a trade-price search for every frame of a
+burst but its last: about one entry in eleven in the excerpts. Checking
+only when the token's next entry carries another hash or its next `book`
+arrives shows divergence one change later, and never checks a token's last
+burst before it goes quiet.
+
+**Recommended default: `burst_quiet` 1.0 s.** It must exceed the longest
+gap between a burst's entries, 0.27 s in the excerpts measured above. Also
+measured for this document from them: 18 of the 1,793 entries followed
+their token's previous entry by more than 0.1 s, and 4 by more than 0.2 s.
+Those 4 were in two messages, each naming both tokens of a busy market,
+while the receipt lag grew, from 0.11 to 0.35 s and from 0.44 to 0.71 s:
+the longest gaps came as a backlog built. One second leaves about 3.7 times
+the longest gap seen. Waiting longer costs little. The quiet period
+matters only when a token pauses: while it keeps changing, each burst is
+checked when the next entry carries another hash. When it pauses, the check
+of its last burst waits `burst_quiet`. One second is half of `hash_grace`'s
+2 s, so it does not change the scale on which divergence is declared. Waiting
+too briefly costs, for a burst whose entries come further apart, one
+failed check and a search over 1,001 trade prices. The check of the burst's
+later entries then verifies, and the divergence rule needs at least two
+failed checks with none verifying between them. The value, like the rest
+of this default, is the operator's to settle with D4.
 
 ### D5. Supported Python versions, and the package and import names
 

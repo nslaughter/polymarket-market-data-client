@@ -248,11 +248,13 @@ Needs D3: the queue size and the response at the limit.
 Needs D4: whether and how to verify the hash.
 
 - If D4 adopts verification: `_hash.py` with the recipe, the trade-price
-  retries, the divergence rule, and the parameters fetched through lookup,
-  feeding T7 and T9 in `_state.py`. Statistics for checks.
+  retries, when a burst is checked, with `burst_quiet`'s timer as an input,
+  the divergence rule, and the parameters fetched through lookup, feeding
+  T7 and T9 in `_state.py`. Statistics for checks.
 - If D4 rejects it: the operator removes or rewrites the `hash-*` scenarios
   in a new version of the specification first.
-- The defaults of `verify_hash` and `hash_grace`, as D4 decides.
+- The defaults of `verify_hash`, `hash_grace`, and `burst_quiet`, as D4
+  decides.
 - Turn on: `hash-checks-pass`, `hash-single-failure`, `hash-divergence`,
   `hash-trade-before-announcement`. The harness now checks that every
   scenario is enabled.
