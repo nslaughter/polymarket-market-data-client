@@ -18,30 +18,32 @@ Each step's pull request changes its own row: it sets **Status** to `Done`,
 and after the pull request is opened, a follow-up commit on the same branch
 fills in **Pull request**. A row reads `Done` on `main` only once its pull
 request is merged. A step whose status is `Needs operator decision` cannot
-start until the operator records the decision in
-[`spec/client.md`](../spec/client.md#decisions-awaiting-the-operator) and
-changes the status here.
+start until the operator records the decision and changes the status here.
+The contract's design decisions, D1 to D8, are all
+[owner specifications](../spec/client.md#owner-specifications), decided on
+2026-10-05; the **Owner specifications** column names those each step
+follows. Only step 13 still waits on the operator.
 
-| Step | Depends on | Status | Pull request |
+| Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
-| 1. Create the package, records, and configuration | D5 | Needs operator decision | |
-| 2. Decode frames | | Not started | |
+| 1. Create the package, records, and configuration | D5, D8 | Not started | |
+| 2. Decode frames | D8 | Not started | |
 | 3. Keep books and token states | | Not started | |
 | 4. Build the conformance harness | | Not started | |
 | 5. Connect, subscribe, and deliver records | | Not started | |
-| 6. Detect interruptions and recover | D1, D2 | Needs operator decision | |
-| 7. Settle markets through the stream and lookup | D6 | Needs operator decision | |
-| 8. Apply subscription changes | D7 | Needs operator decision | |
-| 9. Bound the consumer handoff | D3 | Needs operator decision | |
-| 10. Verify order-book hashes | D4 | Needs operator decision | |
+| 6. Detect interruptions and recover | D1, D2 | Not started | |
+| 7. Settle markets through the stream and lookup | D6 | Not started | |
+| 8. Apply subscription changes | D7 | Not started | |
+| 9. Bound the consumer handoff | D3 | Not started | |
+| 10. Verify order-book hashes | D4 | Not started | |
 | 11. Add the research example and check the built wheel | | Not started | |
 | 12. Record a limited live run | | Not started | |
 | 13. Release a tagged wheel | release name | Needs operator decision | |
 
-If the operator settles a decision on an option other than its recommended
-default, the scenarios marked `pending` for it may need to change. That
-change is a new version of the specification, made before the step that
-depends on it, never inside an implementation pull request.
+If the operator changes an owner specification, the scenarios marked
+`owner-spec` for it may need to change. That change is a new version of the
+specification, made before the step that depends on it, never inside an
+implementation pull request.
 
 ## How a step turns on its scenarios
 
@@ -55,8 +57,7 @@ that.
 ## Package layout
 
 A pull request may refine this layout if it explains why. Module names use
-D5's recommended import name, `polymarket_market_data`; step 1 applies the
-name the operator chooses.
+the import name D5 specifies, `polymarket_market_data`.
 
 | Path | Contents |
 | --- | --- |
@@ -79,12 +80,16 @@ name the operator chooses.
 
 ### 1. Create the package, records, and configuration
 
-Needs D5: the supported Python versions and the package and import names.
+Follows D5: CPython 3.12 and later, the distribution
+`polymarket-market-data-client`, and the import `polymarket_market_data`.
+Follows D8 for the types.
 
 - A `pyproject.toml` for the distribution, a `src/` layout with `py.typed`,
-  and the runtime dependencies on `websockets` and on `pydantic` v2 (D8).
-  Their version ranges must overlap the pinned SDK's if D6 keeps the SDK as
-  a dependency.
+  the runtime dependencies on `websockets` and on `pydantic` v2 (D8), and
+  the optional extra D6 specifies, which installs `polymarket-client`
+  0.12.0 for the default lookup. The ranges of `websockets` and `pydantic`
+  must overlap the SDK's, `websockets` from 13 to below 16 and `pydantic`
+  from 2 to below 3, so that the extra installs beside them.
 - Development tools: `ruff` for formatting and linting, `mypy` in strict
   mode, and `pytest`. Commands as in [`AGENTS.md`](../AGENTS.md#commands).
 - A CI workflow that, on each supported Python version, checks formatting,
@@ -96,20 +101,14 @@ Needs D5: the supported Python versions and the package and import names.
   and `ReconnectPolicy` as frozen Pydantic models (D8). Configuration
   validation raises `ConfigError` as the contract says, with Pydantic's
   validation error as its cause.
-- Defaults only where no open decision sets them. A field whose default
-  belongs to D1, D2, D3, D4, or D6, as the contract's
-  [Configuration](../spec/client.md#configuration) table marks it, and
-  every field of `ReconnectPolicy`, has no default: it is a required
-  keyword argument until the step that depends on the decision gives it
-  the operator's value. Until every such field has one, `MarketDataClient`
-  takes a `config` without a default, and tests and the conformance
-  profile give every field.
+- Every default as the contract's
+  [Configuration](../spec/client.md#configuration) table gives it,
+  including those D1 to D4 and D6 specify.
 - Tests: each invalid configuration value is refused; records are frozen;
   every public name is importable from the top level.
 
-Out of scope: any behavior, and the defaults that open decisions set.
-`MarketDataClient` may exist only as a stub that raises
-`NotImplementedError`.
+Out of scope: any behavior. `MarketDataClient` may exist only as a stub
+that raises `NotImplementedError`.
 
 ### 2. Decode frames
 
@@ -188,14 +187,12 @@ Out of scope: the client. No scenario runs yet.
 
 ### 6. Detect interruptions and recover
 
-Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
+Follows D1 and D2: the `PONG` timeout and the reconnect bounds.
 
 - Detecting every interruption cause except `consumer_overflow` and
   `subscription_change`; the `PONG` timeout; reconnection with backoff,
   jitter, `connect_timeout`, and both bounds; capture gaps; `failed` and
   `RecoveryFailed`.
-- The defaults of `pong_timeout`, `reconnect`, and `ReconnectPolicy`'s
-  fields, as D1 and D2 decide.
 - Unit tests: with `jitter` on, every `retry_in` lies in [0, the delay
   for its attempt), and the values vary; with it off, each equals that
   delay. No scenario can show a random delay. Frames that arrive while
@@ -209,15 +206,13 @@ Needs D1 and D2: the `PONG` timeout and the reconnect bounds.
 
 ### 7. Settle markets through the stream and lookup
 
-Needs D6: how the pinned SDK serves lookup and settlement confirmation.
+Follows D6: how the pinned SDK serves lookup and settlement confirmation.
 
-- `MarketLookup`, the default lookup as D6 decides, and `resolve` with its
+- `MarketLookup`, the default lookup D6 specifies, and `resolve` with its
   errors; `book_timeout`; settlement by `market_resolved`, by the
   all-resolved close, and by lookup, with its polling and timeout; `ended`
   and `idle`; and `subscribe` on an idle client, which connects it, as
   `resolve-by-slug` needs. Changes to a running connection are step 8.
-- The defaults of `settlement_poll_interval`,
-  `settlement_confirm_timeout`, and `lookup_timeout`, as D6 decides.
 - The default lookup is tested with the SDK's HTTP layer replaced by
   recorded synthetic responses, never against the live service.
 - Turn on: `resolve-by-slug`, `settle-announced-others-open`,
@@ -228,9 +223,9 @@ Needs D6: how the pinned SDK serves lookup and settlement confirmation.
 
 ### 8. Apply subscription changes
 
-Needs D7: how subscription changes are applied.
+Follows D7: how subscription changes are applied.
 
-- `subscribe` and `unsubscribe` while running, as D7 decides, including the
+- `subscribe` and `unsubscribe` while running, as D7 specifies, including the
   `subscription_change` interruption, changes made during recovery, and a
   market added again after it was removed.
 - Turn on: `subscribe-while-connected`, `subscribe-during-outage`,
@@ -238,28 +233,22 @@ Needs D7: how subscription changes are applied.
 
 ### 9. Bound the consumer handoff
 
-Needs D3: the queue size and the response at the limit.
+Follows D3: the queue size and the response at the limit.
 
 - `queue_size`, checked once per frame, `Backlog` records, and the
-  overflow response D3 decides, including resuming after a `disconnect`;
+  `disconnect` response D3 specifies, including resuming afterwards;
   holding back reconnection while too many status records are waiting.
-- The defaults of `queue_size`, `backlog_warning`, `overflow`, and
-  `resume_below`, as D3 decides.
 - Turn on: `consumer-stops-reading`, `frame-larger-than-queue`,
   `status-records-bounded`, `consumer-pause-outlasts-recovery-time`.
 
 ### 10. Verify order-book hashes
 
-Needs D4: whether and how to verify the hash.
+Follows D4: verification with the recipe, and its burst rule.
 
-- If D4 adopts verification: `_hash.py` with the recipe, the trade-price
-  retries, when a burst is checked, with `burst_quiet`'s timer as an input,
-  the divergence rule, and the parameters fetched through lookup, feeding
-  T7 and T9 in `_state.py`. Statistics for checks.
-- If D4 rejects it: the operator removes or rewrites the `hash-*` scenarios
-  in a new version of the specification first.
-- The defaults of `verify_hash`, `hash_grace`, and `burst_quiet`, as D4
-  decides.
+- `_hash.py` with the recipe, the trade-price retries, when a burst is
+  checked, with `burst_quiet`'s timer as an input, the divergence rule, and
+  the parameters fetched through lookup, feeding T7 and T9 in `_state.py`.
+  Statistics for checks.
 - Turn on: `hash-checks-pass`, `hash-single-failure`, `hash-divergence`,
   `hash-trade-before-announcement`, `hash-check-predates-undecodable`. The
   harness now checks that every scenario is enabled.

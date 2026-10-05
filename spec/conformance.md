@@ -1,8 +1,8 @@
 # Conformance scenarios
 
 **Status:** Draft 0.1.0, for the operator's review, with the
-[client contract](client.md); not tagged. Scenarios that depend on a
-decision awaiting the operator say so with a `pending` line.
+[client contract](client.md); not tagged. Scenarios that rest on one of the
+contract's owner specifications name it with an `owner-spec` line.
 
 These scenarios check a client against a scripted local WebSocket server.
 Each gives the frames and closes the server sends, the steps the test takes
@@ -173,7 +173,7 @@ The block begins with these lines, before any step.
 | `markets <M> ...` | The desired set passed to the constructor, in order. Without it, the set is empty. |
 | `config <field>=<value> ...` | Overrides of the profile. `reconnect.<field>` sets a field of the reconnect policy. |
 | `lookup <M> <answer>` | The lookup's initial answer for `M`. |
-| `pending <decision> ...` | The decisions in [the client contract](client.md#decisions-awaiting-the-operator) the scenario depends on. Informational. |
+| `owner-spec <decision> ...` | The [owner specifications](client.md#owner-specifications), D1 to D8, the scenario rests on. Informational: changing one of them means revisiting these scenarios. |
 
 ### Server steps
 
@@ -667,7 +667,7 @@ differs from the held one ([§3]).
 ```scenario
 scenario drop-without-close
 markets A
-pending D2
+owner-spec D2
 
 start A
 send pc A t=100 A1:BUY:0.49:50
@@ -694,7 +694,7 @@ expect book A1 opening=true connection=2 frame=1 t=2000
   asks=0.53:300,0.52:120
 expect gap A1 cause=dropped end=book connection_before=1
   connection_after=2 resumed=true held_book_matched=false
-  last_confirmed_at=set detected_at=set discarded=none
+  last_confirmed_at=set detected_at=set
 expect token A1 ready previous=synchronizing reason=book connection=2
   within 0..0.3 of o
 expect book A2 opening=true t=-30000 held_book_matched=true
@@ -720,7 +720,7 @@ after a connection delivers its first frame (client decision 26).
 ```scenario
 scenario close-frames
 markets A
-pending D2
+owner-spec D2
 
 start A
 c1: close 1001 "going away"
@@ -777,7 +777,7 @@ interruption; the `1013` close is.
 ```scenario
 scenario close-slow-consumer
 markets A
-pending D1 D2
+owner-spec D1 D2
 
 start A
 pong hold
@@ -821,7 +821,7 @@ backoff, and no token has a state until it is subscribed.
 ```scenario
 scenario startup-retry
 markets A
-pending D2
+owner-spec D2
 
 expect conn connecting attempt=1
 r: refuse 1
@@ -850,7 +850,7 @@ does not wait forever.
 ```scenario
 scenario connect-timeout
 markets A
-pending D2
+owner-spec D2
 
 c: expect conn connecting attempt=1
 expect conn recovering attempt=2 retry_in=0.2 reason=backoff detail=set
@@ -878,7 +878,7 @@ attempt.
 ```scenario
 scenario reconnect-refused-then-accepted
 markets A
-pending D2
+owner-spec D2
 
 start A
 d: drop
@@ -918,7 +918,7 @@ neither retries forever nor goes silent, as the SDK can ([§1]).
 ```scenario
 scenario recovery-exhausted-attempts
 markets A
-pending D2
+owner-spec D2
 
 start A
 drop
@@ -954,7 +954,7 @@ Attempts start 0.1, 0.3, 0.7, and 1.1 s after it; the next would start at
 scenario recovery-exhausted-time
 markets A
 config reconnect.max_attempts=100 reconnect.max_recovery_time=1.3
-pending D2
+owner-spec D2
 
 start A
 refuse-all
@@ -988,7 +988,7 @@ attempt numbers follow on, and the third failure exhausts the bounds
 ```scenario
 scenario recovery-exhausted-no-frame
 markets A
-pending D2
+owner-spec D2
 
 start A
 drop
@@ -1053,7 +1053,7 @@ to 2.5 s after it.
 ```scenario
 scenario pong-withheld
 markets A
-pending D1 D2
+owner-spec D1 D2
 
 start A
 o: pong off
@@ -1089,7 +1089,7 @@ interruption ([§2]).
 ```scenario
 scenario pong-late-within-timeout
 markets A
-pending D1
+owner-spec D1
 
 start A
 pong hold
@@ -1242,7 +1242,7 @@ tokens settle and their gaps end without resuming.
 ```scenario
 scenario settle-unannounced-drop
 markets A
-pending D2 D6
+owner-spec D2 D6
 
 start A
 send pc A t=1000 A1:BUY:0.48:0 A1:BUY:0.47:0 A1:SELL:0.52:0
@@ -1288,7 +1288,7 @@ through lookup.
 ```scenario
 scenario settled-at-subscription
 markets S
-pending D6
+owner-spec D6
 
 expect conn connecting attempt=1
 accept
@@ -1318,7 +1318,7 @@ one is confirmed through lookup and is not resubscribed after a reconnect.
 ```scenario
 scenario settled-with-active
 markets A S
-pending D6
+owner-spec D6
 
 expect conn connecting attempt=1
 accept
@@ -1370,7 +1370,7 @@ subscribed one (Inferred, [§6]).
 ```scenario
 scenario unknown-market
 markets U
-pending D6
+owner-spec D6
 
 expect conn connecting attempt=1
 accept
@@ -1399,7 +1399,7 @@ book alone.
 scenario settlement-unconfirmed
 markets A
 lookup A error
-pending D6
+owner-spec D6
 
 expect conn connecting attempt=1
 accept
@@ -1431,7 +1431,7 @@ market leaves the desired set.
 ```scenario
 scenario settle-lookup-after-late-book
 markets A
-pending D6
+owner-spec D6
 
 expect conn connecting attempt=1
 accept
@@ -1460,15 +1460,15 @@ expect-no-connect 1.0
 
 ### Subscription changes
 
-These follow D7's recommended default: an addition reconnects with the new
-desired set, and a removal takes effect without reconnecting.
+These follow D7, an owner specification: an addition reconnects with the
+new desired set, and a removal takes effect without reconnecting.
 
 #### `subscribe-while-connected`
 
 ```scenario
 scenario subscribe-while-connected
 markets A
-pending D7
+owner-spec D7
 
 start A
 add: subscribe B
@@ -1508,7 +1508,7 @@ frame, without an extra reconnect.
 ```scenario
 scenario subscribe-during-outage
 markets A
-pending D7
+owner-spec D7
 
 start A
 drop
@@ -1548,7 +1548,7 @@ market is unaffected, and the next subscription frame leaves it out.
 ```scenario
 scenario unsubscribe
 markets A B
-pending D7
+owner-spec D7
 
 start A B
 u: unsubscribe A
@@ -1588,7 +1588,7 @@ desired set outlives the connection, and adding a market connects again.
 ```scenario
 scenario unsubscribe-all-then-subscribe
 markets A
-pending D7
+owner-spec D7
 
 start A
 unsubscribe A
@@ -1622,7 +1622,7 @@ nothing held to compare it with.
 ```scenario
 scenario resubscribe-removed
 markets A B
-pending D7
+owner-spec D7
 
 start A B
 unsubscribe A
@@ -1851,7 +1851,7 @@ client resumes at 1.
 scenario consumer-stops-reading
 markets A
 config queue_size=4 backlog_warning=0.75 resume_below=0.25
-pending D3
+owner-spec D3
 
 start A
 send pc A t=100 A1:BUY:0.49:10
@@ -1900,7 +1900,7 @@ the start and after an overflow, so the client can always make progress.
 scenario frame-larger-than-queue
 markets A
 config queue_size=1 backlog_warning=1 resume_below=0.5
-pending D3
+owner-spec D3
 
 expect conn connecting attempt=1
 accept
@@ -1958,7 +1958,7 @@ are waiting, the client starts no attempt until the consumer reads.
 scenario status-records-bounded
 markets A
 config queue_size=10
-pending D2
+owner-spec D2
 
 accept
 recv-subscribe A1 A2
@@ -2014,7 +2014,7 @@ scenario consumer-pause-outlasts-recovery-time
 markets A
 config queue_size=4 backlog_warning=0.75 resume_below=0.25
   reconnect.max_recovery_time=0.5
-pending D2 D3
+owner-spec D2 D3
 
 start A
 send pc A t=100 A1:BUY:0.49:10
@@ -2113,7 +2113,7 @@ expect-stats interruptions=0
 
 ### Hash verification
 
-These follow D4's recommended default and run with `verify_hash` on. As
+These follow D4, an owner specification, and run with `verify_hash` on. As
 the operator decided, a burst is checked when the token's next entry
 carries another hash, when its next `book` arrives, or `burst_quiet` after
 its last entry, 0.1 s in the profile
@@ -2127,7 +2127,7 @@ Checks of correct hashes verify silently, once per burst ([§4]).
 scenario hash-checks-pass
 markets A
 config verify_hash=true
-pending D4
+owner-spec D4
 
 start A
 send pc A t=100 A1:BUY:0.49:50 A2:SELL:0.51:50
@@ -2149,7 +2149,7 @@ as the source's own hashes are sometimes briefly ahead ([§4]).
 scenario hash-single-failure
 markets A
 config verify_hash=true
-pending D4
+owner-spec D4
 
 start A
 send pc A t=100 A1:BUY:0.49:50 hash=bad
@@ -2171,7 +2171,7 @@ book restores it.
 scenario hash-divergence
 markets A
 config verify_hash=true hash_grace=0.5
-pending D4
+owner-spec D4
 
 start A
 silent A1 t=50 BUY:0.45:30
@@ -2205,7 +2205,7 @@ and nothing fails. Once the trade is announced, checks verify at once.
 scenario hash-trade-before-announcement
 markets A
 config verify_hash=true
-pending D4
+owner-spec D4
 
 start A
 trade A 0.530
@@ -2232,7 +2232,7 @@ The next burst's check, `burst_quiet` after its entry, restores it.
 scenario hash-check-predates-undecodable
 markets A
 config verify_hash=true
-pending D4
+owner-spec D4
 
 start A
 send pc A t=100 A1:BUY:0.49:50

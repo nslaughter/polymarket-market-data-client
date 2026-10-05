@@ -33,10 +33,11 @@ The README describes the project for people; it is not a specification.
   time, in order, within its stated scope, as described in
   [Doing the next item](#doing-the-next-item). Note anything you deferred in
   the pull request description.
-- **Leave the operator's decisions to the operator.** Do not start a step
-  whose status is `Needs operator decision`, and do not settle an open
-  decision in `spec/client.md` by implementing a default. The recommended
-  defaults in `spec/client.md` are not decisions.
+- **Follow the owner specifications.** D1 to D8 in `spec/client.md` are
+  owner specifications, decided by the operator on 2026-10-05. Implement
+  them as written, and don't reopen one or depart from it on your own; if
+  one seems wrong, stop and report it, as for any specification. Do not
+  start a step whose status is `Needs operator decision`.
 - **Done means verified.** A pull request is done when formatting, lint,
   type checks, and tests pass, and every scenario in
   `tests/conformance/enabled.txt`, including the ones the step adds, passes
@@ -74,7 +75,7 @@ The README describes the project for people; it is not a specification.
 - Keep `_decode.py`, `_book.py`, `_state.py`, and `_hash.py` free of I/O and
   timers, so their rules can be tested directly.
 - Do not use the SDK's streams. The pinned SDK is used only behind
-  `MarketLookup`, as D6 decides.
+  `MarketLookup`, as D6 specifies.
 - Do not use the captures or the excerpts in `spikes/evidence/` as test
   fixtures. They are Polymarket's data, and whether its terms allow
   republishing it has not been checked. Build synthetic frames as

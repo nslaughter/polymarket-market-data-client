@@ -16,9 +16,9 @@ scripts in `spikes/`, and the client's specification: the
 [client contract](spec/client.md), the
 [conformance scenarios](spec/conformance.md), the
 [implementation plan](docs/implementation-plan.md), and the rules for
-implementation agents in [`AGENTS.md`](AGENTS.md). Seven design decisions in
-the contract await review before the steps that depend on them start. None
-of the client has been implemented or tested yet. The client will be written
+implementation agents in [`AGENTS.md`](AGENTS.md). The contract's eight
+design decisions are settled as owner specifications. None of the client
+has been implemented or tested yet. The client will be written
 in Python. This is an independent, read-only demonstration. It is not
 affiliated with or endorsed by Polymarket, and it is not client work.
 

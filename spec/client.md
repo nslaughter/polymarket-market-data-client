@@ -1,12 +1,9 @@
 # Client contract: Polymarket market-data client
 
-**Status:** Draft 0.1.0, for the operator's review; not tagged. Eight
-decisions, D1 to D8, are the operator's to make. D8 is decided; the other
-seven are open. Each is set out under
-[Decisions awaiting the operator](#decisions-awaiting-the-operator) with its
-options, its evidence, and a recommended default. Where this document needs
-a value for one of them, it gives the recommended default and names the
-decision; none of those values is settled. None of the client exists yet.
+**Status:** Draft 0.1.0, for the operator's review; not tagged. Its eight
+design decisions, D1 to D8, are [owner specifications](#owner-specifications):
+the operator decided each on 2026-10-05, and an implementation follows them
+as written. None of the client exists yet.
 
 This document governs the client's code: its public interface, the records
 it delivers, the per-token state machine, the recovery contract, and the
@@ -116,8 +113,8 @@ real-time feeds; continuous operation.
 
 ## Public interface
 
-The names in this section use the recommended package and import names,
-which are D5's to settle. All public names are importable from the package's
+The names in this section use the package and import names D5 specifies.
+All public names are importable from the package's
 top level.
 
 ```python
@@ -181,7 +178,6 @@ effect. Calling either after the client has shut down raises
 | `MarketNotFound(ClientError, LookupError)` | `resolve` | The lookup found no market for the slug. |
 | `LookupFailed(ClientError)` | `resolve` | The lookup raised or exceeded `lookup_timeout`. Its `__cause__` is the lookup's exception, or the `TimeoutError`. |
 | `RecoveryFailed(ClientError)` | the iterator | Reconnection exhausted its bounds (D2). It is raised after the records that report the failure ([Reconnecting](#reconnecting)). |
-| `ConsumerTooSlow(ClientError)` | the iterator | Only if D3 settles on failing at the limit. |
 
 A lookup that fails while the client confirms a settlement or fetches hash
 inputs, an undecodable frame, and a lost connection are not exceptions. The
@@ -292,7 +288,7 @@ overwrote leaves no trace (Observed, [§4]).
 | --- | --- |
 | `TokenStateChange` | `token_id`; `market`; `state: TokenState`; `previous: TokenState \| None`; `reason: str`; `at: datetime`; `connection: int \| None`; `last_confirmed_at: datetime \| None`, set when the reason is `interrupted`; `winning_asset_id: str \| None`, set when settled and known. |
 | `ConnectionStateChange` | `state: ConnectionState`; `at`; `connection: int \| None`, the generation for `open`, `subscribed`, `interrupted`, `ended`, and `idle` after a connection, otherwise `None`; `attempt: int \| None`, set for `connecting` and `recovering`; `reason: str \| None`; `detail: str \| None`; `close_code: int \| None`; `close_reason: str \| None`; `retry_in: float \| None`; `last_confirmed_at: datetime \| None`. |
-| `CaptureGap` | `token_id`; `market`; `cause: str`; `close_code: int \| None`; `close_reason: str \| None`; `last_confirmed_at: datetime`; `detected_at: datetime`; `resumed_at: datetime \| None`; `end: str`; `connection_before: int`; `connection_after: int \| None`; `held_book_matched: bool \| None`; `discarded: int \| None`; `at`. |
+| `CaptureGap` | `token_id`; `market`; `cause: str`; `close_code: int \| None`; `close_reason: str \| None`; `last_confirmed_at: datetime`; `detected_at: datetime`; `resumed_at: datetime \| None`; `end: str`; `connection_before: int`; `connection_after: int \| None`; `held_book_matched: bool \| None`; `at`. |
 | `Backlog` | `queued: int`; `limit: int`; `rising: bool`; `at`. |
 
 A `TokenStateChange` is emitted whenever a token's state or its reason
@@ -410,7 +406,7 @@ for a token still in the desired set. The client detects one when:
 | `dropped` | The connection ends without a close frame: a reset, an end of file, or a protocol error. | Observed for idle connections and slow consumers ([§2]) and at a settlement ([§6]) |
 | `pong_timeout` | A `PING` has gone unanswered for `pong_timeout` seconds (D1). The client then closes the connection (code 1000, reason `pong timeout`). | Choice; [§2] bounds it |
 | `consumer_overflow` | The consumer fell behind and D3's response is to disconnect. The client closes (1000, `client backlog`). | Choice |
-| `subscription_change` | Applying a change to the desired set needs a new connection, as D7's recommended default does. The client closes (1000, `subscription change`). | Choice |
+| `subscription_change` | Applying a change to the desired set needs a new connection, as D7 specifies for additions. The client closes (1000, `subscription change`). | Choice |
 
 The close frame `1000 all subscribed assets resolved` is not an
 interruption; it settles every token on the connection
@@ -447,8 +443,8 @@ the end of what the client applied.
 
 ### Reconnecting
 
-The client reconnects with exponential backoff, within the bounds D2 sets.
-With the recommended defaults, the delay before attempt *k* is
+The client reconnects with exponential backoff, within the bounds D2
+specifies. The delay before attempt *k* is
 `min(max_delay, base_delay × 2^(k − 1))`, multiplied by a uniform random
 factor in [0, 1) when `jitter` is on. Each attempt has `connect_timeout` to
 complete its handshake. The first attempt when the client starts, or when a
@@ -595,8 +591,8 @@ over. Its tokens hold no book and no open gap from before. They stay
 [outside the desired set](#events-outside-the-desired-set), until a
 subscription frame names them; then T1 makes them `synchronizing`, with
 `previous` set to `removed` or `settled`. They take no part in an
-interruption before then. With D7's recommended default, the addition
-reconnects at once, as any addition does.
+interruption before then. Under D7, the addition reconnects at once, as
+any addition does.
 
 ### Catalogued behavior
 
@@ -616,9 +612,9 @@ table](conformance.md#coverage) names the scenarios that check each.
 | A token's events arrive out of timestamp order across types ([§3]) | Delivered in arrival order with source timestamps; nothing is reordered or rejected. |
 | A change stamped before an opening `book` can arrive after it ([§3]) | Applied in arrival order and flagged `before_book`. |
 | Opening `book` timestamps are the book's last change ([§3]) | Kept as sent; never used to judge freshness. |
-| A trade's price enters the hash before it is announced, and a tick-size change seemed to, once ([§4]) | If D4 adopts verification: a failed check is retried with a searched trade price, and only persistent failure is divergence. |
-| The hash recipe is undocumented; on busy markets its trade price does not follow announced trades ([§4]) | D4 decides whether and how to verify. |
-| The stream can omit a change ([§4]) | With verification, the token becomes `uncertain` until a check verifies or a book replaces it. Without it, the next `book` reports `held_book_matched=False`. |
+| A trade's price enters the hash before it is announced, and a tick-size change seemed to, once ([§4]) | Under D4, a failed check is retried with a searched trade price, and only persistent failure is divergence. |
+| The hash recipe is undocumented; on busy markets its trade price does not follow announced trades ([§4]) | The client verifies with the recipe, as D4 specifies, as evidence of divergence and never as a condition for readiness. |
+| The stream can omit a change ([§4]) | Hash verification (D4) makes the token `uncertain` until a check verifies or a book replaces it, and the next `book` also reports `held_book_matched=False`. |
 | The server closes with `1000 all subscribed assets resolved` when every market on the connection has settled ([§6]) | Settlement, not an interruption: no reconnect for those tokens. |
 | A settlement can go unannounced ([§6]) | Settlement is also found from a missing book confirmed by lookup. |
 | Settled tokens are silently left out of a subscription; REST returns 404 ([§6]) | `book_timeout`, then `no_book`, then confirmation by lookup (D6). |
@@ -659,7 +655,7 @@ client's book by following the same rules.
 
    | Field | Meaning |
    | --- | --- |
-   | `cause` | The interruption's reason: `close_frame`, `dropped`, `pong_timeout`, `consumer_overflow`, or `subscription_change`; or `records_discarded` if D3's response is to drop records. |
+   | `cause` | The interruption's reason: `close_frame`, `dropped`, `pong_timeout`, `consumer_overflow`, or `subscription_change`. |
    | `close_code`, `close_reason` | The close frame, if one came. |
    | `last_confirmed_at` | The last frame received on the interrupted connection. |
    | `detected_at` | When the client detected the interruption. |
@@ -667,7 +663,6 @@ client's book by following the same rules.
    | `end` | `book`, `settled`, `removed`, or `recovery_failed`. |
    | `connection_before`, `connection_after` | The interrupted generation, and the one whose book ended the gap (`None` if none). |
    | `held_book_matched` | As on the fresh `BookEvent`; `None` if the gap did not end with a book. |
-   | `discarded` | The number of records the client itself discarded, when it knows it exactly (`records_discarded` only); otherwise `None`. |
 
    The count of events the source sent during a gap is unknown, and the
    gap never claims one: the stream has no sequence numbers, and the hash
@@ -861,12 +856,12 @@ Records pass to the consumer through one bounded FIFO queue:
   `Backlog` record shows where in the stream the backlog crossed the level;
   it reaches the consumer only after the records ahead of it.
 
-What happens at the limit is D3's to settle. Backpressure cannot make the
+D3 specifies what happens at the limit. Backpressure cannot make the
 source retain events: the server ends a connection whose send buffer fills,
 and nothing is replayed (Observed, [§2], [§3]). So every response at the
 limit loses events, and each must report the loss as a capture gap.
 
-With D3's recommended `disconnect`, a frame that reaches the limit starts
+Under D3's `disconnect` response, a frame that reaches the limit starts
 the `consumer_overflow` interruption. That frame is neither delivered nor
 applied, nor is anything after it on that connection
 ([Detecting an interruption](#detecting-an-interruption)). The
@@ -883,9 +878,9 @@ resume, the `Backlog` record comes before `connecting`.
 The client needs a market lookup to resolve a slug to its condition ID and
 tokens, to confirm settlement, and, when `verify_hash` is set, to fetch the
 two hash inputs the stream does not carry. With `verify_hash` off, the
-client never calls `book_parameters`. How the pinned SDK provides it is
-D6's to settle. Whatever D6 decides, the client calls lookup through this
-interface, so tests replace it with a scripted one:
+client never calls `book_parameters`. D6 specifies how the pinned SDK
+provides it. The client calls lookup through this interface, so tests
+replace it with a scripted one:
 
 ```python
 class MarketLookup(Protocol):
@@ -899,8 +894,8 @@ class MarketLookup(Protocol):
 `winning_asset_id` and `resolution_status`. `BookParameters` holds
 `min_order_size: Decimal` and `neg_risk: bool`. `None` means not found.
 
-If no lookup is available, as when D6 makes the SDK an optional extra that
-is not installed, `resolve` raises `ClientStateError`, and a token reaching
+If no lookup is available, as when the SDK, an optional extra under D6, is
+not installed, `resolve` raises `ClientStateError`, and a token reaching
 `no_book` moves straight to `settlement_unconfirmed` (T13).
 
 Lookup calls run outside the reading task, each limited to `lookup_timeout`.
@@ -912,9 +907,8 @@ makes is raised to its caller as `LookupFailed`.
 
 ## Order-book hash
 
-Whether the client verifies the hash, and how, is D4's to settle. This
-section records what the findings established, which any verification must
-follow.
+The client verifies the hash as D4 specifies. This section records what
+the findings established, which that verification follows.
 
 The hash on a `book` event and on each `price_change` entry is the SHA-1 of
 the token's book written as compact JSON, in the REST book's key order, with
@@ -998,8 +992,8 @@ contract.
 ## Configuration
 
 `ClientConfig` and `ReconnectPolicy` are frozen Pydantic models (D8,
-decided). Values marked with a decision are their recommended defaults, not
-settled.
+decided). A value marked with a decision is the default that owner
+specification sets.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -1122,15 +1116,19 @@ it. Each can be revisited in a later version.
     whether or not the subscription frame was sent, so an endpoint that
     accepts and drops connections still exhausts the bounds.
 
-## Decisions awaiting the operator
+## Owner specifications
 
-Each needs the operator's decision. The recommended default is what this
-document and the scenarios use until then; the scenarios that depend on a
-decision say so.
+The operator decided D1 to D8 on 2026-10-05, each by adopting the
+recommended default set out below; D4's burst rule and D8 were added after
+review raised them. They are owner specifications: an implementation
+follows them as written, and changing one needs the operator and a new
+version of this document. The options and evidence stay with each as the
+record of the choice, and the scenarios that rest on one name it.
 
 ### D1. `PONG` timeout
 
-**Needs operator decision.**
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05.
 
 | Option | For | Against |
 | --- | --- | --- |
@@ -1149,14 +1147,15 @@ keepalive caught a stall after 20.5 s, before the watchdog (Observed,
 [§1]). How much backlog the server allows before closing a slow consumer is
 open ([§2]).
 
-**Recommended default: 20 s, fixed, measured from the oldest unanswered
+**Specification: 20 s, fixed, measured from the oldest unanswered
 `PING`.** It is more than 8 s above the slowest `PONG` observed, and the two
 connections whose slowest `PONG` exceeded 6.5 s were then ended by the
 server itself ([§2]).
 
 ### D2. Reconnect bounds
 
-**Needs operator decision.**
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05.
 
 | Option | For | Against |
 | --- | --- | --- |
@@ -1176,13 +1175,14 @@ three times and once more without a close frame (Observed, [§2]). Whether
 the server penalizes quick reconnects is not known. The README describes "a
 bounded number of attempts", which the time-only option would not meet.
 
-**Recommended default: both bounds, 10 consecutive failed attempts or 300 s
+**Specification: both bounds, 10 consecutive failed attempts or 300 s
 since the interruption; delay `min(30, 0.5 × 2^(k−1))` s with full jitter;
 counting restarts when a connection delivers a frame (decision 26).**
 
 ### D3. Queue size and the response at the limit
 
-**Needs operator decision.**
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05.
 
 | Response | What happens | For | Against |
 | --- | --- | --- | --- |
@@ -1197,7 +1197,7 @@ and another after a `PONG` took 11.4 s, while a review run's connection
 survived a 7.05 s backlog (Observed, [§2], [Review runs]). `new_market`
 bursts of 566 a minute are filtered by default (decision 15).
 
-**Recommended default: `disconnect`, `queue_size` 10,000, `backlog_warning`
+**Specification: `disconnect`, `queue_size` 10,000, `backlog_warning`
 0.5, `resume_below` 0.1.** At the peak frame rate, 10,000 records is about
 12 s, if each frame yields about one record, as a `price_change` frame does
 (an estimate, not an observation). That is close to the backlogs at which
@@ -1206,7 +1206,8 @@ and the README describes the client disconnecting to protect memory.
 
 ### D4. Hash verification
 
-**Needs operator decision.**
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05.
 
 | Option | For | Against |
 | --- | --- | --- |
@@ -1233,7 +1234,7 @@ their token's previous entry, which had come in an earlier frame, 1,791 of
 them with the same timestamp. They followed it by at most 0.27 s, and 143
 came after other frames in between.
 
-**Recommended default: verify, with these rules.** Fetch `min_order_size`
+**Specification: verify, with these rules.** Fetch `min_order_size`
 and `neg_risk` through lookup when a token enters the desired set; until they
 arrive, or if they cannot be had, do not check that token. Check each `book`
 event's own hash when it arrives, and each burst when it ends (below), using
@@ -1275,7 +1276,7 @@ only when the token's next entry carries another hash or its next `book`
 arrives shows divergence one change later, and never checks a token's last
 burst before it goes quiet.
 
-**Recommended default: `burst_quiet` 1.0 s.** It must exceed the longest
+**Specification: `burst_quiet` 1.0 s.** It must exceed the longest
 gap between a burst's entries, 0.27 s in the excerpts measured above. Also
 measured for this document from them: 18 of the 1,793 entries followed
 their token's previous entry by more than 0.1 s, and 4 by more than 0.2 s.
@@ -1290,12 +1291,12 @@ of its last burst waits `burst_quiet`. One second is half of `hash_grace`'s
 too briefly costs, for a burst whose entries come further apart, one
 failed check and a search over 1,001 trade prices. The check of the burst's
 later entries then verifies, and the divergence rule needs at least two
-failed checks with none verifying between them. The value, like the rest
-of this default, is the operator's to settle with D4.
+failed checks with none verifying between them.
 
 ### D5. Supported Python versions, and the package and import names
 
-**Needs operator decision.**
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05.
 
 Python: the SDK 0.12.0 requires Python 3.11 or later. That is from its
 wheel's metadata, read for this document; the findings record only that
@@ -1316,7 +1317,7 @@ client must not use it.
 | Match the repository | `polymarket-market-data-client` | `polymarket_market_data` |
 | Shorter | `pm-market-data` | `pm_market_data` |
 
-**Recommended default: CPython 3.12 and later, with CI on each supported
+**Specification: CPython 3.12 and later, with CI on each supported
 release from 3.12 on; distribution `polymarket-market-data-client`, import
 `polymarket_market_data`.** Releases are wheels attached to tagged GitHub
 releases, as the README describes. If the package is ever published to a
@@ -1325,7 +1326,8 @@ reads as affiliated with Polymarket.
 
 ### D6. How the pinned SDK serves market lookup and settlement confirmation
 
-**Needs operator decision.**
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05.
 
 | Option | For | Against |
 | --- | --- | --- |
@@ -1345,7 +1347,7 @@ findings checked ([Versions]). Its wheel metadata, read for this document,
 requires `websockets` from 13 to below 16, which bounds the client's own
 `websockets`.
 
-**Recommended default: the SDK behind `MarketLookup`, as the investigation
+**Specification: the SDK behind `MarketLookup`, as the investigation
 used it, as an optional extra that provides the default lookup;
 confirmation by `get_market(slug=…)` showing the market closed, polled every
 15 s for up to 300 s after `no_book`.** A market added without a slug cannot
@@ -1354,7 +1356,8 @@ counted in statistics, not trusted alone.
 
 ### D7. Applying subscription changes
 
-**Needs operator decision.** This was found while writing the spec: the
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05. This was found while writing the spec: the
 findings do not cover changing a subscription on an open connection.
 
 | Option | For | Against |
@@ -1369,7 +1372,7 @@ The SDK 0.12.0 sends `{"operation": "subscribe", "assets_ids": […],
 for this document; not in the findings). Whether the server then sends books
 for added tokens, in what shape, or rejects anything was not checked.
 
-**Recommended default: reconnect with the new desired set for additions
+**Specification: reconnect with the new desired set for additions
 (`subscription_change`, no backoff), and apply removals without
 reconnecting: a removed market's tokens become `removed` at once, its events
 are discarded, and the next subscription frame leaves it out.** Revisit
@@ -1378,10 +1381,10 @@ changes are written for this default.
 
 ### D8. Pydantic v2 or dataclasses for configuration, decoding, and records
 
-**Decided by the operator on 2026-10-05: the recommended default below.**
-The operator raised this while reviewing the draft, which used frozen
-dataclasses and a hand-written decoder throughout. The options and evidence
-stay as the record of the choice.
+**Owner specification:** the recommended default, adopted by the operator
+on 2026-10-05. The operator raised this while reviewing the draft, which
+used frozen dataclasses and a hand-written decoder throughout. The options
+and evidence stay as the record of the choice.
 
 | Option | For | Against |
 | --- | --- | --- |
@@ -1433,13 +1436,13 @@ Evidence:
   D6 keeps the SDK as a required dependency, Pydantic is installed anyway,
   and the client's range must overlap the SDK's.
 
-**Decision: Pydantic for configuration and decoding, with the public
+**Specification: Pydantic for configuration and decoding, with the public
 records left as frozen dataclasses.** It puts declared validation
 where the input is untrusted, the wire and the configuration, and gives the
 [decoding](#decoding) rules the error locations they need to name affected
 tokens. The public types stay plain, take positional `match` patterns, and
 do not tie the pipeline to Pydantic's major version. The cost is a core
-dependency on Pydantic, which nothing adds if D6 requires the SDK, and a
+dependency on Pydantic, since D6 makes the SDK an optional extra, and a
 mapping from wire models to records that the decoder's tests cover.
 
 **Records are serialized through `TypeAdapter`.** The example's timeline,
@@ -1504,8 +1507,8 @@ Raised by this document:
 - Whether a `price_change` can arrive for a token before its opening `book`.
   The findings do not say; none did in the excerpts measured for this
   document.
-- Whether the server penalizes quick reconnects (D2). D7's recommended
-  default reconnects at once on every addition.
+- Whether the server penalizes quick reconnects (D2). Under D7 the client
+  reconnects at once on every addition.
 - Whether the decoder's required fields hold for every event the source
   sends. They were read from the captured frames, not from the findings.
 
