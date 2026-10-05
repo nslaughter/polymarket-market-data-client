@@ -398,7 +398,7 @@ The last two lines alternate, token by token.
 | A withheld `PONG` | `pong-withheld`; and a late one that is not a failure, `pong-late-within-timeout` |
 | Subscription restoration | `drop-without-close`, `settled-with-active`, `settle-announced-others-open`, `unsubscribe` |
 | Subscription changes | `subscribe-while-connected`, `subscribe-during-outage`, `unsubscribe`, `unsubscribe-all-then-subscribe` |
-| A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market` |
+| A market that settles | `settle-announced-others-open`, `settle-all-resolved-close`, `settle-all-resolved-close-unannounced`, `settle-unannounced-drop`, `settled-at-subscription`, `settled-with-active`, `settlement-unconfirmed`, `unknown-market`, `settle-lookup-after-late-book` |
 | Unknown and malformed frames | `unknown-event-type`, `malformed-frames`, `invalid-known-event` |
 | A consumer that stops reading | `consumer-stops-reading` |
 | When the client becomes uncertain, may report readiness again, and reports a market settled | the `within` windows in `drop-without-close`, `pong-withheld`, `settle-unannounced-drop`, `settled-at-subscription`, and `hash-divergence` |
@@ -1293,6 +1293,43 @@ expect token A2 uncertain previous=uncertain
   reason=settlement_unconfirmed
 expect-nothing 1.0
 expect-stats lookup_failures>=2
+```
+
+#### `settle-lookup-after-late-book`
+
+One token's book arrives after `book_timeout`, while lookup is still
+confirming the settlement; the other token's never does. Once lookup shows
+the market closed, both tokens settle, the ready one included, since the
+market leaves the desired set.
+
+```scenario
+scenario settle-lookup-after-late-book
+markets A
+pending D6
+
+expect conn connecting attempt=1
+accept
+s: recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing
+expect token A2 synchronizing
+send opening
+expect token A1 uncertain previous=synchronizing reason=no_book
+  within 0.9..1.3 of s
+expect token A2 uncertain previous=synchronizing reason=no_book
+send book A1
+expect book A1 opening=false held_book_matched=none
+expect token A1 ready previous=uncertain reason=book
+expect-nothing 0.6
+l: lookup A closed winner=A1
+expect token A1 settled previous=ready reason=lookup_closed
+  winning_asset_id=A1 within 0..0.6 of l
+expect token A2 settled previous=uncertain reason=lookup_closed
+  winning_asset_id=A1
+expect conn idle reason=no_subscriptions connection=1
+expect-client-close 1000 "no subscriptions"
+expect-no-connect 1.0
 ```
 
 ### Subscription changes

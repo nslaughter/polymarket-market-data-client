@@ -511,7 +511,7 @@ under [The connection](#the-connection).
 | T8 | `ready` | An undecodable frame or event that may affect the token ([Decoding](#decoding)). | `uncertain` (`undecodable`) | `UndecodableFrame`; `TokenStateChange` |
 | T9 | `uncertain` (`hash_mismatch` or `undecodable`) | A hash check verifies (D4). | `ready` (`hash_verified`) | the event; `TokenStateChange` |
 | T10 | `uncertain` (any reason but `interrupted`) | A `book` for the token. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
-| T11 | `uncertain` (`no_book`) | Market lookup shows the market closed (D6). | `settled` (`lookup_closed`) | `CaptureGap` if open; `TokenStateChange` |
+| T11 | any but `settled` or `removed` | Market lookup, confirming a settlement, shows the market closed (D6). | `settled` (`lookup_closed`) | per token: `CaptureGap` if open; `TokenStateChange` |
 | T12 | `uncertain` (`no_book`) | Market lookup finds no such market. | `uncertain` (`unknown_market`) | `TokenStateChange` |
 | T13 | `uncertain` (`no_book`) | `settlement_confirm_timeout` passes without lookup showing the market closed. | `uncertain` (`settlement_unconfirmed`) | `TokenStateChange` |
 | T14 | `synchronizing`, `ready`, or `uncertain`, on the connection | The connection is interrupted. | `uncertain` (`interrupted`) | `TokenStateChange`, after `interrupted`; a gap opens if the token holds a book |
@@ -637,7 +637,7 @@ is reliable on its own, so the client uses three:
 | --- | --- | --- |
 | `market_resolved` for a desired market | 6 of 7 settlements ([§6]) | T15: the market's tokens become `settled`, with the winner. |
 | Close `1000 all subscribed assets resolved` | every settlement that left no unresolved market, three times with the frame, once probably without it ([§6]) | T16: every unsettled token on the connection becomes `settled`, winner unknown unless announced. |
-| A token gets no `book` after subscribing | every subscription to a settled market, including a resubscription ([§6]) | T4, then lookup: T11 settles it once lookup shows the market closed. |
+| A token gets no `book` after subscribing | every subscription to a settled market, including a resubscription ([§6]) | T4, then lookup: T11 settles the market's tokens once lookup shows the market closed. |
 
 The third path covers the settlement the stream did not announce: there the
 connection dropped between the emptied book and any announcement, and the
@@ -650,13 +650,16 @@ no book, according to the findings, though no run subscribed one (Inferred,
 per market: it asks at once when a token of the market reaches T4, then every
 `settlement_poll_interval` seconds, until lookup shows the market closed
 (T11), finds no market (T12), or `settlement_confirm_timeout` passes (T13).
-T11 to T13 apply to every token of the market that is `uncertain` with
-`no_book`. Lookup lags the stream: the market lookup the investigation
-used first showed settled markets as closed 51 s, 186 s, and about three
-minutes after `market_resolved`, and its `closedTime` does not say when a
-client could first see that (Observed, [§6]). A `book` that arrives
-meanwhile makes the token `ready` (T10). A token left `uncertain` by T12 or
-T13 is subscribed again on the next connection.
+T11 settles every token of the market that is not already `settled` or
+`removed`, whatever its state, since the market then leaves the desired
+set. T12 and T13 apply only to the market's tokens that are still
+`uncertain` with `no_book`. Lookup lags the stream: the market lookup the
+investigation used first showed settled markets as closed 51 s, 186 s, and
+about three minutes after `market_resolved`, and its `closedTime` does not
+say when a client could first see that (Observed, [§6]). A `book` that
+arrives meanwhile makes the token `ready` (T10), and lookup goes on; if it
+then shows the market closed, T11 settles that token too. A token left
+`uncertain` by T12 or T13 is subscribed again on the next connection.
 
 A settled market leaves the desired set at once, so no later subscription
 frame names it. Events for it that still arrive, such as a repeated
