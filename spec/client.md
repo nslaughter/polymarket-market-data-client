@@ -1,7 +1,8 @@
 # Client contract: Polymarket market-data client
 
 **Status:** Draft 0.1.0, for the operator's review; not tagged. Eight
-decisions, D1 to D8, are the operator's to make. Each is set out under
+decisions, D1 to D8, are the operator's to make. D8 is decided; the other
+seven are open. Each is set out under
 [Decisions awaiting the operator](#decisions-awaiting-the-operator) with its
 options, its evidence, and a recommended default. Where this document needs
 a value for one of them, it gives the recommended default and names the
@@ -219,10 +220,10 @@ own `TransportError`, with the handle left open and silent (SDK source,
 
 ## Records
 
-Every record is a frozen dataclass with slots, which D8's recommended
-default keeps and one of its options replaces. Event records carry what the
-source sent; status records carry what the client concluded. A consumer
-tells them apart with an ordinary `match` statement.
+Every record is a frozen dataclass with slots, not a Pydantic model (D8,
+decided). Event records carry what the source sent; status records carry
+what the client concluded. A consumer tells them apart with an ordinary
+`match` statement.
 
 ### Fields of every event record
 
@@ -302,13 +303,16 @@ this document; a client must not add values without a new version of it.
 ### Values
 
 Prices, sizes, tick sizes, spreads, and fee rates are `Decimal`, built from
-the source's strings. Frames are parsed with `json.loads(text,
-parse_float=Decimal)`, or validated by Pydantic from the JSON text if D8 so
-decides; either way a number sent as a JSON number never passes through
-`float`. A value that is not a finite decimal makes its event
-undecodable. `Decimal` keeps the source's digits, so `str(level.price)`
-returns the text that was sent. Timestamps are integers of milliseconds,
-also exactly as sent.
+the source's strings. Each frame is parsed with `json.loads(text,
+parse_float=Decimal)`, and each object in it is then validated by the
+Pydantic model for its `event_type` (D8, decided), so a number sent as a
+JSON number never passes through `float`, and one bad item in an array does
+not reject the others. The models declare only the fields
+[Decoding](#decoding) lists and ignore the rest; a validation error makes
+the event undecodable, never an exception. A value that is not a finite
+decimal makes its event undecodable. `Decimal` keeps the source's digits,
+so `str(level.price)` returns the text that was sent. Timestamps are
+integers of milliseconds, also exactly as sent.
 
 ### Record order
 
@@ -993,9 +997,9 @@ contract.
 
 ## Configuration
 
-`ClientConfig` is a frozen dataclass, or a frozen Pydantic model if D8 so
-decides. Values marked with a decision are its
-recommended defaults, not settled.
+`ClientConfig` and `ReconnectPolicy` are frozen Pydantic models (D8,
+decided). Values marked with a decision are their recommended defaults, not
+settled.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -1023,7 +1027,8 @@ recommended defaults, not settled.
 
 Every duration must be positive, `queue_size` at least 1, and each fraction
 greater than 0 and at most 1, with `resume_below` below `backlog_warning`;
-otherwise the constructor raises `ConfigError`.
+otherwise the constructor raises `ConfigError`, with Pydantic's validation
+error as its `__cause__`.
 
 ## Decisions
 
@@ -1373,8 +1378,10 @@ changes are written for this default.
 
 ### D8. Pydantic v2 or dataclasses for configuration, decoding, and records
 
-**Needs operator decision.** The operator raised this while reviewing the
-draft, which used frozen dataclasses and a hand-written decoder throughout.
+**Decided by the operator on 2026-10-05: the recommended default below.**
+The operator raised this while reviewing the draft, which used frozen
+dataclasses and a hand-written decoder throughout. The options and evidence
+stay as the record of the choice.
 
 | Option | For | Against |
 | --- | --- | --- |
@@ -1418,16 +1425,16 @@ Evidence:
   D6 keeps the SDK as a required dependency, Pydantic is installed anyway,
   and the client's range must overlap the SDK's.
 
-**Recommended default: Pydantic for configuration and decoding, with the
-public records left as frozen dataclasses.** It puts declared validation
+**Decision: Pydantic for configuration and decoding, with the public
+records left as frozen dataclasses.** It puts declared validation
 where the input is untrusted, the wire and the configuration, and gives the
 [decoding](#decoding) rules the error locations they need to name affected
 tokens. The public types stay plain, take positional `match` patterns, and
 do not tie the pipeline to Pydantic's major version. The cost is a core
 dependency on Pydantic, which nothing adds if D6 requires the SDK, and a
-mapping from wire models to records that the decoder's tests cover. If the
-pipeline would rather serialize records directly, Pydantic throughout is
-the better fit.
+mapping from wire models to records that the decoder's tests cover.
+Pydantic throughout was the alternative if the pipeline should serialize
+records directly; the pipeline can serialize the dataclasses instead.
 
 ## Open questions
 

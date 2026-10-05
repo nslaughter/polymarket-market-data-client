@@ -34,9 +34,9 @@ The README describes the project for people; it is not a specification.
   [Doing the next item](#doing-the-next-item). Note anything you deferred in
   the pull request description.
 - **Leave the operator's decisions to the operator.** Do not start a step
-  whose status is `Needs operator decision`, and do not settle D1 to D8 by
-  implementing a default. The recommended defaults in `spec/client.md` are
-  not decisions.
+  whose status is `Needs operator decision`, and do not settle an open
+  decision in `spec/client.md` by implementing a default. The recommended
+  defaults in `spec/client.md` are not decisions.
 - **Done means verified.** A pull request is done when formatting, lint,
   type checks, and tests pass, and every scenario in
   `tests/conformance/enabled.txt`, including the ones the step adds, passes
@@ -61,10 +61,14 @@ The README describes the project for people; it is not a specification.
 - The task that reads the socket never awaits the consumer's queue. Use
   non-blocking puts and apply the overflow response instead.
 - A price, size, tick size, spread, or fee never passes through `float`:
-  parse frames with `json.loads(text, parse_float=Decimal)`, or validate the
-  JSON text with Pydantic if D8 so decides, never `json.loads` output with
-  floats in it, and build `Decimal` from the source's strings. Refuse
-  non-finite values.
+  parse frames with `json.loads(text, parse_float=Decimal)`, then validate
+  each object with its Pydantic model (D8). Never validate `json.loads`
+  output that holds floats. Refuse non-finite values.
+- The Pydantic wire models declare only the fields the decoder uses and
+  ignore the rest, unlike the SDK's, whose strictness dropped most
+  `new_market` events. A validation error becomes an `UndecodableFrame`,
+  never an exception out of the reader. Public records are frozen
+  dataclasses, not models.
 - Deadlines use the event loop's monotonic clock; `at` and `received_at`
   use `datetime.now(UTC)`.
 - Records are produced in one place, in the contract's
