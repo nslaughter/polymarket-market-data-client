@@ -666,6 +666,7 @@ differs from the held one ([§3]).
 ```scenario
 scenario drop-without-close
 markets A
+pending D2
 
 start A
 send pc A t=100 A1:BUY:0.49:50
@@ -718,6 +719,7 @@ after a connection delivers its first frame (client decision 26).
 ```scenario
 scenario close-frames
 markets A
+pending D2
 
 start A
 c1: close 1001 "going away"
@@ -774,6 +776,7 @@ interruption; the `1013` close is.
 ```scenario
 scenario close-slow-consumer
 markets A
+pending D1 D2
 
 start A
 pong hold
@@ -817,6 +820,7 @@ backoff, and no token has a state until it is subscribed.
 ```scenario
 scenario startup-retry
 markets A
+pending D2
 
 expect conn connecting attempt=1
 r: refuse 1
@@ -1048,6 +1052,7 @@ to 2.5 s after it.
 ```scenario
 scenario pong-withheld
 markets A
+pending D1 D2
 
 start A
 o: pong off
@@ -1083,6 +1088,7 @@ interruption ([§2]).
 ```scenario
 scenario pong-late-within-timeout
 markets A
+pending D1
 
 start A
 pong hold
@@ -1235,6 +1241,7 @@ tokens settle and their gaps end without resuming.
 ```scenario
 scenario settle-unannounced-drop
 markets A
+pending D2 D6
 
 start A
 send pc A t=1000 A1:BUY:0.48:0 A1:BUY:0.47:0 A1:SELL:0.52:0
@@ -1280,6 +1287,7 @@ through lookup.
 ```scenario
 scenario settled-at-subscription
 markets S
+pending D6
 
 expect conn connecting attempt=1
 accept
@@ -1309,6 +1317,7 @@ one is confirmed through lookup and is not resubscribed after a reconnect.
 ```scenario
 scenario settled-with-active
 markets A S
+pending D6
 
 expect conn connecting attempt=1
 accept
@@ -1360,6 +1369,7 @@ subscribed one (Inferred, [§6]).
 ```scenario
 scenario unknown-market
 markets U
+pending D6
 
 expect conn connecting attempt=1
 accept
@@ -1388,6 +1398,7 @@ book alone.
 scenario settlement-unconfirmed
 markets A
 lookup A error
+pending D6
 
 expect conn connecting attempt=1
 accept
