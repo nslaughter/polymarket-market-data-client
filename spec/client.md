@@ -920,7 +920,8 @@ by the slug it is given, and settlement confirmation by the market's
 
 If no lookup is available, as when the SDK, an optional extra under D6, is
 not installed, `resolve` raises `ClientStateError`, and no settlement can
-be confirmed ([Settlement](#settlement)).
+be confirmed ([Settlement](#settlement)). Nor is any hash checked, even
+with `verify_hash` on: D4 checks no token whose hash inputs cannot be had.
 
 Lookup calls run outside the reading task, each limited to `lookup_timeout`.
 An exception or a timeout counts as a failed call: it is counted, and for
