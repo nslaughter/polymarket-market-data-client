@@ -24,8 +24,8 @@ changes the status here.
 
 | Step | Depends on | Status | Pull request |
 | --- | --- | --- | --- |
-| 1. Create the package, records, and configuration | D5 | Needs operator decision | |
-| 2. Decode frames | | Not started | |
+| 1. Create the package, records, and configuration | D5, D8 | Needs operator decision | |
+| 2. Decode frames | D8 | Needs operator decision | |
 | 3. Keep books and token states | | Not started | |
 | 4. Build the conformance harness | | Not started | |
 | 5. Connect, subscribe, and deliver records | | Not started | |
@@ -61,7 +61,7 @@ name the operator chooses.
 | Path | Contents |
 | --- | --- |
 | `src/polymarket_market_data/__init__.py` | The public names, and nothing else. |
-| `_records.py` | Record dataclasses and enums. |
+| `_records.py` | Records and enums, as D8 decides. |
 | `_config.py` | `ClientConfig`, `ReconnectPolicy`, and validation. |
 | `_errors.py` | The exceptions. |
 | `_decode.py` | Frame decoding, repeat detection, and affected tokens. Pure: no I/O. |
@@ -90,9 +90,10 @@ Needs D5: the supported Python versions and the package and import names.
   lints, type-checks, runs the tests, builds the wheel, installs it in a
   clean virtual environment, and imports the package from it.
 - Every record, enum, exception, `ClientConfig`, and `ReconnectPolicy` the
-  contract names, with their fields and types. Records are frozen
-  dataclasses with slots. Configuration validation raises `ConfigError` as
-  the contract says.
+  contract names, with their fields and types, built as D8 decides:
+  frozen dataclasses with slots, or Pydantic models. Configuration
+  validation raises `ConfigError` as the contract says, wrapping any
+  Pydantic validation error.
 - Defaults only where no open decision sets them. A field whose default
   belongs to D1, D2, D3, D4, or D6, as the contract's
   [Configuration](../spec/client.md#configuration) table marks it, and
@@ -112,10 +113,11 @@ Out of scope: any behavior, and the defaults that open decisions set.
 
 - In `_decode.py`, turn one received frame into decoded events, an
   `UnknownEvent`, or `UndecodableFrame`s, exactly as
-  [Decoding](../spec/client.md#decoding) says: `json.loads` with
-  `parse_float=Decimal`, the required and optional fields per type, finite
-  decimals only, `side` values, integer timestamps, and the affected tokens
-  of an undecodable event.
+  [Decoding](../spec/client.md#decoding) says, by hand or with Pydantic
+  models as D8 decides: `json.loads` with `parse_float=Decimal` or
+  validation of the JSON text, the required and optional fields per type,
+  finite decimals only, `side` values, integer timestamps, and the affected
+  tokens of an undecodable event.
 - Repeat detection over a window, comparing content with `price_change`
   entries as a multiset.
 - Tests build frames with the conformance notation's shapes, written out as

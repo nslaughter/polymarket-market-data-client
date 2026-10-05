@@ -1,7 +1,7 @@
 # Client contract: Polymarket market-data client
 
-**Status:** Draft 0.1.0, for the operator's review; not tagged. Seven
-decisions, D1 to D7, are the operator's to make. Each is set out under
+**Status:** Draft 0.1.0, for the operator's review; not tagged. Eight
+decisions, D1 to D8, are the operator's to make. Each is set out under
 [Decisions awaiting the operator](#decisions-awaiting-the-operator) with its
 options, its evidence, and a recommended default. Where this document needs
 a value for one of them, it gives the recommended default and names the
@@ -55,12 +55,16 @@ findings. Each says so where it appears:
   while the receipt lag grew (D4).
 - That no frame other than JSON and `PONG` appears in those excerpts.
 - From the 0.12.0 wheel ([Versions] gives its hash): its metadata requires
-  Python 3.11 or later and `websockets` from 13 to below 16, and lists
-  `eth-abi`, `eth-account`, `httpx`, `pydantic`, and more; and its
+  Python 3.11 or later, `websockets` from 13 to below 16, and `pydantic`
+  from 2 to below 3, and lists `eth-abi`, `eth-account`, `httpx`, and more;
+  and its
   `market_protocol.py` sends `subscribe` and `unsubscribe` operation frames
   on an open connection.
 - The names of the SDK methods the investigation's scripts called:
   `AsyncPublicClient`, `list_markets`, `get_market`, and `get_order_book`.
+- How Pydantic 2.13.5 decodes decimals, refuses non-finite values, reports
+  where validation failed, and how fast it decodes, measured locally on
+  synthetic frames (D8).
 
 The findings' open questions stay open. The client is designed to behave
 sensibly whichever way they resolve, and no conformance scenario assumes an
@@ -156,7 +160,7 @@ asyncio.run(main())
 | `client.stats()` | A snapshot of the client's [counters](#statistics). |
 | `await client.resolve(slug)` | Looks a market up by slug and returns its `Market`. Raises `MarketNotFound` if the lookup finds none, and `LookupFailed` if the lookup raises or times out. |
 
-`Market` is a frozen dataclass: `condition_id: str`, `token_ids:
+`Market` is a frozen dataclass (D8): `condition_id: str`, `token_ids:
 tuple[str, ...]` in outcome order, and `slug: str | None`. A token may
 belong to only one market in the desired set; `subscribe` raises
 `ValueError` otherwise.
@@ -215,7 +219,8 @@ own `TransportError`, with the handle left open and silent (SDK source,
 
 ## Records
 
-Every record is a frozen dataclass with slots. Event records carry what the
+Every record is a frozen dataclass with slots, which D8's recommended
+default keeps and one of its options replaces. Event records carry what the
 source sent; status records carry what the client concluded. A consumer
 tells them apart with an ordinary `match` statement.
 
@@ -298,8 +303,9 @@ this document; a client must not add values without a new version of it.
 
 Prices, sizes, tick sizes, spreads, and fee rates are `Decimal`, built from
 the source's strings. Frames are parsed with `json.loads(text,
-parse_float=Decimal)`, so a number sent as a JSON number never passes
-through `float` either. A value that is not a finite decimal makes its event
+parse_float=Decimal)`, or validated by Pydantic from the JSON text if D8 so
+decides; either way a number sent as a JSON number never passes through
+`float`. A value that is not a finite decimal makes its event
 undecodable. `Decimal` keeps the source's digits, so `str(level.price)`
 returns the text that was sent. Timestamps are integers of milliseconds,
 also exactly as sent.
@@ -987,7 +993,8 @@ contract.
 
 ## Configuration
 
-`ClientConfig` is a frozen dataclass. Values marked with a decision are its
+`ClientConfig` is a frozen dataclass, or a frozen Pydantic model if D8 so
+decides. Values marked with a decision are its
 recommended defaults, not settled.
 
 | Field | Default | Meaning |
@@ -1363,6 +1370,64 @@ reconnecting: a removed market's tokens become `removed` at once, its events
 are discarded, and the next subscription frame leaves it out.** Revisit
 after a live check of the change frames. The scenarios for subscription
 changes are written for this default.
+
+### D8. Pydantic v2 or dataclasses for configuration, decoding, and records
+
+**Needs operator decision.** The operator raised this while reviewing the
+draft, which used frozen dataclasses and a hand-written decoder throughout.
+
+| Option | For | Against |
+| --- | --- | --- |
+| Dataclasses and a hand-written decoder, as drafted | No dependency beyond `websockets`; records take positional `match` patterns and slots; the decoder decides exactly which failures become `UndecodableFrame` | Every field check is written and tested by hand; configuration is validated in `__post_init__`; the example's JSON lines need hand-written serialization of `Decimal` and `datetime` |
+| Pydantic for `ClientConfig` only | Declared ranges and cross-field rules, with `ConfigError` wrapping the validation error | A dependency for one class; decoding stays by hand |
+| Pydantic for configuration and decoding, with the public records left as dataclasses | One declared model per event type, validated at the wire; an error names the failing entry, which gives an undecodable event its affected tokens; non-finite decimals refused by default | Two sets of types, wire models and records, to keep in step; a core dependency on Pydantic unless D6 makes the SDK required |
+| Pydantic throughout: the records are frozen models | One set of types; `model_dump_json` for the example's timeline and for the pipeline | The public types, and so the pipeline, are tied to Pydantic's major version; no positional `match` patterns |
+
+Evidence:
+
+- The risk is strict validation, not Pydantic. The SDK's own Pydantic
+  models rejected `new_market` events whose `game_start_time` is a string,
+  and live it delivered 24 of the 704 the reference connection received
+  (Observed, [§1]). Whatever validates here must declare only the fields
+  the client uses ([Decoding](#decoding)), ignore the rest, and turn every
+  failure into an `UndecodableFrame`, never an exception or a silent drop.
+- Measured for this document with Pydantic 2.13.5, the version the findings
+  record beside the SDK ([Versions]), on CPython 3.12.13:
+  - `model_validate_json` reads a JSON number into a `Decimal` exactly, with
+    no `float` on the way: `0.30000000000000004` stays as written. A string
+    keeps its digits: `"0.480"` gives `Decimal("0.480")`.
+  - `NaN`, `Infinity`, and `1e400` are refused by default, as
+    [Values](#values) requires.
+  - Extra fields are ignored by default, and a frozen model refuses
+    assignment.
+  - A model matches keyword `match` patterns, such as the
+    [interface](#public-interface) example's, but not positional ones; it
+    has no `__match_args__`.
+  - A validation error's location names the entry that failed, such as
+    `('price_changes', 1, 'price')`.
+  - Decoding a two-entry `price_change` took 2.7 µs, against 4.1 µs with
+    `json.loads(text, parse_float=Decimal)` and dataclasses. At the peak of
+    about 840 frames a second ([§2]), neither approach matters for speed.
+- Two cautions for a Pydantic decoder. A frame first parsed by plain
+  `json.loads` has already turned numbers into `float`s, so validate the JSON
+  text or parse with `parse_float=Decimal` first. And an array frame must be
+  validated item by item, so that one bad item does not reject the others.
+- Pydantic 2.13.5 brings `pydantic-core`, `annotated-types`,
+  `typing-extensions`, and `typing-inspection`. The SDK 0.12.0 wheel requires
+  `pydantic` from 2 to below 3 (its metadata, read for this document), so if
+  D6 keeps the SDK as a required dependency, Pydantic is installed anyway,
+  and the client's range must overlap the SDK's.
+
+**Recommended default: Pydantic for configuration and decoding, with the
+public records left as frozen dataclasses.** It puts declared validation
+where the input is untrusted, the wire and the configuration, and gives the
+[decoding](#decoding) rules the error locations they need to name affected
+tokens. The public types stay plain, take positional `match` patterns, and
+do not tie the pipeline to Pydantic's major version. The cost is a core
+dependency on Pydantic, which nothing adds if D6 requires the SDK, and a
+mapping from wire models to records that the decoder's tests cover. If the
+pipeline would rather serialize records directly, Pydantic throughout is
+the better fit.
 
 ## Open questions
 
