@@ -531,8 +531,8 @@ under [The connection](#the-connection).
 | T2 | `uncertain` | A subscription frame naming the token is sent on a new connection. | `synchronizing` (`subscribed`) | `TokenStateChange`; an open gap stays open |
 | T3 | `synchronizing` | A `book` for the token arrives on the current connection. | `ready` (`book`) | `BookEvent`; `CaptureGap` if one is open; `TokenStateChange` |
 | T4 | `synchronizing` | `book_timeout` passes after the subscription frame with no `book` for it. | `uncertain` (`no_book`) | `TokenStateChange`; [settlement confirmation](#settlement) starts |
-| T5 | `ready` | A later `book` for the token. | `ready` | `BookEvent`; the book is replaced |
-| T6 | `ready` | A `price_change` entry for the token. | `ready` | `PriceChangeEvent`, entry applied |
+| T5 | `ready` | A later `book` for the token. | `ready` (reason unchanged) | `BookEvent`; the book is replaced |
+| T6 | `ready` | A `price_change` entry for the token. | `ready` (reason unchanged) | `PriceChangeEvent`, entry applied |
 | T7 | `ready` | Hash verification reports divergence (D4). | `uncertain` (`hash_mismatch`) | the event; `TokenStateChange` |
 | T8 | `ready` | An undecodable frame or event that may affect the token ([Decoding](#decoding)). | `uncertain` (`undecodable`) | `UndecodableFrame`; `TokenStateChange` |
 | T9 | `uncertain` (`hash_mismatch` or `undecodable`) | A hash check verifies (D4). | `ready` (`hash_verified`) | the event; `TokenStateChange` |
@@ -545,6 +545,9 @@ under [The connection](#the-connection).
 | T16 | any but `settled` or `removed`, on the connection | The server closes with `1000 all subscribed assets resolved`. | `settled` (`all_resolved_close`) | after `ended`, per token: `CaptureGap` if open; `TokenStateChange` |
 | T17 | any but `settled` or `removed` | The application removes its market. | `removed` (`removed`) | `CaptureGap` if open; `TokenStateChange` |
 | T18 | `uncertain` (`interrupted`) | Reconnection exhausts its bounds. | `uncertain` | `CaptureGap`, end `recovery_failed`, before `failed` |
+
+T5 and T6 keep the token's reason, which says why it last became `ready`,
+so they emit no `TokenStateChange`.
 
 These change nothing about a token's state:
 
