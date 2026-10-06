@@ -2,20 +2,23 @@
 scenario can show (D1; D2; spec/client.md, Detecting an interruption and
 Reconnecting): the backoff's delays and bounds, frames that arrive while the
 client closes a connection after a ``pong_timeout``, which a scenario cannot
-time, a connection that ends before its subscription frame, which the
+time, a server's close frame that comes just before a ``PONG`` deadline and a
+connection the server is slow to end, which the scripted server does not
+leave open, a connection that ends before its subscription frame, which the
 scripted server cannot end at that moment, and an attempt that raises, which
 the scripted server cannot make it do.
 """
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
-from typing import Any
+from collections.abc import AsyncIterator, Callable, Mapping
+from typing import Any, Self
 
 import pytest
 from websockets.exceptions import ConnectionClosed
 from websockets.frames import Frame, Opcode
 from websockets.http11 import Request
+from websockets.protocol import State
 from websockets.server import ServerProtocol
 
 from polymarket_market_data import (
@@ -164,20 +167,21 @@ def price_change(t: int) -> str:
     )
 
 
-class LateServer:
+class SmallServer:
     """A server that sends the opening frame for every subscription and
-    answers no ``PING``. When the client's close frame arrives, it sends the
-    ``late`` frames, apart, before answering it, as a stream still sending
-    data would."""
+    answers no ``PING``. A subclass can act on the client's ``PING``s and
+    close frame."""
 
-    def __init__(self, opening: str, late: list[str]) -> None:
+    ends_tcp = True
+    """Whether the server ends the TCP connection once the closing handshake
+    is over."""
+
+    def __init__(self, opening: str) -> None:
         self.opening = opening
-        self.late = late
-        self.closes: list[tuple[int, str]] = []
         self.port = 0
         self._writers: list[asyncio.StreamWriter] = []
 
-    async def __aenter__(self) -> "LateServer":
+    async def __aenter__(self) -> Self:
         self._server = await asyncio.start_server(self._serve, "127.0.0.1", 0)
         self.port = self._server.sockets[0].getsockname()[1]
         return self
@@ -192,6 +196,14 @@ class LateServer:
     def url(self) -> str:
         return f"ws://127.0.0.1:{self.port}"
 
+    def pinged(self, protocol: ServerProtocol) -> None:
+        """The client sent ``PING``."""
+
+    async def client_closed(
+        self, protocol: ServerProtocol, writer: asyncio.StreamWriter
+    ) -> None:
+        """The client's close frame arrived."""
+
     async def _serve(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
@@ -203,48 +215,77 @@ class LateServer:
                 if isinstance(event, Request):
                     protocol.send_response(protocol.accept(event))
                 elif isinstance(event, Frame) and event.opcode is Opcode.TEXT:
-                    if bytes(event.data) != b"PING":
+                    if bytes(event.data) == b"PING":
+                        self.pinged(protocol)
+                    else:
                         protocol.send_text(self.opening.encode())
                 elif isinstance(event, Frame) and event.opcode is Opcode.CLOSE:
-                    assert protocol.close_rcvd is not None
-                    self.closes.append(
-                        (protocol.close_rcvd.code, protocol.close_rcvd.reason)
-                    )
-                    # The protocol has queued its answer: the late frames go
-                    # ahead of it.
-                    for text in self.late:
-                        frame = Frame(Opcode.TEXT, text.encode())
-                        writer.write(frame.serialize(mask=False))
-                        await writer.drain()
-                        await asyncio.sleep(0.05)
+                    await self.client_closed(protocol, writer)
             for chunk in protocol.data_to_send():
                 if chunk:
                     writer.write(chunk)
-                else:
+                elif self.ends_tcp:
                     writer.close()
                     return
         writer.close()
 
 
-def profile(url: str, **reconnect: Any) -> ClientConfig:
-    """The conformance profile's timings, with ``url`` and these fields of
-    the reconnect policy set."""
+class LateServer(SmallServer):
+    """When the client's close frame arrives, the server sends the ``late``
+    frames, apart, before answering it, as a stream still sending data
+    would."""
+
+    def __init__(self, opening: str, late: list[str]) -> None:
+        super().__init__(opening)
+        self.late = late
+        self.closes: list[tuple[int, str]] = []
+
+    async def client_closed(
+        self, protocol: ServerProtocol, writer: asyncio.StreamWriter
+    ) -> None:
+        assert protocol.close_rcvd is not None
+        self.closes.append((protocol.close_rcvd.code, protocol.close_rcvd.reason))
+        # The protocol has queued its answer: the late frames go ahead of it.
+        for text in self.late:
+            frame = Frame(Opcode.TEXT, text.encode())
+            writer.write(frame.serialize(mask=False))
+            await writer.drain()
+            await asyncio.sleep(0.05)
+
+
+class ClosingServer(SmallServer):
+    """The server answers the first ``PING`` with a close frame, and leaves
+    the TCP connection open once the closing handshake is over, as a server
+    slow to end it would."""
+
+    ends_tcp = False
+
+    def __init__(self, opening: str, code: int, reason: str) -> None:
+        super().__init__(opening)
+        self.code, self.reason = code, reason
+
+    def pinged(self, protocol: ServerProtocol) -> None:
+        if protocol.state is State.OPEN:
+            protocol.send_close(self.code, self.reason)
+
+
+def profile(
+    url: str, *, reconnect: Mapping[str, Any] | None = None, **fields: Any
+) -> ClientConfig:
+    """The conformance profile's timings, with ``url``, these fields, and
+    these fields of the reconnect policy set."""
+    policy = {"base_delay": 0.1, "max_delay": 0.4, "max_attempts": 3, "jitter": False}
     return ClientConfig(
-        url=url,
-        ping_interval=0.2,
-        pong_timeout=0.5,
-        connect_timeout=1.0,
-        close_timeout=0.5,
-        verify_hash=False,
-        reconnect=ReconnectPolicy(
-            **{
-                "base_delay": 0.1,
-                "max_delay": 0.4,
-                "max_attempts": 3,
-                "jitter": False,
-                **reconnect,
-            }
-        ),
+        **{
+            "url": url,
+            "ping_interval": 0.2,
+            "pong_timeout": 0.5,
+            "connect_timeout": 1.0,
+            "close_timeout": 0.5,
+            "verify_hash": False,
+            **fields,
+            "reconnect": ReconnectPolicy(**{**policy, **(reconnect or {})}),
+        }
     )
 
 
@@ -316,6 +357,29 @@ def test_frames_arriving_while_the_client_closes_after_a_pong_timeout() -> None:
     asyncio.run(main())
 
 
+def test_a_close_frame_before_the_pong_deadline_is_not_a_pong_timeout() -> None:
+    # The first PING, 0.5 s after the subscription, brings the server's close
+    # frame, and its PONG deadline comes 0.3 s later, before the next PING,
+    # while the server has yet to end the connection.
+    async def main() -> None:
+        reason = "slow consumer: send buffer full"
+        async with ClosingServer(opening(("0.48", "100")), 1013, reason) as server:
+            config = profile(server.url, ping_interval=0.5, pong_timeout=0.3)
+            client = MarketDataClient(config, markets=[MARKET_A])
+            records = client.records()
+            async with client:
+                read = await read_until(records, is_state(ConnectionState.INTERRUPTED))
+        interrupted = read[-1]
+        assert isinstance(interrupted, ConnectionStateChange)
+        assert (
+            interrupted.reason,
+            interrupted.close_code,
+            interrupted.close_reason,
+        ) == ("close_frame", 1013, reason)
+
+    asyncio.run(main())
+
+
 def test_the_close_after_a_pong_timeout_counts_toward_max_recovery_time() -> None:
     # The late frames hold the close for at least 0.15 s, so an attempt
     # 0.01 s after it would start after the 0.05 s bound.
@@ -323,7 +387,9 @@ def test_the_close_after_a_pong_timeout_counts_toward_max_recovery_time() -> Non
 
     async def main() -> None:
         async with LateServer(opening(("0.48", "100")), late) as server:
-            config = profile(server.url, base_delay=0.01, max_recovery_time=0.05)
+            config = profile(
+                server.url, reconnect={"base_delay": 0.01, "max_recovery_time": 0.05}
+            )
             client = MarketDataClient(config, markets=[MARKET_A])
             records = client.records()
             async with client:
@@ -425,7 +491,7 @@ def test_the_failure_keeps_how_the_last_attempt_failed(
     monkeypatch.setattr(_connection, "connect", connect)
 
     async def main() -> None:
-        config = profile("ws://127.0.0.1:9", max_attempts=1)
+        config = profile("ws://127.0.0.1:9", reconnect={"max_attempts": 1})
         client = MarketDataClient(config, markets=[MARKET_A])
         records = client.records()
         async with client:

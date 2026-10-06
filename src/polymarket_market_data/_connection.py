@@ -33,6 +33,7 @@ from datetime import UTC, datetime
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
+from websockets.protocol import State
 
 from ._config import ClientConfig, ReconnectPolicy
 from ._decode import decode_frame
@@ -317,6 +318,13 @@ class Connector:
                     return  # the reader records the end
         if live.ended:
             return
+        if socket.state is not State.OPEN:
+            # Already ending, by the server's close frame or a protocol error,
+            # which the reader records as the cause once the connection has
+            # ended: not a pong_timeout (spec/client.md, Detecting an
+            # interruption). The server may be slow to end it.
+            await self._await_end(socket)
+            return
         live.closing = True
         self._interrupt(live, "pong_timeout", now(), clock)
         # The reader goes on reading while the close completes, so that the
@@ -462,6 +470,15 @@ class Connector:
             # Cancelled again while closing: end the connection at once.
             socket.transport.abort()
             raise
+
+    async def _await_end(self, socket: ClientConnection) -> None:
+        """Wait at most ``close_timeout`` for a connection that is closing
+        to end, and then end it."""
+        try:
+            async with asyncio.timeout(self._config.close_timeout):
+                await socket.wait_closed()
+        except TimeoutError:
+            socket.transport.abort()
 
     def _publish(self) -> None:
         self._queue.put(self._state.take())
