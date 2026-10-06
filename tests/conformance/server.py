@@ -310,6 +310,14 @@ class ScriptedServer:
 
     async def expect_no_connect(self, seconds: float) -> datetime:
         start, count = now(), len(self._arrivals)
+        if self._held:
+            # An attempt that arrived before the step and was neither
+            # accepted nor refused fails it too.
+            early = (start - self._held[0].arrived).total_seconds()
+            raise StepFailed(
+                f"a connection attempt that arrived {early:.3f} s before the step "
+                "is still held"
+            )
         try:
             async with asyncio.timeout(seconds):
                 await self._wait_for(lambda: len(self._arrivals) > count)

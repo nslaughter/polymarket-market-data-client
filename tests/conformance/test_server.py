@@ -442,6 +442,29 @@ async def test_expect_no_connect_fails_when_an_attempt_arrives(
 
 
 @serve
+async def test_expect_no_connect_fails_on_an_attempt_already_held(
+    server: ScriptedServer,
+) -> None:
+    early = asyncio.create_task(attempt(server))
+    await asyncio.sleep(0.3)
+    with pytest.raises(StepFailed, match="still held"):
+        await server.call(server.expect_no_connect(1.0))
+    await server.call(server.refuse(1))
+    with pytest.raises(InvalidStatus):
+        await early
+
+
+@serve
+async def test_expect_no_connect_ignores_an_attempt_refuse_all_answered(
+    server: ScriptedServer,
+) -> None:
+    await server.call(server.refuse_all())
+    with pytest.raises(InvalidStatus):
+        await attempt(server)
+    assert await server.call(server.expect_no_connect(0.2))
+
+
+@serve
 async def test_a_step_on_no_open_connection_fails(server: ScriptedServer) -> None:
     with pytest.raises(StepFailed, match="no connection"):
         await server.call(server.send(Opening(())))
