@@ -119,6 +119,34 @@ D8 settles where each is used. Keep to it:
   dropped most `new_market` events
   ([findings §1](docs/source-behavior.md#1-reconnection-and-subscription-restoration-in-the-sdk)).
 
+### Citing the documents
+
+Code and tests cite the documents they follow, so that a reader can go from a
+rule to the code that applies it and back. `tests/test_citations.py` checks
+every citation and every place one is required, and fails on any it cannot
+resolve.
+
+- Cite in a comment or docstring, in parentheses, with the document's full
+  path and a heading as the document writes it:
+  `(spec/client.md, Nesting depth)`, or several,
+  `(spec/client.md, Decoding and Repeated messages)`. Cite a numbered rule
+  as `(spec/client.md, Record order, rule 3)`, a transition or owner
+  specification by its ID, `(T14)` or `(D8)`, a section of the findings as
+  `(docs/source-behavior.md, §4)`, and a scenario by its name,
+  `(spec/conformance.md, drop-without-close)`.
+- A citation may name `spec/client.md`, `spec/conformance.md`,
+  `docs/implementation-plan.md`, or `docs/source-behavior.md`.
+- Every module's docstring cites what the module implements or tests. Each
+  transition, T1 to T18, is cited where the package applies it and where the
+  tests check it. When a step is marked `Done`, each owner specification in
+  its Progress row is cited where the package, `pyproject.toml`, or CI
+  applies it.
+- Cite where the code applies a rule, not on every line. A comment beside a
+  citation says what the document does not: why the code meets the rule, or
+  an order or edge that matters. It does not restate the rule.
+- If a citation stops resolving because a document changed, correct the
+  citation. Never change a document to satisfy the check.
+
 ## Commands
 
 Step 1 sets these up; until then they do not run.
