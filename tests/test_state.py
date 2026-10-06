@@ -1670,6 +1670,52 @@ def test_new_market_events_are_dropped_unless_delivered() -> None:
     assert delivered.machine.counts.new_market_dropped == 0
 
 
+# Whether a frame can reach the queue's limit (spec/client.md, Consumer
+# handoff): it can when it would deliver a market-event record.
+
+STATUS_RECORDS = (TokenStateChange, ConnectionStateChange, CaptureGap)
+
+
+def delivers(run: Run, data: str) -> bool:
+    """Ask the machine whether the frame would deliver a market-event
+    record, then send it and check that the answer was right."""
+    items = decode_frame(
+        data,
+        received_at=run.now,
+        connection=run.generation,
+        frame=run.frame_number + 1,
+        keep_raw=False,
+    )
+    answer = run.machine.delivers(run.generation, items)
+    run.send(data)
+    records = run.take()
+    assert answer == any(not isinstance(r, STATUS_RECORDS) for r in records)
+    return answer
+
+
+def test_delivers_says_whether_a_frame_gives_a_market_event_record() -> None:
+    run = started(MARKET_A)
+    assert not delivers(run, new_market())
+    assert not delivers(run, "[]\n")
+    assert not delivers(run, pc(B, 100, (B1, "BUY", "0.39", "10")))
+    assert delivers(run, bba(A1, 100))
+    assert delivers(run, "not json")
+    assert delivers(run, text({"event_type": "something_new"}))
+    # The first item is dropped, and the second delivered.
+    assert delivers(run, text([json.loads(new_market()), json.loads(bba(A1, 110))]))
+    delivered = started(MARKET_A, deliver_new_market=True)
+    assert delivers(delivered, new_market())
+
+
+def test_a_frame_from_an_interrupted_connection_delivers_nothing() -> None:
+    run = started(MARKET_A)
+    run.drop()
+    items = decode_frame(
+        "not json", received_at=run.now, connection=1, frame=2, keep_raw=False
+    )
+    assert not run.machine.delivers(run.generation, items)
+
+
 def test_counts() -> None:
     run = started(MARKET_A)
     run.send(pc(A, 100, (A1, "BUY", "0.49", "10")))

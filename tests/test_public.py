@@ -1,7 +1,5 @@
 """The public names, the exceptions, and the interfaces without behavior yet."""
 
-import pytest
-
 import polymarket_market_data
 from polymarket_market_data import (
     BookParameters,
@@ -9,7 +7,6 @@ from polymarket_market_data import (
     ClientStateError,
     ConfigError,
     LookupFailed,
-    MarketDataClient,
     MarketInfo,
     MarketLookup,
     MarketNotFound,
@@ -73,11 +70,6 @@ def test_exception_hierarchy() -> None:
     assert issubclass(LookupFailed, ClientError)
     assert issubclass(RecoveryFailed, ClientError)
     assert issubclass(ClientError, Exception)
-
-
-def test_client_is_a_stub() -> None:
-    with pytest.raises(NotImplementedError):
-        MarketDataClient()
 
 
 class ScriptedLookup:
