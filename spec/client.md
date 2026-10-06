@@ -187,7 +187,7 @@ effect. Calling either after the client has shut down raises
 | `ClientStateError(ClientError, RuntimeError)` | any member | The client is used in a way its state does not allow: `records()` called twice, the block entered twice, a change after shutdown, or `resolve` called when no lookup is available ([Market lookup](#market-lookup)). |
 | `MarketNotFound(ClientError, LookupError)` | `resolve` | The lookup found no market for the slug. |
 | `LookupFailed(ClientError)` | `resolve` | The lookup raised or exceeded `lookup_timeout`. Its `__cause__` is the lookup's exception, or the `TimeoutError`. |
-| `RecoveryFailed(ClientError)` | the iterator | Reconnection exhausted its bounds (D2). It is raised after the records that report the failure ([Reconnecting](#reconnecting)). |
+| `RecoveryFailed(ClientError)` | the iterator | Reconnection exhausted its bounds (D2). It is raised after the records that report the failure ([Reconnecting](#reconnecting)). Its `__cause__` is the exception that ended the last attempt or connection, if one did. |
 
 A lookup that fails while the client confirms a settlement or fetches hash
 inputs, an undecodable frame, and a lost connection are not exceptions. The
@@ -442,7 +442,8 @@ On an interruption the client records:
    unless the connection ended before delivering a frame; then it is the
    attempt after the one that opened that connection, or that attempt
    again if the client closed it for `subscription_change`
-   ([Reconnecting](#reconnecting)).
+   ([Reconnecting](#reconnecting)). After a `pong_timeout`, it comes once
+   the client's close has ended.
 
 A capture gap opens for each of those tokens that holds a book, starting at
 `last_confirmed_at` and detected at the interruption record's `at`. A token
@@ -455,7 +456,37 @@ delivered or applied. When the client closes the connection itself, after
 still arrive before the close completes: the stream may be sending data,
 and `PONG` waits behind it (Observed, [§2]). Those frames are counted
 (`frames_after_interruption`) and discarded, so `last_confirmed_at` stays
-the end of what the client applied.
+the end of what the client applied. A late `PONG` is one of them: it counts
+in `frames_after_interruption`, and also in `pongs`, `pong_delay_last`, and
+`pong_delay_max`, which keep how late it really was. It confirms nothing,
+so `last_confirmed_at` does not move, and `frames` leaves it out, as it
+leaves out every `PONG`.
+
+**A late `PONG`: decided by the operator on 2026-10-06,** when plan step
+6's review found the draft read both ways: this section counts the frames
+that arrive during the close, `PONG` among them, while
+[Statistics](#statistics) leaves `PONG` out of `frames` but not out of
+`frames_after_interruption`. The operator chose to count it in
+`frames_after_interruption` and in the `PONG` statistics. That follows each
+row's wording, and the real delay of a `PONG` that came after the timeout
+tells a stalled connection from a slow one, should D1 be revisited.
+Counting it in `frames_after_interruption` and leaving the `PONG`
+statistics as they stood at the interruption, and counting it only in the
+`PONG` statistics, were the options not taken.
+
+The server's close frame, or a protocol error, can come before the oldest
+`PING`'s deadline while the connection has not yet ended: it ends when TCP
+does, which the server may delay. A deadline that passes then is not a
+`pong_timeout`. The client waits at most `close_timeout` for the end, ending
+the connection itself after that, and records the interruption as the table
+gives it: `close_frame`, with the close frame's code and reason, or
+`dropped`.
+
+**A `PONG` deadline on a connection already ending: decided by the operator
+on 2026-10-06,** when plan step 6's review found that recording
+`pong_timeout` there lost the server's close frame, and with it the cause
+the table separates. Recording the timeout as soon as it passed was the
+option not taken.
 
 ### Reconnecting
 
@@ -497,15 +528,27 @@ consumer's reading has brought the market-event backlog down to
 | `connecting`, `attempt=k` | When attempt *k* starts. |
 | `open`, `connection=g` | When the handshake completes. |
 | `subscribed`, `connection=g` | When the subscription frame has been sent. The tokens' `synchronizing` records follow. |
-| `failed`, `reason=max_attempts` or `max_recovery_time` | When the bounds are exhausted. |
+| `failed`, `reason=max_attempts` or `max_recovery_time` | When the bounds are exhausted. `detail` says how the last attempt failed, if it did. |
+
+An attempt fails when its connection cannot be opened, which `websockets`
+reports with the exceptions it documents for `connect`: an `OSError`, the
+handshake's `TimeoutError` included, or one of its own
+`WebSocketException`s. Any other exception from an attempt is a defect in
+the client's own code, and ends the client as [Errors](#errors) says.
 
 Attempt numbers and the recovery clock start again when a new connection
-delivers its first frame after subscribing. A connection that ends without
-one, before or after its subscription frame, is a failed attempt and leaves
-them running: the next attempt's number follows on from it, and the time
-bound still runs from the interruption that began the recovery. So an
-endpoint that accepts connections and drops them, at once or after the
-subscription frame, still exhausts the bounds.
+delivers its first frame after subscribing, a frame as the `frame` field
+counts them, so not a `PONG`. A connection that ends without one, before
+or after its subscription frame, is a failed attempt and leaves them
+running: the next attempt's number follows on from it, and the time bound
+still runs from the interruption that began the recovery. So an endpoint
+that accepts connections and drops them, at once or after the subscription
+frame, still exhausts the bounds.
+
+After a `pong_timeout`, the client emits `recovering`, or fails, once the
+close it started has ended, at most `close_timeout` after the `interrupted`
+record. The wait for the next attempt starts then, and the bound is checked
+against it; the recovery clock still runs from the interruption.
 
 A connection the client closes for `subscription_change` is never a failed
 attempt, even if it had delivered no frame: the server did not fail it.
@@ -518,9 +561,34 @@ When the bounds are exhausted the client emits, in order, after the
 `interrupted` and `uncertain` records if a subscribed connection's end
 exhausted them, a `CaptureGap` with `end` `recovery_failed` and
 `resumed_at` `None` for each token with an open gap, then `failed`, with no
-`recovering` record for the attempt it will not make. The iterator then
-raises `RecoveryFailed`, and the client stays shut down until the block is
+`recovering` record for the attempt it will not make. `failed` carries that
+`recovering` record's `detail` instead. The iterator then raises
+`RecoveryFailed`, whose `__cause__` is the exception that ended the last
+attempt or connection, and the client stays shut down until the block is
 left. Tokens keep their last state, `uncertain`.
+
+**What the draft left open on reconnecting: decided by the operator on
+2026-10-06,** when plan step 6's review found four things unsettled:
+
+- *What delivering a frame means.* A frame as the `frame` field counts
+  them, not a `PONG`; `last_confirmed_at` alone takes the last frame of any
+  kind. Counting a `PONG` was the option not taken: it shows that the
+  server answers, not that the subscription delivers.
+- *Which exceptions make a failed attempt.* Those `websockets` documents for
+  a connection it cannot open. Retrying every exception was the option not
+  taken: a defect would be retried until the bounds ran out, and then
+  reported as `RecoveryFailed` instead of as the defect it was.
+- *When the next attempt is decided after a `pong_timeout`.* Once the
+  client's close has ended. Deciding at the interruption let a slow close
+  start the attempt later than `retry_in` said, and past
+  `max_recovery_time`; checking the bound again after the close would fail
+  after a `recovering` record, which T18 rules out. Those were the options
+  not taken.
+- *How a failure reports the last attempt.* T18 leaves out the
+  `recovering` record for the attempt the client will not make, so without
+  `detail` on `failed` and a cause on `RecoveryFailed`, the failure that
+  exhausted the bounds was reported nowhere. Leaving both unset was the
+  option not taken.
 
 The SDK, by contrast, retries without limit and reports neither the
 disconnect nor the reconnect to its consumer (SDK source and Observed,
@@ -1099,7 +1167,7 @@ conformance scenarios check them by name:
 | Field | Type | Counts |
 | --- | --- | --- |
 | `frames` | `int` | Frames received after subscription frames, except `PONG` |
-| `frames_after_interruption` | `int` | Frames received on a connection after its interruption, discarded |
+| `frames_after_interruption` | `int` | Frames received on a connection after its interruption, discarded, a `PONG` included ([Detecting an interruption](#detecting-an-interruption)) |
 | `events` | `Mapping[str, int]` | Decoded events, by `event_type` |
 | `repeats` | `int` | Events judged repeats |
 | `unknown` | `int` | `UnknownEvent` records |
