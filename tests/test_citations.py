@@ -21,7 +21,8 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+HERE = Path(__file__).resolve()
+ROOT = HERE.parents[1]
 
 # The documents a citation may name: those AGENTS.md says to read first, apart
 # from AGENTS.md itself.
@@ -48,7 +49,9 @@ def build_files(root: Path) -> list[Path]:
 
 MODULES = modules(ROOT)
 PACKAGE = sorted((ROOT / "src").rglob("*.py"))
-TESTS = sorted((ROOT / "tests").rglob("*.py"))
+# The tests that check the transitions: not this file, which names one only as
+# an example.
+TESTS = [p for p in sorted((ROOT / "tests").rglob("*.py")) if p != HERE]
 BUILD = build_files(ROOT)
 
 CITATION = re.compile(r"\(((?:[\w.-]+/)*[\w.-]+\.md, [^()]*)\)")
