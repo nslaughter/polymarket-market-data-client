@@ -49,7 +49,11 @@ class Fake:
     - ``leak``: a task it starts outlives the block;
     - ``stuck_leak``, ``stuck_exit``: for this many seconds, the leaked task,
       or leaving the block, ignores every cancellation;
-    - ``swallow_cancel``: leaving the block swallows a ``CancelledError``.
+    - ``swallow_cancel``: leaving the block swallows a ``CancelledError``;
+    - ``stuck_read``: a read ignores every cancellation until a record
+      arrives;
+    - ``stuck_resolve``: for this many seconds, ``resolve`` ignores every
+      cancellation.
     """
 
     def __init__(
@@ -61,6 +65,8 @@ class Fake:
         stuck_leak: float = 0.0,
         stuck_exit: float = 0.0,
         swallow_cancel: bool = False,
+        stuck_read: bool = False,
+        stuck_resolve: float = 0.0,
         end_block_after: float | None = None,
     ) -> None:
         self.lookup = lookup
@@ -69,6 +75,8 @@ class Fake:
         self.stuck_leak = stuck_leak
         self.stuck_exit = stuck_exit
         self.swallow_cancel = swallow_cancel
+        self.stuck_read = stuck_read
+        self.stuck_resolve = stuck_resolve
         self.end_block_after = end_block_after
         self.queue: asyncio.Queue[object] = asyncio.Queue()
         self.subscribed: list[Market] = []
@@ -115,7 +123,13 @@ class Fake:
         return self
 
     async def __anext__(self) -> object:
-        item = await self.queue.get()
+        while True:
+            try:
+                item = await self.queue.get()
+                break
+            except asyncio.CancelledError:
+                if not self.stuck_read:
+                    raise
         if item is _END:
             self.queue.put_nowait(_END)
             raise StopAsyncIteration
@@ -161,6 +175,7 @@ class Fake:
             raise ClientStateError("the client has shut down")
 
     async def resolve(self, slug: str) -> Market:
+        await stuck(self.stuck_resolve)
         info = await self.lookup.market(slug=slug)
         if info is None:
             raise MarketNotFound(slug)
@@ -366,6 +381,45 @@ def test_a_step_that_waits_fails_after_its_timeout() -> None:
     assert failed.failure.message == "no record arrived within 0.3 s"
 
 
+def test_a_read_that_returns_after_its_timeout_fails() -> None:
+    # The read ignores the timeout's cancellation, and the record comes
+    # 0.5 s after the timeout and 0.5 s before the runner gives up on it.
+    failed = fails(
+        "scenario example\nexpect token A1 ready\n",
+        [(1.5, ready())],
+        step_timeout=1.0,
+        stuck_read=True,
+    )
+    assert (
+        failed.failure.message == "the read returned although its 1 s timeout expired"
+    )
+    assert failed.failure.actual is not None
+    assert failed.failure.actual.startswith("TokenStateChange(token_id=A1, ")
+
+
+@pytest.mark.parametrize("step", ["expect token A1 ready", "expect-nothing 0.3"])
+def test_a_read_that_ignores_its_timeout_fails_without_hanging(step: str) -> None:
+    start = time.monotonic()
+    failed = fails(f"scenario example\n{step}\n", step_timeout=0.3, stuck_read=True)
+    assert time.monotonic() - start < 10
+    assert failed.line == 501
+    assert (
+        failed.failure.message == "the read did not end once its 0.3 s timeout expired"
+    )
+    assert failed.failure.actual == "still running 0.3 s later"
+
+
+def test_a_cancelled_error_the_client_raises_is_the_clients() -> None:
+    failed = fails(
+        "scenario example\nexpect token A1 ready\n",
+        [(0, raising(asyncio.CancelledError()))],
+    )
+    assert (failed.failure.message, failed.failure.actual) == (
+        "the read raised",
+        "CancelledError()",
+    )
+
+
 def test_a_record_still_waiting_at_the_end_fails() -> None:
     failed = fails(
         "scenario example\nexpect token A1 ready\n", [(0, ready()), (0, ready("A2"))]
@@ -524,6 +578,15 @@ def test_resolve_returns_the_synthetic_market_or_raises() -> None:
     assert failed.failure.actual.startswith("MarketNotFound")
     failed = fails("scenario example\nresolve synthetic-a raises MarketNotFound\n")
     assert failed.failure.message == "resolve did not raise"
+
+
+def test_a_resolve_that_returns_after_its_timeout_fails() -> None:
+    failed = fails(
+        "scenario example\nresolve synthetic-a\n", step_timeout=1.0, stuck_resolve=1.5
+    )
+    assert failed.failure.message == "resolve returned although its 1 s timeout expired"
+    assert failed.failure.actual is not None
+    assert failed.failure.actual.startswith("Market(")
 
 
 def test_a_call_that_should_raise_and_does_not_fails() -> None:
