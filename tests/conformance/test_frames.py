@@ -379,3 +379,17 @@ def test_reversed_entries() -> None:
     assert list(reversed_) == list(json.loads(text))
     with pytest.raises(ValueError, match="price_change"):
         reverse_entries(source.frame(BookFrame("A1", None, False)))
+
+
+def test_reversed_entries_keep_each_number_as_written() -> None:
+    # A send-text frame can write prices and sizes as numbers.
+    first = '{"asset_id":"1","price":0.12345678901234567890123456789,"size":1e400}'
+    second = '{"asset_id":"2","price":-0.5E-3,"size":NaN,"side":"BUY"}'
+    text = (
+        f'{{"market":"0x1","price_changes":[{first},{second}],'
+        '"timestamp":17,"event_type":"price_change"}'
+    )
+    assert reverse_entries(text) == (
+        f'{{"market":"0x1","price_changes":[{second},{first}],'
+        '"timestamp":17,"event_type":"price_change"}'
+    )

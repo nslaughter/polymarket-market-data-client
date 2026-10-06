@@ -435,9 +435,36 @@ def _new_market(spec: NewMarketFrame) -> dict[str, Any]:
 
 def reverse_entries(text: str) -> str:
     """A ``price_change`` frame's text with its entries in reverse order,
-    for ``send-again <label> reversed``."""
-    frame = json.loads(text)
+    for ``send-again <label> reversed``. A number keeps the text it was
+    written with, as a ``send-text`` frame may write a price or a size as a
+    number, which a ``float`` would round or overflow."""
+    frame = json.loads(
+        text, parse_float=_Number, parse_int=_Number, parse_constant=_Number
+    )
     if not isinstance(frame, dict) or frame.get("event_type") != "price_change":
         raise ValueError("only a price_change frame can be sent reversed")
     frame["price_changes"] = frame["price_changes"][::-1]
-    return dumps(frame)
+    return _dumps_numbers(frame)
+
+
+@dataclass(frozen=True, slots=True)
+class _Number:
+    """A JSON number, as its text."""
+
+    text: str
+
+
+def _dumps_numbers(value: object) -> str:
+    """Compact JSON, writing each ``_Number`` as its text."""
+    match value:
+        case _Number(text=text):
+            return text
+        case dict():
+            members = (
+                f"{dumps(key)}:{_dumps_numbers(item)}" for key, item in value.items()
+            )
+            return "{" + ",".join(members) + "}"
+        case list():
+            return "[" + ",".join(_dumps_numbers(item) for item in value) + "]"
+        case _:
+            return dumps(value)
