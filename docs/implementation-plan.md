@@ -72,7 +72,8 @@ the import name D5 specifies, `polymarket_market_data`.
 | `_state.py` | Token states, capture gaps, and record order, driven by inputs. Pure. |
 | `_hash.py` | The hash recipe and verification (step 10). Pure. |
 | `_connection.py` | The socket, subscription frame, heartbeat, reader, and reconnection. |
-| `_client.py` | `MarketDataClient`: the desired set, the queue, statistics, and the tasks. |
+| `_client.py` | `MarketDataClient`: the desired set, statistics, and the tasks; it owns the queue. |
+| `_queue.py` | The consumer handoff: the queue, its limit, and the records iterator. No I/O. Apart from `_client.py` because `_connection.py` feeds it too. |
 | `_lookup.py` | `MarketLookup` and the default lookup (D6). |
 | `tests/` | Unit tests. |
 | `tests/conformance/` | The scenario parser, the scripted server and lookup, the runner, and `enabled.txt`. It reads `spec/conformance.md` directly. |

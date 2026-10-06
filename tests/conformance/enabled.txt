@@ -1,0 +1,15 @@
+initial-books
+market-event-types
+mid-connection-book
+out-of-order-types
+repeated-messages
+change-before-book
+change-before-any-book
+unknown-event-type
+malformed-frames
+invalid-known-event
+new-market-filtered
+new-market-delivered
+quiet-subscription-pings
+exit-while-connected
+read-timeout
