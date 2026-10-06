@@ -148,6 +148,13 @@ resolve.
   tests check it. When a step is marked `Done`, each owner specification in
   its Progress row is cited where the package, `pyproject.toml`, or CI
   applies it.
+- The check reads the comments of `pyproject.toml` and CI line by line. A
+  TOML comment begins at a `#` outside quotes. A YAML comment begins at a
+  `#` that starts a line or follows whitespace, even inside quotes: a quote
+  inside an unquoted value, as in `name: Check "a # b"`, opens no string,
+  and the check doesn't tell quoted values from unquoted ones. So it also
+  reads a `#` after a space in a quoted YAML value, or in a `run: |` block,
+  as a comment.
 - Cite where the code applies a rule, not on every line. A comment beside a
   citation says what the document does not: why the code meets the rule, or
   an order or edge that matters. It does not restate the rule.

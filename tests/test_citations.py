@@ -65,10 +65,15 @@ NAMED = re.compile(rf"{DOCUMENT}\b")
 ID = re.compile(r"\b[TD][1-9]\d*\b")
 SEPARATORS = (", and ", ", ", " and ")
 
-# In TOML or YAML, a quoted string, or a comment: a ``#`` that begins the line
-# or follows whitespace, and the rest of the line. A quote after a letter or
-# digit, as in ``client's``, is an apostrophe.
-BUILD_COMMENT = re.compile(r"""(?<!\w)"(?:[^"\\]|\\.)*"|(?<!\w)'[^']*'|(?<!\S)#.*""")
+# In TOML, a quoted string, or a comment: a ``#`` outside one, and the rest of
+# the line.
+TOML_COMMENT = re.compile(r""""(?:[^"\\]|\\.)*"|'[^']*'|#.*""")
+# In YAML, a comment: a ``#`` that begins the line or follows whitespace, and
+# the rest of the line. A quote inside an unquoted value, as in ``client's`` or
+# ``Check "contract # (D5)"``, opens no string, and the check doesn't tell
+# those values from quoted ones, so it reads a ``#`` in a quoted value as a
+# comment too.
+YAML_COMMENT = re.compile(r"(?<!\S)#.*")
 
 HEADING = re.compile(r"#{1,6} (.+)")
 RULE = re.compile(r"(\d+)\. ")
@@ -112,9 +117,10 @@ def python_texts(path: Path) -> Iterator[Text]:
 
 def build_texts(path: Path) -> Iterator[Text]:
     """The comments of a TOML or YAML file, whole lines or after a value."""
+    pattern = TOML_COMMENT if path.suffix == ".toml" else YAML_COMMENT
     run: list[tuple[int, str]] = []
     for number, line in enumerate(path.read_text().splitlines(), 1):
-        found = [m.group() for m in BUILD_COMMENT.finditer(line)]
+        found = [m.group() for m in pattern.finditer(line)]
         if not (found and found[-1].startswith("#")):
             continue
         if run and number != run[-1][0] + 1:
@@ -339,8 +345,13 @@ def test_the_check_reads_every_module_and_build_file(tmp_path: Path) -> None:
             ["Each release (D5)."],
         ),
         ("ci.yml", "- name: Check the client's types  # (D5)\n", ["(D5)"]),
-        ("ci.yml", "run: echo \"a # (D5)\" 'b # (D5)' c#(D5)\n", []),
+        ("ci.yml", 'name: Check "contract # (D5)"\n', ['(D5)"']),
+        ("ci.yml", "run: echo \"a # (D5)\" 'b # c'\n", ["(D5)\" 'b # c'"]),
+        ("ci.yml", 'name: "a # (D5)"\n', ['(D5)"']),
+        ("ci.yml", "run: echo c#(D5)\n", []),
         ("pyproject.toml", 'sdk = ["polymarket-client==0.12.0"]  # (D6)\n', ["(D6)"]),
+        ("pyproject.toml", "x = [\"a # (D6)\", 'b # (D6)']  # c\n", ["c"]),
+        ("pyproject.toml", "x = 1#(D6)\n", ["(D6)"]),
         ("module.py", "x = 1  # (D8)\n", ["(D8)"]),
         ("module.py", '"""A module (D8)."""\n', ["A module (D8)."]),
         ("module.py", 'class A:\n    x: int\n    """Its x (D8)."""\n', ["Its x (D8)."]),
