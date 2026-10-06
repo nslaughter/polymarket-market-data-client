@@ -428,14 +428,17 @@ class StateMachine:
                 self._settle(condition_id, "all_resolved_close", None, at)
         self._idle_if_empty(at)
 
-    def failed(self, reason: str, at: datetime) -> None:
+    def failed(self, reason: str, at: datetime, *, detail: str | None = None) -> None:
         """Reconnection exhausted its bounds (T18; spec/client.md, Record
         order, rule 4). ``reason`` is ``max_attempts`` or
-        ``max_recovery_time``."""
+        ``max_recovery_time``; ``detail`` says how the last attempt failed,
+        if it did."""
         for market in self._markets.values():
             for token_id in market.token_ids:
                 self._end_gap(self._tokens[token_id], "recovery_failed", at)
-        self._connection_record(ConnectionState.FAILED, at, reason=reason)
+        self._connection_record(
+            ConnectionState.FAILED, at, reason=reason, detail=detail
+        )
 
     # Settlement confirmation (spec/client.md, Settlement).
 

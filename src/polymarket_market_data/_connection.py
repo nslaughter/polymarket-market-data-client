@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from ._config import ClientConfig, ReconnectPolicy
 from ._decode import decode_frame
@@ -225,9 +225,12 @@ class Connector:
                     close_timeout=config.close_timeout,
                     max_size=config.max_message_bytes,
                 )
-            except Exception as error:
-                # Any failure of an attempt is retried within the bounds.
-                self._attempt_failed(f"{type(error).__name__}: {error}")
+            except (OSError, WebSocketException) as error:
+                # A failed attempt, retried within the bounds. The
+                # TimeoutError of connect_timeout is an OSError. Any other
+                # exception is a defect, which ends the client
+                # (spec/client.md, Errors).
+                self._attempt_failed(f"{type(error).__name__}: {error}", error)
             else:
                 self._socket = socket
                 await self._serve(socket)
@@ -260,7 +263,8 @@ class Connector:
             # on it (spec/client.md, Connecting and subscribing).
             self._attempt_failed(
                 f"connection {live.generation} ended before its subscription "
-                f"frame was sent: {closed}"
+                f"frame was sent: {closed}",
+                closed,
             )
             return
         subscribed = loop.time()
@@ -358,7 +362,7 @@ class Connector:
             # On a protocol error, such as a frame larger than
             # max_message_bytes, the library sends its own close frame and
             # ignores the server's answer, so none is received.
-            self._interrupt(live, "dropped", at, clock)
+            self._interrupt(live, "dropped", at, clock, error=closed)
         elif (close.code, close.reason) == (1000, ALL_RESOLVED) and self._state.desired:
             raise ClientError(
                 f"the server closed connection {live.generation} with 1000 "
@@ -372,6 +376,7 @@ class Connector:
                 clock,
                 close_code=close.code,
                 close_reason=close.reason,
+                error=closed,
             )
 
     def _interrupt(
@@ -383,10 +388,12 @@ class Connector:
         *,
         close_code: int | None = None,
         close_reason: str | None = None,
+        error: BaseException | None = None,
     ) -> None:
         """Record the end of a subscribed connection that may have lost
         events, then what follows it (T14; spec/client.md, Record order,
-        rule 4). One that delivered no frame is also a failed attempt."""
+        rule 4). One that delivered no frame is also a failed attempt.
+        ``error`` is the exception that ended it, if one did."""
         live.ended = True
         if not self._state.desired:
             # Not an interruption: no desired market is left on it, as after
@@ -401,18 +408,27 @@ class Connector:
         if not live.delivered:
             self._recovery.failed()
             detail = f"connection {live.generation} ended before delivering a frame"
-        self._next(at, clock, detail)
+        self._next(at, clock, detail, error)
 
-    def _attempt_failed(self, detail: str) -> None:
+    def _attempt_failed(self, detail: str, error: BaseException) -> None:
         """An attempt failed before its connection was subscribed."""
         self._recovery.failed()
-        self._next(now(), asyncio.get_running_loop().time(), detail)
+        self._next(now(), asyncio.get_running_loop().time(), detail, error)
 
-    def _next(self, at: datetime, clock: float, detail: str | None) -> None:
+    def _next(
+        self,
+        at: datetime,
+        clock: float,
+        detail: str | None,
+        error: BaseException | None,
+    ) -> None:
         """Wait the backoff before the next attempt, or fail if the bounds
         are exhausted (D2). Failing emits each open gap's ``CaptureGap``,
         then ``failed``, with no ``recovering`` record for the attempt the
-        client will not make (T18; spec/client.md, Record order, rule 4)."""
+        client will not make (T18; spec/client.md, Record order, rule 4).
+        Either record says how the last attempt failed, if it did, and
+        ``RecoveryFailed`` keeps the exception that ended it as its
+        ``__cause__``, since no later record reports that attempt."""
         recovery = self._recovery
         wait = recovery.delay()
         exhausted = recovery.exhausted(clock, wait)
@@ -422,8 +438,9 @@ class Connector:
             )
             self._resume_at = clock + wait
         else:
-            self._state.failed(exhausted, at)
+            self._state.failed(exhausted, at, detail=detail)
             self._failure = RecoveryFailed(_exhausted(exhausted, self._config))
+            self._failure.__cause__ = error
         self._publish()
 
     async def _close(self, socket: ClientConnection, reason: str) -> None:

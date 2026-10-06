@@ -2,8 +2,9 @@
 scenario can show (D1; D2; spec/client.md, Detecting an interruption and
 Reconnecting): the backoff's delays and bounds, frames that arrive while the
 client closes a connection after a ``pong_timeout``, which a scenario cannot
-time, and a connection that ends before its subscription frame, which the
-scripted server cannot end at that moment.
+time, a connection that ends before its subscription frame, which the
+scripted server cannot end at that moment, and an attempt that raises, which
+the scripted server cannot make it do.
 """
 
 import asyncio
@@ -369,5 +370,74 @@ def test_a_connection_ending_before_its_subscription_frame_is_a_failed_attempt(
             r.detail is not None and "before its subscription frame" in r.detail
             for r in recovering
         )
+        # The failure says how the last attempt failed too.
+        failed = read[-1]
+        assert isinstance(failed, ConnectionStateChange)
+        assert failed.detail is not None
+        assert "connection 3 ended before its subscription frame" in failed.detail
+        assert isinstance(ended.__cause__, ConnectionClosed)
+
+    asyncio.run(main())
+
+
+# An attempt that raises (spec/client.md, Reconnecting and Errors).
+
+
+def test_the_failure_keeps_how_the_last_attempt_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    refused = ConnectionRefusedError(61, "Connect call failed")
+
+    async def connect(*args: object, **kwargs: object) -> None:
+        raise refused
+
+    monkeypatch.setattr(_connection, "connect", connect)
+
+    async def main() -> None:
+        config = profile("ws://127.0.0.1:9", max_attempts=1)
+        client = MarketDataClient(config, markets=[MARKET_A])
+        records = client.records()
+        async with client:
+            read, ended = await read_all(records)
+        # No recovering record follows the attempt that exhausted the
+        # bounds, so failed and RecoveryFailed are the ones to report it.
+        failed = read[-1]
+        assert isinstance(failed, ConnectionStateChange)
+        assert (failed.state, failed.reason, failed.detail) == (
+            ConnectionState.FAILED,
+            "max_attempts",
+            "ConnectionRefusedError: [Errno 61] Connect call failed",
+        )
+        assert isinstance(ended, RecoveryFailed)
+        assert ended.__cause__ is refused
+
+    asyncio.run(main())
+
+
+def test_a_defect_in_an_attempt_ends_the_client_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    defect = TypeError("connect() got an unexpected keyword argument")
+
+    async def connect(*args: object, **kwargs: object) -> None:
+        raise defect
+
+    monkeypatch.setattr(_connection, "connect", connect)
+
+    async def main() -> None:
+        client = MarketDataClient(profile("ws://127.0.0.1:9"), markets=[MARKET_A])
+        records = client.records()
+        async with client:
+            read, ended = await read_all(records)
+        # Not a failed attempt: it is not retried, and the client ends with
+        # the defect as the cause of a ClientError.
+        states = [
+            (r.state.value, r.attempt)
+            for r in read
+            if isinstance(r, ConnectionStateChange)
+        ]
+        assert (len(read), states) == (1, [("connecting", 1)])
+        assert type(ended) is ClientError
+        assert ended.__cause__ is defect
 
     asyncio.run(main())
