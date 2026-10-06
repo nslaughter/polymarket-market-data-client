@@ -32,7 +32,7 @@ scheme.
 | 2. Decode frames | D8 | Done | [#8](https://github.com/nslaughter/polymarket-market-data-client/pull/8) |
 | 3. Keep books and token states | | Done | [#10](https://github.com/nslaughter/polymarket-market-data-client/pull/10) |
 | 4. Build the conformance harness | | Done | [#11](https://github.com/nslaughter/polymarket-market-data-client/pull/11) |
-| 5. Connect, subscribe, and deliver records | | Not started | |
+| 5. Connect, subscribe, and deliver records | | Done | [#15](https://github.com/nslaughter/polymarket-market-data-client/pull/15) |
 | 6. Detect interruptions and recover | D1, D2 | Not started | |
 | 7. Settle markets through the stream and lookup | D6 | Not started | |
 | 8. Apply subscription changes | D7 | Not started | |
@@ -72,7 +72,8 @@ the import name D5 specifies, `polymarket_market_data`.
 | `_state.py` | Token states, capture gaps, and record order, driven by inputs. Pure. |
 | `_hash.py` | The hash recipe and verification (step 10). Pure. |
 | `_connection.py` | The socket, subscription frame, heartbeat, reader, and reconnection. |
-| `_client.py` | `MarketDataClient`: the desired set, the queue, statistics, and the tasks. |
+| `_client.py` | `MarketDataClient`: the desired set, statistics, and the tasks; it owns the queue. |
+| `_queue.py` | The consumer handoff: the queue, its limit, and the records iterator. No I/O. Apart from `_client.py` because `_connection.py` feeds it too. |
 | `_lookup.py` | `MarketLookup` and the default lookup (D6). |
 | `tests/` | Unit tests. |
 | `tests/conformance/` | The scenario parser, the scripted server and lookup, the runner, and `enabled.txt`. It reads `spec/conformance.md` directly. |

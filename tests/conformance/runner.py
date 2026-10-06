@@ -11,7 +11,7 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from datetime import UTC, datetime
 from types import TracebackType
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from polymarket_market_data import (
     ClientConfig,
@@ -110,8 +110,7 @@ ClientFactory = Callable[[ClientConfig, tuple[Market, ...], MarketLookup], Clien
 def market_data_client(
     config: ClientConfig, markets: tuple[Market, ...], lookup: MarketLookup
 ) -> Client:
-    # MarketDataClient is a stub until plan step 5 gives it these members.
-    return cast(Client, MarketDataClient(config, markets=markets, lookup=lookup))
+    return MarketDataClient(config, markets=markets, lookup=lookup)
 
 
 def build_config(scenario: Scenario, url: str) -> ClientConfig:

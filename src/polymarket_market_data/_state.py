@@ -301,6 +301,25 @@ class StateMachine:
         for item in items:
             self._item(item, received_at, clock)
 
+    def delivers(self, generation: int, items: Sequence[Decoded]) -> bool:
+        """Whether ``frame`` would deliver a market-event record for these
+        items, which decides whether the frame can reach the queue's limit
+        (spec/client.md, Consumer handoff). The items before the first such
+        record are dropped or discarded and change no state, so the state
+        the frame finds decides."""
+        if generation != self._generation or self._interrupted:
+            return False
+        for item in items:
+            if not isinstance(item, DecodedEvent):
+                return True  # UnknownEvent and UndecodableFrame always are
+            record = item.record
+            if isinstance(record, NewMarketEvent):
+                if self._deliver_new_market:
+                    return True
+            elif not self._outside(record):
+                return True
+        return False
+
     def book_timeout(self, generation: int, at: datetime) -> None:
         """``book_timeout`` has passed since the subscription frame of the
         connection of ``generation`` (T4)."""
