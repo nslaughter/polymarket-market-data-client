@@ -59,7 +59,9 @@ DOCUMENT = r"(?:[\w.-]+/)*[\w.-]+\.md"
 CITATION = re.compile(r"\(([^()]*\.md\b[^()]*)\)")
 PART = re.compile(rf"({DOCUMENT}), (.+)")
 # A document followed by a comma or colon, as in a citation, but outside one.
-LOOSE = re.compile(rf"{DOCUMENT}`*(?=, |:)")
+LOOSE = re.compile(rf"{DOCUMENT}`*(?=[,:])")
+# A document wherever it is named: in parentheses, only a citation may name one.
+NAMED = re.compile(rf"{DOCUMENT}\b")
 ID = re.compile(r"\b[TD][1-9]\d*\b")
 SEPARATORS = (", and ", ", ", " and ")
 
@@ -200,10 +202,21 @@ def is_list_of(text: str, names: frozenset[str]) -> bool:
     return from_(0)
 
 
+def is_open(text: str) -> bool:
+    """Whether a parenthesis is open at the end of ``text``."""
+    depth = 0
+    for char in text:
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+    return depth > 0
+
+
 def problems(text: str) -> Iterator[str]:
     """Each citation in ``text`` that names a document it may not, or
     something its document does not hold, and each document named in the
-    form of a citation, but not as one."""
+    form of a citation, or in parentheses, but not as one."""
     for citation in CITATION.finditer(text):
         for part in citation.group(1).split("; "):
             if is_list_of(part, ids()):
@@ -222,8 +235,12 @@ def problems(text: str) -> Iterator[str]:
                 )
             elif not is_list_of(names.replace("`", ""), citable(document)):
                 yield f"({part}) names something {document} does not hold"
-    for loose in LOOSE.finditer(CITATION.sub("", text)):
+    rest = CITATION.sub("", text)
+    for loose in LOOSE.finditer(rest):
         yield f"{loose.group()} is followed by a comma or colon outside a citation"
+    for named in NAMED.finditer(rest):
+        if is_open(rest[: named.start()]):
+            yield f"{named.group()} is in parentheses, outside a citation"
     for name in ID.findall(text):
         if name not in ids():
             yield f"{name} is not a transition or owner specification"
@@ -388,7 +405,10 @@ def test_a_citation_of_what_a_document_holds_passes(text: str) -> None:
         ("(spec/client.md, Records; the third row)", "is not one document and"),
         ("(T14; spec/client.md, Recrd order, rule 4)", "does not hold"),
         ("(spec/client.md, Decoding (third row))", "outside a citation"),
+        ("(spec/client.md (Records))", "in parentheses, outside a citation"),
+        ("(see (T14) and spec/client.md)", "in parentheses, outside a citation"),
         ("See spec/client.md, Records.", "outside a citation"),
+        ("See spec/client.md,Records.", "followed by a comma or colon"),
         ("See spec/client.md: Records.", "outside a citation"),
         ("See ``spec/client.md``, Records.", "outside a citation"),
         ("(T19)", "T19 is not"),
