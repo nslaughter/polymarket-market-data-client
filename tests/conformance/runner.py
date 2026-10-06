@@ -154,6 +154,8 @@ class _Run:
         self.left = False
         self.ended_early = False
         self.finishing = False
+        self.iterator_ended = False
+        """An ``expect-end`` read the iterator's end."""
 
     async def run(self) -> None:
         try:
@@ -422,11 +424,10 @@ class _Run:
                 actual=", ".join(sorted(task.get_name() for task in running)),
             )
         try:
-            async with asyncio.timeout(self.step_timeout):
-                record = await anext(self.records)
+            record = await self._next(self.step_timeout)
         except StopAsyncIteration:
             return
-        except TimeoutError:
+        except _Expired:
             raise StepFailed("the iterator did not end after shutdown") from None
         except Exception as error:
             raise StepFailed(
@@ -452,11 +453,22 @@ class _Run:
             )
         return _record_time(record)
 
+    async def _next(self, seconds: float) -> object:
+        """The next record, read within ``seconds``. ``_Expired`` means the
+        runner's own timeout ended the read; anything else, a
+        ``TimeoutError`` included, is what the client raised."""
+        try:
+            async with asyncio.timeout(seconds) as scope:
+                return await anext(self.records)
+        except TimeoutError:
+            if scope.expired():
+                raise _Expired from None
+            raise
+
     async def _read(self) -> object:
         try:
-            async with asyncio.timeout(self.step_timeout):
-                record = await anext(self.records)
-        except TimeoutError:
+            record = await self._next(self.step_timeout)
+        except _Expired:
             raise StepFailed(
                 f"no record arrived within {self.step_timeout:g} s"
             ) from None
@@ -469,9 +481,8 @@ class _Run:
 
     async def _nothing(self, seconds: float, message: str) -> None:
         try:
-            async with asyncio.timeout(seconds):
-                record = await anext(self.records)
-        except TimeoutError:
+            record = await self._next(seconds)
+        except _Expired:
             return
         except StopAsyncIteration:
             raise StepFailed("the iterator ended") from None
@@ -482,14 +493,13 @@ class _Run:
 
     async def _expect_error(self, exception: type[BaseException]) -> None:
         try:
-            async with asyncio.timeout(self.step_timeout) as scope:
-                record = await anext(self.records)
+            record = await self._next(self.step_timeout)
+        except _Expired:
+            raise StepFailed(
+                f"nothing was raised within {self.step_timeout:g} s",
+                expected=exception.__name__,
+            ) from None
         except Exception as error:
-            if isinstance(error, TimeoutError) and scope.expired():
-                raise StepFailed(
-                    f"nothing was raised within {self.step_timeout:g} s",
-                    expected=exception.__name__,
-                ) from None
             if isinstance(error, exception):
                 return
             raise StepFailed(
@@ -506,15 +516,15 @@ class _Run:
 
     async def _expect_end(self) -> None:
         try:
-            async with asyncio.timeout(self.step_timeout) as scope:
-                record = await anext(self.records)
+            record = await self._next(self.step_timeout)
         except StopAsyncIteration:
+            self.iterator_ended = True
             return
+        except _Expired:
+            raise StepFailed(
+                f"the iterator did not end within {self.step_timeout:g} s"
+            ) from None
         except Exception as error:
-            if isinstance(error, TimeoutError) and scope.expired():
-                raise StepFailed(
-                    f"the iterator did not end within {self.step_timeout:g} s"
-                ) from None
             raise StepFailed(
                 "the read raised", expected="StopAsyncIteration", actual=repr(error)
             ) from None
@@ -564,10 +574,17 @@ class _Run:
                 "records are waiting", expected="backlog=0", actual=f"{backlog}"
             )
         try:
-            async with asyncio.timeout(WAITING_CHECK):
-                record = await anext(self.records)
-        except (TimeoutError, StopAsyncIteration):
+            record = await self._next(WAITING_CHECK)
+        except _Expired:
             pass
+        except StopAsyncIteration:
+            # The iterator ends only once the client has shut down
+            # (client.md, Cancellation and shutdown): here, once the block
+            # was left or an expect-end read the end.
+            if not (self.left or self.iterator_ended):
+                raise StepFailed(
+                    "the iterator ended while the client was running"
+                ) from None
         except Exception as error:
             raise StepFailed("a read raised", actual=repr(error)) from None
         else:
@@ -593,6 +610,10 @@ class _Run:
         if not self.steps.done():
             self.steps.cancel()
             await asyncio.wait({self.steps})
+
+
+class _Expired(Exception):
+    """The runner's timeout around a read expired."""
 
 
 def _record_time(record: object) -> datetime:

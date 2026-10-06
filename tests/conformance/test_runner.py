@@ -288,6 +288,16 @@ def test_expect_nothing_fails_when_a_record_arrives() -> None:
     assert failed.failure.message == "a record arrived"
 
 
+@pytest.mark.parametrize("step", ["expect-nothing 0.5", "read-timeout 0.5"])
+def test_a_timeout_the_client_raises_is_not_the_steps_own(step: str) -> None:
+    failed = fails(
+        f"scenario example\n{step}\nexpect token A1 ready\n",
+        [(0, raising(TimeoutError())), (0.05, ready())],
+    )
+    assert failed.failure.message == "the read raised"
+    assert failed.failure.actual == "TimeoutError()"
+
+
 def test_a_read_that_times_out_loses_no_record() -> None:
     scenario_run(
         "scenario example\nread-timeout 0.2\nexpect token A1 ready\n",
@@ -301,8 +311,12 @@ def test_read_timeout_fails_when_a_record_arrives() -> None:
 
 
 def test_expect_error_then_expect_end() -> None:
+    # The end of the steps reads the end again, as the iterator gives it.
     scenario_run(
-        "scenario example\nexpect-error RecoveryFailed\nexpect-end\n",
+        "scenario example\n"
+        "expect-error RecoveryFailed\n"
+        "expect-end\n"
+        "expect-no-connect 0.2\n",
         [(0, raising(RecoveryFailed("bounds"))), (0, lambda: _END)],
     )
 
@@ -326,6 +340,23 @@ def test_a_record_still_waiting_at_the_end_fails() -> None:
     )
     assert failed.failure.message == "a record is waiting"
     assert failed.step.startswith("after the last step")
+
+
+def test_an_iterator_that_ends_while_the_client_runs_fails() -> None:
+    failed = fails(
+        "scenario example\nexpect token A1 ready\nexpect-no-connect 0.2\n",
+        [(0, ready()), (0, lambda: _END)],
+    )
+    assert failed.failure.message == "the iterator ended while the client was running"
+    assert failed.step.startswith("after the last step")
+
+
+def test_a_timeout_the_client_raises_at_the_end_fails() -> None:
+    failed = fails("scenario example\nwait 0.1\n", [(0, raising(TimeoutError()))])
+    assert (failed.failure.message, failed.failure.actual) == (
+        "a read raised",
+        "TimeoutError()",
+    )
 
 
 def test_a_backlog_at_the_end_fails() -> None:
