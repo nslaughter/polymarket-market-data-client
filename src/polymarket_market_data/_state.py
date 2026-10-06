@@ -277,8 +277,13 @@ class StateMachine:
     def pong(self, generation: int, received_at: datetime) -> None:
         """A ``PONG`` arrived on the connection of ``generation``. It
         confirms the data before it, since it is queued behind that data."""
-        if generation == self._generation and not self._interrupted:
-            self._last_frame_at = received_at
+        if generation != self._generation or self._interrupted:
+            # It confirms nothing then, but is counted as every frame arriving
+            # then is, though ``frames`` leaves it out (spec/client.md,
+            # Statistics). The connector still measures its delay.
+            self.counts.frames_after_interruption += 1
+            return
+        self._last_frame_at = received_at
 
     def frame(
         self,
@@ -428,14 +433,17 @@ class StateMachine:
                 self._settle(condition_id, "all_resolved_close", None, at)
         self._idle_if_empty(at)
 
-    def failed(self, reason: str, at: datetime) -> None:
+    def failed(self, reason: str, at: datetime, *, detail: str | None = None) -> None:
         """Reconnection exhausted its bounds (T18; spec/client.md, Record
         order, rule 4). ``reason`` is ``max_attempts`` or
-        ``max_recovery_time``."""
+        ``max_recovery_time``; ``detail`` says how the last attempt failed,
+        if it did."""
         for market in self._markets.values():
             for token_id in market.token_ids:
                 self._end_gap(self._tokens[token_id], "recovery_failed", at)
-        self._connection_record(ConnectionState.FAILED, at, reason=reason)
+        self._connection_record(
+            ConnectionState.FAILED, at, reason=reason, detail=detail
+        )
 
     # Settlement confirmation (spec/client.md, Settlement).
 
