@@ -3,6 +3,8 @@ that plays scripted records (spec/conformance.md, The runner)."""
 
 import asyncio
 import contextlib
+import gc
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -41,7 +43,14 @@ Item = Callable[[], object]
 
 class Fake:
     """A client that delivers each scripted item after its delay, counted
-    from entering the block, and otherwise behaves as the contract says."""
+    from entering the block, and otherwise behaves as the contract says,
+    unless an option makes it faulty:
+
+    - ``leak``: a task it starts outlives the block;
+    - ``stuck_leak``, ``stuck_exit``: for this many seconds, the leaked task,
+      or leaving the block, ignores every cancellation;
+    - ``swallow_cancel``: leaving the block swallows a ``CancelledError``.
+    """
 
     def __init__(
         self,
@@ -49,11 +58,17 @@ class Fake:
         script: Iterable[tuple[float, Item]] = (),
         *,
         leak: bool = False,
+        stuck_leak: float = 0.0,
+        stuck_exit: float = 0.0,
+        swallow_cancel: bool = False,
         end_block_after: float | None = None,
     ) -> None:
         self.lookup = lookup
         self.script = list(script)
         self.leak = leak
+        self.stuck_leak = stuck_leak
+        self.stuck_exit = stuck_exit
+        self.swallow_cancel = swallow_cancel
         self.end_block_after = end_block_after
         self.queue: asyncio.Queue[object] = asyncio.Queue()
         self.subscribed: list[Market] = []
@@ -63,7 +78,8 @@ class Fake:
     async def __aenter__(self) -> "Fake":
         self.tasks.append(asyncio.create_task(self._play()))
         if self.leak:
-            self.tasks.append(asyncio.create_task(asyncio.sleep(60), name="leaked"))
+            leaked = stuck(self.stuck_leak) if self.stuck_leak else asyncio.sleep(60)
+            self.tasks.append(asyncio.create_task(leaked, name="leaked"))
         if self.end_block_after is not None:
             host = asyncio.current_task()
             assert host is not None
@@ -75,7 +91,8 @@ class Fake:
         exc_type: type[BaseException] | None,
         exc: BaseException | None,
         traceback: TracebackType | None,
-    ) -> None:
+    ) -> bool:
+        await stuck(self.stuck_exit)
         stopping = self.tasks if not self.leak else self.tasks[:1]
         for task in stopping:
             task.cancel()
@@ -84,6 +101,7 @@ class Fake:
         while not self.queue.empty():
             self.queue.get_nowait()
         self.queue.put_nowait(_END)
+        return self.swallow_cancel and exc_type is asyncio.CancelledError
 
     async def _play(self) -> None:
         for delay, item in self.script:
@@ -147,6 +165,16 @@ class Fake:
         if info is None:
             raise MarketNotFound(slug)
         return Market(info.condition_id, info.token_ids, info.slug)
+
+
+async def stuck(seconds: float) -> None:
+    """Sleep for ``seconds``, however often cancelled, as a faulty client
+    could."""
+    loop = asyncio.get_running_loop()
+    until = loop.time() + seconds
+    while (left := until - loop.time()) > 0:
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.sleep(left)
 
 
 def scenario_run(
@@ -383,10 +411,47 @@ def test_cancel_cancels_the_host_task() -> None:
     scenario_run("scenario example\ncancel\nexpect-end\n")
 
 
+def test_a_block_that_swallows_the_cancellation_fails() -> None:
+    failed = fails("scenario example\ncancel\nexpect-end\n", swallow_cancel=True)
+    assert failed.failure.message == "the cancellation did not leave the client's block"
+    assert failed.line == 501
+
+
 def test_a_task_that_outlives_the_block_fails() -> None:
     failed = fails("scenario example\nexit\n", leak=True)
     assert failed.failure.message == "tasks the client started outlive its block"
     assert failed.failure.actual == "leaked"
+
+
+def fails_abandoning(text: str, **options: Any) -> str:
+    """The message of a failure for which the runner abandoned tasks, once
+    they are gone: asyncio logs each as destroyed while pending, in this
+    test rather than a later one."""
+    message = fails(text, **options).failure.message
+    gc.collect()
+    return message
+
+
+def test_a_block_that_ignores_cancellation_fails_without_hanging() -> None:
+    # The clean-up waits at most a step's timeout for each task it cancels,
+    # well before the client gives in.
+    start = time.monotonic()
+    assert (
+        fails_abandoning("scenario example\nexit\n", step_timeout=0.3, stuck_exit=30)
+        == "the client's block did not end within 0.3 s"
+    )
+    assert time.monotonic() - start < 10
+
+
+def test_a_task_that_ignores_cancellation_fails_without_hanging() -> None:
+    start = time.monotonic()
+    assert (
+        fails_abandoning(
+            "scenario example\nexit\n", step_timeout=0.3, leak=True, stuck_leak=30
+        )
+        == "tasks the client started outlive its block"
+    )
+    assert time.monotonic() - start < 10
 
 
 def test_the_block_ending_on_its_own_fails() -> None:

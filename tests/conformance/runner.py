@@ -128,7 +128,7 @@ def run(
 ) -> None:
     """Run one scenario against a client."""
     with ScriptedServer() as server:
-        asyncio.run(_Run(scenario, server, client, step_timeout).run())
+        _Run(scenario, server, client, step_timeout).execute()
 
 
 def now() -> datetime:
@@ -156,6 +156,27 @@ class _Run:
         self.finishing = False
         self.iterator_ended = False
         """An ``expect-end`` read the iterator's end."""
+
+    def execute(self) -> None:
+        """Run the scenario on an event loop of its own, as ``asyncio.run``
+        does, except that the tasks left when it ends get ``step_timeout``
+        seconds to end once cancelled, not forever: a client that resists
+        cancellation fails the scenario instead of hanging it."""
+        loop = asyncio.new_event_loop()
+        try:
+            try:
+                loop.run_until_complete(self.run())
+            finally:
+                stuck = loop.run_until_complete(self._end_tasks())
+        finally:
+            loop.close()
+        if stuck:
+            raise self._failed(
+                StepFailed(
+                    "tasks the client started did not end once cancelled",
+                    actual=", ".join(stuck),
+                )
+            )
 
     async def run(self) -> None:
         try:
@@ -407,11 +428,23 @@ class _Run:
                 f"the client's block did not end within {self.step_timeout:g} s"
             )
         self.left = True
-        if self.host.cancelled() and not cancel:
-            raise StepFailed("the client's block ended cancelled", actual="cancelled")
-        if not self.host.cancelled() and self.host.exception() is not None:
+        if self.host.cancelled():
+            if not cancel:
+                raise StepFailed(
+                    "the client's block ended cancelled", actual="cancelled"
+                )
+        elif self.host.exception() is not None:
             raise StepFailed(
                 "leaving the client's block raised", actual=_outcome(self.host)
+            )
+        elif cancel:
+            # The client's __aexit__ swallowed the CancelledError, which the
+            # contract says leaves the block (client.md, Cancellation and
+            # shutdown).
+            raise StepFailed(
+                "the cancellation did not leave the client's block",
+                expected="cancelled",
+                actual="returned",
             )
         running = [
             task
@@ -595,21 +628,41 @@ class _Run:
 
     async def _clean_up(self) -> None:
         """Leave the block, whatever failed, so that nothing of the client's
-        outlives the scenario."""
+        outlives the scenario. Each wait is bounded, so that a client that
+        resists cancellation cannot hide the failure by hanging."""
         if not hasattr(self, "host"):
             return
-        if not self.host.done():
+        if not self.host.done() and not self.leaving:
             self.leaving = True
             self.leave.set()
             await asyncio.wait({self.host}, timeout=self.step_timeout)
         if not self.host.done():
             self.host.cancel()
-            await asyncio.wait({self.host})
-        if not self.host.cancelled():
+            await asyncio.wait({self.host}, timeout=self.step_timeout)
+        if self.host.done() and not self.host.cancelled():
             self.host.exception()
         if not self.steps.done():
             self.steps.cancel()
-            await asyncio.wait({self.steps})
+            await asyncio.wait({self.steps}, timeout=self.step_timeout)
+
+    async def _end_tasks(self) -> list[str]:
+        """Cancel every task left on the loop, then end its asynchronous
+        generators and its executor, as ``asyncio.run`` does, waiting at most
+        ``step_timeout`` for each; the names of the tasks still running."""
+        loop = asyncio.get_running_loop()
+        tasks = asyncio.all_tasks() - {asyncio.current_task()}
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks, timeout=self.step_timeout)
+        await asyncio.wait(
+            {
+                asyncio.ensure_future(loop.shutdown_asyncgens()),
+                asyncio.ensure_future(loop.shutdown_default_executor()),
+            },
+            timeout=self.step_timeout,
+        )
+        return sorted(task.get_name() for task in tasks if not task.done())
 
 
 class _Expired(Exception):
