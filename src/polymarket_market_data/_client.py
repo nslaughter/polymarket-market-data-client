@@ -93,8 +93,11 @@ class MarketDataClient:
         if task is not None:
             await _stop(task)
         self._queue.close()
-        if exc_type is None:
-            # A failure no consumer has read is raised here, once.
+        # A failure no consumer has read is raised here, once, however the
+        # block is left. As TaskGroup does with a task's error, it takes the
+        # place of an exception or a cancellation leaving the block, but not
+        # of KeyboardInterrupt or SystemExit, which leave it to the iterator.
+        if exc is None or isinstance(exc, Exception | asyncio.CancelledError):
             failure = self._queue.take_failure()
             if failure is not None:
                 raise failure

@@ -204,23 +204,46 @@ def test_a_defect_is_raised_by_the_iterator(monkeypatch: pytest.MonkeyPatch) -> 
     run_with(main)
 
 
+@pytest.mark.parametrize(
+    ("leaving", "context"),
+    [
+        ("normally", type(None)),
+        ("by an exception", ValueError),
+        ("by cancellation", asyncio.CancelledError),
+    ],
+)
 def test_a_defect_no_consumer_read_is_raised_when_the_block_is_left(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, leaving: str, context: type
 ) -> None:
+    # However the block is left, as TaskGroup raises a task's error; what
+    # was leaving it is the failure's __context__.
     monkeypatch.setattr(_connection, "decode_frame", broken)
 
     async def main(server: ScriptedServer) -> None:
         client = MarketDataClient(config(server.url), markets=[MARKET_A])
         records = client.records()
-        raised: ClientError | None = None
-        try:
+        failed = asyncio.Event()
+
+        async def hold() -> None:
             async with client:
                 await connect_and_send(server, "[]\n")
                 await server.call(server.expect_client_close(1000, "client exit"))
-        except ClientError as error:
-            raised = error
-        assert raised is not None
+                failed.set()
+                if leaving == "by an exception":
+                    raise ValueError("leaving")
+                if leaving == "by cancellation":
+                    await asyncio.Event().wait()
+
+        holder = asyncio.create_task(hold())
+        async with asyncio.timeout(5):
+            await failed.wait()
+        if leaving == "by cancellation":
+            holder.cancel()
+        await asyncio.wait({holder}, timeout=5)
+        raised = holder.exception()
+        assert isinstance(raised, ClientError)
         assert isinstance(raised.__cause__, RuntimeError)
+        assert isinstance(raised.__context__, context)
         # Raised once: the iterator then only ends.
         assert await read_all(records) == ([], StopAsyncIteration)
 
