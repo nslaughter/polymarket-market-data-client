@@ -316,6 +316,37 @@ def test_frames_arriving_while_the_client_closes_after_a_pong_timeout() -> None:
     asyncio.run(main())
 
 
+def test_the_close_after_a_pong_timeout_counts_toward_max_recovery_time() -> None:
+    # The late frames hold the close for at least 0.15 s, so an attempt
+    # 0.01 s after it would start after the 0.05 s bound.
+    late = [price_change(100), price_change(200), "PONG"]
+
+    async def main() -> None:
+        async with LateServer(opening(("0.48", "100")), late) as server:
+            config = profile(server.url, base_delay=0.01, max_recovery_time=0.05)
+            client = MarketDataClient(config, markets=[MARKET_A])
+            records = client.records()
+            async with client:
+                read = await read_until(
+                    records,
+                    lambda r: (
+                        is_state(ConnectionState.RECOVERING)(r)
+                        or is_state(ConnectionState.FAILED)(r)
+                    ),
+                )
+                with pytest.raises(RecoveryFailed):
+                    async with asyncio.timeout(5):
+                        await anext(records)
+        failed = read[-1]
+        assert isinstance(failed, ConnectionStateChange)
+        assert (failed.state, failed.reason) == (
+            ConnectionState.FAILED,
+            "max_recovery_time",
+        )
+
+    asyncio.run(main())
+
+
 # A connection that ends before its subscription frame is sent is a failed
 # attempt, not an interruption (spec/client.md, Connecting and subscribing).
 

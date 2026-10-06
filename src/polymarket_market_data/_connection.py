@@ -10,7 +10,8 @@ the consumer.
 
 A subscribed connection that ends, or whose oldest unanswered ``PING`` has
 waited ``pong_timeout`` (D1), is interrupted, unless no desired market is
-left on it; an attempt that fails is retried. Either way the next attempt
+left on it; an attempt that fails is retried. Either way, once the
+connection has ended, after any close the client started, the next attempt
 waits its backoff, within the bounds D2 specifies, and once they are
 exhausted the client fails with ``RecoveryFailed`` (spec/client.md,
 Detecting an interruption and Reconnecting).
@@ -166,6 +167,17 @@ class _Heartbeat:
         counts.delay_max = max(counts.delay_max, counts.delay_last)
 
 
+@dataclass(frozen=True, slots=True)
+class _Retry:
+    """The attempt or connection that just ended calls for another
+    attempt."""
+
+    detail: str | None
+    """How it failed, if it was a failed attempt."""
+    error: BaseException | None
+    """The exception that ended it, if one did."""
+
+
 @dataclass(slots=True)
 class _Live:
     """A subscribed connection, as its reader and its heartbeat share it."""
@@ -194,11 +206,9 @@ class Connector:
         self._generation = 0
         self._socket: ClientConnection | None = None
         self._recovery = Recovery(config.reconnect)
-        # What follows the attempt or connection that just ended: the next
-        # attempt, at this time on the event loop's clock; the failure, once
-        # the bounds are exhausted; or, if neither, nothing.
-        self._resume_at: float | None = None
-        self._failure: RecoveryFailed | None = None
+        # What follows the attempt or connection that just ended: another
+        # attempt, or, if this is None, nothing.
+        self._retry: _Retry | None = None
         self.pongs = PongCounts()
 
     async def run(self) -> None:
@@ -214,7 +224,7 @@ class Connector:
         # runs from it (spec/client.md, Reconnecting).
         self._recovery.begin(loop.time())
         while True:
-            self._resume_at = None
+            self._retry = None
             self._state.connecting(self._recovery.attempt, now())
             self._publish()
             try:
@@ -235,11 +245,12 @@ class Connector:
                 self._socket = socket
                 await self._serve(socket)
                 self._socket = None
-            if self._failure is not None:
-                raise self._failure
-            if self._resume_at is None:
+            if self._retry is None:
                 return
-            await asyncio.sleep(self._resume_at - loop.time())
+            # Decided only now that the connection has ended, so that a close
+            # the client started cannot hold the attempt past the wait that
+            # recovering announced, or past the bound it was checked against.
+            await asyncio.sleep(self._next(self._retry))
 
     async def close(self) -> None:
         """Close the open connection, if any, as the client shuts down."""
@@ -391,9 +402,9 @@ class Connector:
         error: BaseException | None = None,
     ) -> None:
         """Record the end of a subscribed connection that may have lost
-        events, then what follows it (T14; spec/client.md, Record order,
-        rule 4). One that delivered no frame is also a failed attempt.
-        ``error`` is the exception that ended it, if one did."""
+        events, and whether another attempt follows it (T14; spec/client.md,
+        Record order, rule 4). One that delivered no frame is also a failed
+        attempt. ``error`` is the exception that ended it, if one did."""
         live.ended = True
         if not self._state.desired:
             # Not an interruption: no desired market is left on it, as after
@@ -403,45 +414,41 @@ class Connector:
         self._state.interrupted(
             cause, at, close_code=close_code, close_reason=close_reason
         )
+        self._publish()
         self._recovery.begin(clock)
         detail = None
         if not live.delivered:
             self._recovery.failed()
             detail = f"connection {live.generation} ended before delivering a frame"
-        self._next(at, clock, detail, error)
+        self._retry = _Retry(detail, error)
 
     def _attempt_failed(self, detail: str, error: BaseException) -> None:
         """An attempt failed before its connection was subscribed."""
         self._recovery.failed()
-        self._next(now(), asyncio.get_running_loop().time(), detail, error)
+        self._retry = _Retry(detail, error)
 
-    def _next(
-        self,
-        at: datetime,
-        clock: float,
-        detail: str | None,
-        error: BaseException | None,
-    ) -> None:
-        """Wait the backoff before the next attempt, or fail if the bounds
-        are exhausted (D2). Failing emits each open gap's ``CaptureGap``,
-        then ``failed``, with no ``recovering`` record for the attempt the
-        client will not make (T18; spec/client.md, Record order, rule 4).
-        Either record says how the last attempt failed, if it did, and
-        ``RecoveryFailed`` keeps the exception that ended it as its
-        ``__cause__``, since no later record reports that attempt."""
+    def _next(self, retry: _Retry) -> float:
+        """Emit ``recovering`` and return the backoff before the next
+        attempt, or fail if the bounds are exhausted (D2). Failing emits
+        each open gap's ``CaptureGap``, then ``failed``, with no
+        ``recovering`` record for the attempt the client will not make
+        (T18; spec/client.md, Record order, rule 4). Either record says how
+        the last attempt failed, if it did, and ``RecoveryFailed`` keeps the
+        exception that ended it as its ``__cause__``, since no later record
+        reports that attempt."""
+        at, clock = now(), asyncio.get_running_loop().time()
         recovery = self._recovery
         wait = recovery.delay()
         exhausted = recovery.exhausted(clock, wait)
         if exhausted is None:
             self._state.recovering(
-                recovery.attempt, "backoff", at, retry_in=wait, detail=detail
+                recovery.attempt, "backoff", at, retry_in=wait, detail=retry.detail
             )
-            self._resume_at = clock + wait
-        else:
-            self._state.failed(exhausted, at, detail=detail)
-            self._failure = RecoveryFailed(_exhausted(exhausted, self._config))
-            self._failure.__cause__ = error
+            self._publish()
+            return wait
+        self._state.failed(exhausted, at, detail=retry.detail)
         self._publish()
+        raise RecoveryFailed(_exhausted(exhausted, self._config)) from retry.error
 
     async def _close(self, socket: ClientConnection, reason: str) -> None:
         """Close the connection with code 1000 and ``reason``, waiting at
