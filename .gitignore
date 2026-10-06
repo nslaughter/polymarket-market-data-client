@@ -1,5 +1,9 @@
-# Raw captures from the source-behavior spike. The findings quote excerpts.
+# Raw captures from the source-behavior spike, and the excerpts cut from them.
+# Both are Polymarket's data, which its Terms of Use give no right to
+# redistribute; they stay on the machine that made them.
 spikes/captures/
+spikes/evidence/*.jsonl
+spikes/evidence/*.jsonl.gz
 __pycache__/
 
 # The development environment, build outputs, and tool caches.

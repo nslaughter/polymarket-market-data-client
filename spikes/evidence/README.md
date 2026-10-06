@@ -6,12 +6,24 @@ each full capture, the records that demonstrate a behavior in the findings'
 [catalog](../../docs/source-behavior.md#behavior-the-documentation-and-sdk-do-not-state).
 The full captures are hundreds of megabytes and stay out of git.
 
+The excerpts stay out of git too. Like the captures, they are Polymarket's
+market data, and Polymarket's [Terms of Use](https://polymarket.com/tos),
+effective August 11, 2026, give no right to redistribute it: the license in
+§5.1 is personal and non-sublicensable, and §4.2 prohibits distributing any
+portion of the service or copying its material without consent. They stay on
+the machine that made them. This README and
+[`manifest.json`](manifest.json), which records the SHA-256 of each excerpt
+and of the capture it came from, stay in the repository, so a copy can be
+checked against them.
+
 The excerpts record `polymarket-client` 0.12.0 and the market WebSocket as
 of October 4, 2026, so they keep showing that behavior after the SDK or the
 service changes. Whether a behavior persists is for the `repro_*.py` scripts,
 run live.
 
 ## Checking them
+
+Where the excerpts are present:
 
 ```sh
 uv run spikes/check_evidence.py       # add -v to print every report
