@@ -1,4 +1,5 @@
-"""The public names, the exceptions, and the interfaces without behavior yet."""
+"""The public names, the exceptions, and the interfaces without behavior yet
+(spec/client.md, Public interface, Errors, and Market lookup)."""
 
 import polymarket_market_data
 from polymarket_market_data import (

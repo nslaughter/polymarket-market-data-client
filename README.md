@@ -266,6 +266,10 @@ means, and continuous operation.
   configuration, observation period, interruptions, and unresolved source
   behavior.
 
+The conformance scenarios' [coverage tables](spec/conformance.md#coverage)
+name the scenarios that check each criterion the scripted server can show,
+and each behavior in the findings' catalog.
+
 ## What the repository will contain
 
 - This README, explaining the application problem, and an installation

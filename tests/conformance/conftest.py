@@ -1,6 +1,6 @@
 """The pytest entry point: each scenario listed in ``enabled.txt`` is a test,
 named after the scenario, so ``pytest tests/conformance -k <name>`` runs
-one."""
+one (docs/implementation-plan.md, How a step turns on its scenarios)."""
 
 from collections.abc import Iterator
 from pathlib import Path

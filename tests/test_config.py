@@ -97,7 +97,7 @@ def test_config_defaults() -> None:
 
 
 def test_conformance_profile_is_valid() -> None:
-    # The profile of spec/conformance.md, and the overrides its scenarios
+    # The profile of spec/conformance.md and the overrides its scenarios
     # set, which the harness will build.
     profile: dict[str, Any] = {
         "url": "ws://127.0.0.1:8765",

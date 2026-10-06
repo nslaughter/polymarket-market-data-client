@@ -1,9 +1,10 @@
-"""The records the client delivers, and the other public data types.
+"""The records the client delivers, and the other public data types
+(spec/client.md, Records).
 
 Every type here is a frozen dataclass with slots, not a Pydantic model (D8).
 They carry data already validated, so they validate nothing themselves.
 Records serialize through ``TypeAdapter(<type>).dump_json`` and read back
-with ``validate_json``. See spec/client.md, Records.
+with ``validate_json``.
 """
 
 from collections.abc import Mapping

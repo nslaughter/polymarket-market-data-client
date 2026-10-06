@@ -454,8 +454,8 @@ class _Run:
             )
         elif cancel:
             # The client's __aexit__ swallowed the CancelledError, which the
-            # contract says leaves the block (client.md, Cancellation and
-            # shutdown).
+            # contract says leaves the block (spec/client.md, Cancellation
+            # and shutdown).
             raise StepFailed(
                 "the cancellation did not leave the client's block",
                 expected="cancelled",
@@ -670,7 +670,7 @@ class _Run:
             pass
         except StopAsyncIteration:
             # The iterator ends only once the client has shut down
-            # (client.md, Cancellation and shutdown): here, once the block
+            # (spec/client.md, Cancellation and shutdown): here, once the block
             # was left or an expect-end read the end.
             if not (self.left or self.iterator_ended):
                 raise StepFailed(

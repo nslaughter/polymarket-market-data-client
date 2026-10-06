@@ -1,4 +1,5 @@
-"""The synthetic markets, standard books, and profile of spec/conformance.md.
+"""The synthetic markets, standard books, and profile (spec/conformance.md,
+Synthetic markets and Profile).
 
 The tables are copied here, not read from the document, which executes only
 its scenario blocks; ``test_synthetic.py`` checks the copies against the

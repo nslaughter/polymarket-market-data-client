@@ -26,8 +26,9 @@ class StepFailed(Exception):
 
 class ScenarioFailed(Exception):
     """A scenario's first failing step, as the failure report gives it: the
-    scenario's name, the step's line in spec/conformance.md, the expected and
-    actual values at the first difference, and the record read, if any."""
+    scenario's name, the line of spec/conformance.md that holds the step, the
+    expected and actual values at the first difference, and the record read,
+    if any."""
 
     def __init__(
         self, scenario: str, line: int, step: str, failure: StepFailed

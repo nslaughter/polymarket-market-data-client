@@ -119,6 +119,48 @@ D8 settles where each is used. Keep to it:
   dropped most `new_market` events
   ([findings §1](docs/source-behavior.md#1-reconnection-and-subscription-restoration-in-the-sdk)).
 
+### Citing the documents
+
+Code and tests cite the documents they follow, so that a reader can go from a
+rule to the code that applies it and back. `tests/test_citations.py` checks
+every citation and every place one is required, and fails on any it cannot
+resolve.
+
+- Cite in a comment or docstring, in parentheses, with the document's full
+  path and a heading as the document writes it:
+  `(spec/client.md, Nesting depth)`, or several,
+  `(spec/client.md, Decoding and Repeated messages)`. Cite a numbered rule
+  as `(spec/client.md, Record order, rule 3)`, a transition or owner
+  specification by its ID, `(T14)` or `(D8)`, a section of the findings as
+  `(docs/source-behavior.md, §4)`, and a scenario by its name,
+  `(spec/conformance.md, drop-without-close)`.
+- Parentheses that name a Markdown file hold citations and nothing else,
+  joined by semicolons if there are several:
+  `(spec/conformance.md, Frame notation; spec/client.md, Order-book hash)`
+  or `(T14; spec/client.md, Record order, rule 4)`. Outside them, don't
+  follow a Markdown file's path with a comma or colon, as in
+  `See spec/client.md, Records.`: the check fails it as a citation out of
+  form.
+- A citation may name `spec/client.md`, `spec/conformance.md`,
+  `docs/implementation-plan.md`, or `docs/source-behavior.md`.
+- Every module's docstring cites what the module implements or tests. Each
+  transition, T1 to T18, is cited where the package applies it and where the
+  tests check it. When a step is marked `Done`, each owner specification in
+  its Progress row is cited where the package, `pyproject.toml`, or CI
+  applies it.
+- The check reads the comments of `pyproject.toml` and CI line by line. A
+  TOML comment begins at a `#` outside quotes. A YAML comment begins at a
+  `#` that starts a line or follows whitespace, even inside quotes: a quote
+  inside an unquoted value, as in `name: Check "a # b"`, opens no string,
+  and the check doesn't tell quoted values from unquoted ones. So it also
+  reads a `#` after a space in a quoted YAML value, or in a `run: |` block,
+  as a comment.
+- Cite where the code applies a rule, not on every line. A comment beside a
+  citation says what the document does not: why the code meets the rule, or
+  an order or edge that matters. It does not restate the rule.
+- If a citation stops resolving because a document changed, correct the
+  citation. Never change a document to satisfy the check.
+
 ## Commands
 
 Step 1 sets these up; until then they do not run.
