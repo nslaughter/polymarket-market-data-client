@@ -385,7 +385,8 @@ class Source:
         market = MARKETS[spec.market]
         self.resolutions_sent += 1
         return {
-            # A string, as the source sends it (docs/source-behavior.md, §6).
+            # A string, as the record's id is (spec/client.md, Event records),
+            # and as the frames write numbers.
             "id": str(9000000 + self.resolutions_sent),
             "market": market.condition_id,
             "assets_ids": [TOKEN_IDS[token] for token in market.tokens],
