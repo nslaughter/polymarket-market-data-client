@@ -473,7 +473,10 @@ def _misplaced(value: Any, path: str) -> str | None:
         base = _base(hints[field.name])
         where = f"{path}.{field.name}"
         if base is Decimal:
-            if item is not None and not isinstance(item, Decimal):
+            # None only where the annotation allows it, as Decimal | None.
+            if item is None and base is not hints[field.name]:
+                continue
+            if not isinstance(item, Decimal):
                 return f"{where} is a {type(item).__name__}: {item!r}"
         elif typing.get_origin(base) is tuple and typing.get_args(base)[0] in (
             Level,

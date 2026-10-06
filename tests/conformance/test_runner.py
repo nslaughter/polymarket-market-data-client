@@ -4,6 +4,7 @@ that plays scripted records (spec/conformance.md, The runner)."""
 import asyncio
 import contextlib
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import TracebackType
@@ -400,6 +401,15 @@ def test_a_float_in_a_decimal_field_fails() -> None:
     failed = fails("scenario example\nexpect book A1\n", [(0, book(tick_size=0.01))])
     assert "decimal.Decimal" in failed.failure.message
     assert failed.failure.actual == "BookEvent.tick_size is a float: 0.01"
+
+
+def test_none_in_a_decimal_field_that_does_not_allow_it_fails() -> None:
+    def make() -> object:
+        record: Any = book()()
+        return replace(record, bids=(replace(record.bids[0], price=None),))
+
+    failed = fails("scenario example\nexpect book A1\n", [(0, make)])
+    assert failed.failure.actual == "BookEvent.bids[0].price is a NoneType: None"
 
 
 def test_resolve_returns_the_synthetic_market_or_raises() -> None:

@@ -323,6 +323,10 @@ def test_every_decimal_field_of_an_event_record_must_be_a_decimal() -> None:
     )
     floated = altered(BOOK, bids=(altered(BOOK.bids[0], size=250.0),))
     assert misplaced_decimal(floated) == "BookEvent.bids[0].size is a float: 250.0"
+    # None, where the annotation is Decimal alone, is misplaced too.
+    emptied = altered(BOOK, bids=(altered(BOOK.bids[0], price=None),))
+    assert misplaced_decimal(emptied) == "BookEvent.bids[0].price is a NoneType: None"
+    assert misplaced_decimal(altered(BOOK, tick_size=None)) is None
     changed = replace(CHANGE, changes=(altered(CHANGE.changes[0], best_bid=0.49),))
     assert (
         misplaced_decimal(changed)
