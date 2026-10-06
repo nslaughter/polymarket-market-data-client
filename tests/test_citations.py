@@ -42,6 +42,11 @@ PART = re.compile(r"((?:[\w.-]+/)*[\w.-]+\.md), (.+)")
 ID = re.compile(r"\b[TD][1-9]\d*\b")
 SEPARATORS = (", and ", ", ", " and ")
 
+# In TOML or YAML, a quoted string, or a comment: a ``#`` that begins the line
+# or follows whitespace, and the rest of the line. A quote after a letter or
+# digit, as in ``client's``, is an apostrophe.
+BUILD_COMMENT = re.compile(r"""(?<!\w)"(?:[^"\\]|\\.)*"|(?<!\w)'[^']*'|(?<!\S)#.*""")
+
 HEADING = re.compile(r"#{1,6} (.+)")
 RULE = re.compile(r"(\d+)\. ")
 TRANSITION = re.compile(r"\| (T\d+) \|")
@@ -75,24 +80,24 @@ def python_texts(path: Path) -> Iterator[Text]:
     if run:
         yield comment(path, run[0].start[0], (t.string for t in run))
     for node in ast.walk(ast.parse(source)):
-        if isinstance(
-            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
-        ):
-            docstring = ast.get_docstring(node)
-            if docstring is not None:
-                yield Text(path, node.body[0].lineno, " ".join(docstring.split()))
+        # A docstring is a string that stands as a statement: one that opens a
+        # module, class, or function, or one that follows an attribute.
+        match node:
+            case ast.Expr(ast.Constant(str() as docstring)):
+                yield Text(path, node.lineno, " ".join(docstring.split()))
 
 
 def build_texts(path: Path) -> Iterator[Text]:
-    """The comments of a TOML or YAML file that take whole lines."""
+    """The comments of a TOML or YAML file, whole lines or after a value."""
     run: list[tuple[int, str]] = []
     for number, line in enumerate(path.read_text().splitlines(), 1):
-        if not line.lstrip().startswith("#"):
+        found = [m.group() for m in BUILD_COMMENT.finditer(line)]
+        if not (found and found[-1].startswith("#")):
             continue
         if run and number != run[-1][0] + 1:
             yield comment(path, run[0][0], (text for _, text in run))
             run = []
-        run.append((number, line.strip()))
+        run.append((number, found[-1]))
     if run:
         yield comment(path, run[0][0], (text for _, text in run))
 
@@ -263,6 +268,33 @@ def test_each_owner_specification_of_a_done_step_is_cited() -> None:
 
 
 # The checks' own rules.
+
+
+@pytest.mark.parametrize(
+    ("name", "source", "found"),
+    [
+        ("ci.yml", "# Each release\n# (D5).\npython: [3.12]\n", ["Each release (D5)."]),
+        (
+            "ci.yml",
+            'python: ["3.12"]  # Each release\n# (D5).\n',
+            ["Each release (D5)."],
+        ),
+        ("ci.yml", "- name: Check the client's types  # (D5)\n", ["(D5)"]),
+        ("ci.yml", "run: echo \"a # (D5)\" 'b # (D5)' c#(D5)\n", []),
+        ("pyproject.toml", 'sdk = ["polymarket-client==0.12.0"]  # (D6)\n', ["(D6)"]),
+        ("module.py", "x = 1  # (D8)\n", ["(D8)"]),
+        ("module.py", '"""A module (D8)."""\n', ["A module (D8)."]),
+        ("module.py", 'class A:\n    x: int\n    """Its x (D8)."""\n', ["Its x (D8)."]),
+        ("module.py", 'X = 1\n"""Its value (D8)."""\n', ["Its value (D8)."]),
+        ("module.py", 'X = "(D8)"\nprint("(D8)", f"{X} (D8)")\n', []),
+    ],
+)
+def test_the_check_reads_every_comment_and_docstring(
+    tmp_path: Path, name: str, source: str, found: list[str]
+) -> None:
+    path = tmp_path / name
+    path.write_text(source)
+    assert [text.text for text in texts([path])] == found
 
 
 @pytest.mark.parametrize(
