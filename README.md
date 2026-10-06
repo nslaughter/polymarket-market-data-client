@@ -9,18 +9,20 @@ data systems with attention to how they behave in operation. My work includes
 observability integrations, financial systems, and operating data pipelines.
 This project will apply that experience to a focused third-party API workflow.
 
-**Status:** Specification drafted for review. This repository contains this
-README, the findings of a short investigation of source behavior in
-[`docs/source-behavior.md`](docs/source-behavior.md), the investigation's
-scripts in `spikes/`, and the client's specification: the
-[client contract](spec/client.md), the
-[conformance scenarios](spec/conformance.md), the
-[implementation plan](docs/implementation-plan.md), and the rules for
+**Status:** In development. The client's package, records, configuration,
+frame decoding, order books, token states, and conformance harness are
+implemented in Python and tested, and the
+[Progress table](docs/implementation-plan.md#progress) of the
+[implementation plan](docs/implementation-plan.md) shows each step's status.
+This repository also contains the findings of a short investigation of
+source behavior in [`docs/source-behavior.md`](docs/source-behavior.md), the
+investigation's scripts in `spikes/`, the client's specification (the
+[client contract](spec/client.md) and the
+[conformance scenarios](spec/conformance.md)), and the rules for
 implementation agents in [`AGENTS.md`](AGENTS.md). The contract's eight
-design decisions are settled as owner specifications. None of the client
-has been implemented or tested yet. The client will be written
-in Python. This is an independent, read-only demonstration. It is not
-affiliated with or endorsed by Polymarket, and it is not client work.
+design decisions are settled as owner specifications. This is an
+independent, read-only demonstration. It is not affiliated with or endorsed
+by Polymarket, and it is not client work.
 
 ## What this project demonstrates
 
