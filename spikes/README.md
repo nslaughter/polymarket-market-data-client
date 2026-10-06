@@ -65,9 +65,11 @@ uv run spikes/repro_settlement.py settlement \
 
 ## Evidence
 
-[`evidence/`](evidence) holds excerpts of the captures, enough to show each
-catalogued behavior without the full captures or the live service. Check
-them offline, and, where the full captures are kept, regenerate them:
+[`evidence/`](evidence) records excerpts of the captures, enough to show each
+catalogued behavior without the full captures or the live service. Like the
+captures, the excerpts are Polymarket's data and stay out of git. Where they
+are kept, check them offline, and, where the full captures are kept,
+regenerate them:
 
 ```sh
 uv run spikes/check_evidence.py      # verifies hashes, reruns the analyses

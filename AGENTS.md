@@ -83,8 +83,9 @@ The README describes the project for people; it is not a specification.
 - Do not use the SDK's streams. The pinned SDK is used only behind
   `MarketLookup`, as D6 specifies.
 - Do not use the captures or the excerpts in `spikes/evidence/` as test
-  fixtures. They are Polymarket's data, and whether its terms allow
-  republishing it has not been checked. Build synthetic frames as
+  fixtures. They are Polymarket's data, which its Terms of Use give no
+  right to redistribute (checked October 6, 2026), so neither is in git.
+  Build synthetic frames as
   `spec/conformance.md` does. Nothing in `spikes/` is imported by the package
   or its tests.
 - Logs supplement records and never replace them: anything the consumer
