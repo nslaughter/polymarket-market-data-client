@@ -1,12 +1,11 @@
 """Reconnection and the end of a connection, for what no conformance
 scenario can show (D1; D2; spec/client.md, Detecting an interruption and
-Reconnecting): the backoff's delays and bounds, frames that arrive while the
+Reconnecting): the backoff's delays and bounds; frames that arrive while the
 client closes a connection after a ``pong_timeout``, which a scenario cannot
-time, a server's close frame that comes just before a ``PONG`` deadline and a
-connection the server is slow to end, which the scripted server does not
-leave open, a connection that ends before its subscription frame, which the
-scripted server cannot end at that moment, and an attempt that raises, which
-the scripted server cannot make it do.
+time; and what the scripted server cannot bring about: a ``PING`` held by
+flow control, a connection left open after its closing handshake, a
+connection that ends before its subscription frame, and an attempt that
+raises.
 """
 
 import asyncio
@@ -15,6 +14,8 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any, Self
 
 import pytest
+from websockets.asyncio.client import ClientConnection
+from websockets.asyncio.client import connect as websockets_connect
 from websockets.exceptions import ConnectionClosed
 from websockets.frames import Frame, Opcode
 from websockets.http11 import Request
@@ -353,6 +354,39 @@ def test_frames_arriving_while_the_client_closes_after_a_pong_timeout() -> None:
         assert stats.frames_after_interruption == 2
         assert stats.events == {"book": 4}
         assert stats.interruptions == {"pong_timeout": 1}
+
+    asyncio.run(main())
+
+
+def test_a_ping_held_by_flow_control_does_not_hold_back_the_pong_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sockets: list[ClientConnection] = []
+
+    async def connect(*args: Any, **kwargs: Any) -> ClientConnection:
+        socket = await websockets_connect(*args, **kwargs)
+        sockets.append(socket)
+        return socket
+
+    monkeypatch.setattr(_connection, "connect", connect)
+
+    async def main() -> None:
+        async with SmallServer(opening(("0.48", "100"))) as server:
+            client = MarketDataClient(profile(server.url), markets=[MARKET_A])
+            records = client.records()
+            async with client:
+                read = await read_until(records, is_state(ConnectionState.SUBSCRIBED))
+                # As the transport does once its buffer is full: every send
+                # now waits for it to drain, which here it never does.
+                sockets[0].pause_writing()
+                read += await read_until(records, is_state(ConnectionState.INTERRUPTED))
+        subscribed, interrupted = read[2], read[-1]
+        assert isinstance(subscribed, ConnectionStateChange)
+        assert isinstance(interrupted, ConnectionStateChange)
+        assert interrupted.reason == "pong_timeout"
+        # The first PING went 0.2 s after the subscription, and D1 measures
+        # the 0.5 s timeout from it.
+        assert (interrupted.at - subscribed.at).total_seconds() < 0.7 + 0.25
 
     asyncio.run(main())
 

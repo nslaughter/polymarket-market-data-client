@@ -312,10 +312,17 @@ class Connector:
             if clock >= due:
                 live.heartbeat.sent(clock)
                 due = max(due + interval, clock)
+                expires = (clock if oldest is None else oldest) + timeout
                 try:
-                    await socket.send("PING")
+                    # A send waits while the transport's buffer is full; the
+                    # oldest PING's deadline bounds it, so that the timeout
+                    # is checked when it is due all the same.
+                    async with asyncio.timeout_at(expires):
+                        await socket.send("PING")
                 except ConnectionClosed:
                     return  # the reader records the end
+                except TimeoutError:
+                    pass  # the loop checks the deadline, which a PONG may move
         if live.ended:
             return
         if socket.state is not State.OPEN:
