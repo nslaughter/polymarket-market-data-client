@@ -3,6 +3,9 @@ name = "polymarket-market-data-client"
 version = "0.0.0.dev0"
 description = "A read-only client for Polymarket's market WebSocket that reports every interruption, recovery, and capture gap."
 readme = "README.md"
+# Source available under a custom license, not open source.
+license = "LicenseRef-NSPUL-1.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 classifiers = [
     "Framework :: AsyncIO",
