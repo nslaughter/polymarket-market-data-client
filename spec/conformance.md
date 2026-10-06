@@ -207,7 +207,23 @@ The block begins with these lines, before any step.
 | `close <code> [<reason>]` | Send a close frame and complete the closing handshake. If the client has already started closing, complete its handshake instead. |
 | `drop` | End the current connection's TCP connection without a close frame. |
 | `expect-client-close <code> <reason>` | Wait until the client has sent a close frame on the current connection, and check its code and reason. |
-| `expect-no-connect <seconds>` | Fail if a connection attempt arrives within this many seconds. |
+| `expect-no-connect <seconds>` | Fail if a connection attempt arrives within this many seconds, or if one that arrived earlier is still held, neither accepted nor refused, when the step starts. |
+
+**Attempts that arrived before `expect-no-connect`: decided by the operator
+on 2026-10-06.** Building the harness (plan step 4) found that the step, as
+the draft wrote it, counted only attempts that arrive during its window.
+Every `expect-no-connect` in this document comes where a correct client
+makes no attempt: at the start of `resolve-by-slug`, and after `expect-end`,
+`conn idle`, the client's close with `no subscriptions`, or the second drop in
+`status-records-bounded`. A client that wrongly reconnected at once, after
+closing with `no subscriptions` for example, raced the runner's move from the
+step before to this one, and passed whenever its attempt arrived first. So an
+attempt still held when the step starts fails it too. An attempt that
+`refuse-all` answered was not held, so it does not count. Counting attempts
+the client abandoned while held, and failing on attempts still held when the
+scenario ends, were the options not taken: a client does not abandon an
+attempt within that moment, and a check at the end would race the client's
+own shutdown.
 
 ### Runner steps
 
