@@ -32,10 +32,24 @@ DOCUMENTS = (
     "docs/source-behavior.md",
 )
 
+
+def modules(root: Path) -> list[Path]:
+    """The Python modules of the package, its tests, and its examples."""
+    directories = ("src", "tests", "examples")
+    return sorted(path for name in directories for path in (root / name).rglob("*.py"))
+
+
+def build_files(root: Path) -> list[Path]:
+    """pyproject.toml, and the YAML files of CI."""
+    ci = (root / ".github").rglob("*")
+    yaml = (path for path in ci if path.suffix in {".yml", ".yaml"})
+    return [root / "pyproject.toml", *sorted(yaml)]
+
+
+MODULES = modules(ROOT)
 PACKAGE = sorted((ROOT / "src").rglob("*.py"))
 TESTS = sorted((ROOT / "tests").rglob("*.py"))
-EXAMPLES = sorted((ROOT / "examples").rglob("*.py"))
-BUILD = [ROOT / "pyproject.toml", *sorted((ROOT / ".github").rglob("*.yml"))]
+BUILD = build_files(ROOT)
 
 CITATION = re.compile(r"\(((?:[\w.-]+/)*[\w.-]+\.md, [^()]*)\)")
 PART = re.compile(r"((?:[\w.-]+/)*[\w.-]+\.md), (.+)")
@@ -230,7 +244,7 @@ def owner_specifications_done() -> dict[str, list[int]]:
 def test_citations_name_what_their_documents_hold() -> None:
     found = [
         f"{text.where()}: {problem}"
-        for text in texts([*PACKAGE, *TESTS, *EXAMPLES, *BUILD])
+        for text in texts([*MODULES, *BUILD])
         for problem in problems(text.text)
     ]
     assert not found, "\n".join(found)
@@ -239,7 +253,7 @@ def test_citations_name_what_their_documents_hold() -> None:
 def test_each_module_cites_what_it_implements_or_tests() -> None:
     uncited = [
         str(path.relative_to(ROOT))
-        for path in [*PACKAGE, *TESTS]
+        for path in MODULES
         if not (
             CITATION.search(module_docstring(path)) or ID.search(module_docstring(path))
         )
@@ -268,6 +282,22 @@ def test_each_owner_specification_of_a_done_step_is_cited() -> None:
 
 
 # The checks' own rules.
+
+
+def test_the_check_reads_every_module_and_build_file(tmp_path: Path) -> None:
+    names = [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yaml",
+        "examples/research.py",
+        "pyproject.toml",
+        "src/package/module.py",
+        "tests/test_module.py",
+    ]
+    for name in names:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).touch()
+    read = [*modules(tmp_path), *build_files(tmp_path)]
+    assert sorted(path.relative_to(tmp_path).as_posix() for path in read) == names
 
 
 @pytest.mark.parametrize(
