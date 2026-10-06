@@ -1,4 +1,4 @@
-"""``MarketDataClient``.
+"""``MarketDataClient`` (spec/client.md, Public interface).
 
 Only a stub until plan step 5 gives it behavior.
 """

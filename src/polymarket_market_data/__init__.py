@@ -1,6 +1,7 @@
 """A read-only client for Polymarket's market WebSocket.
 
-spec/client.md is the contract this package implements.
+spec/client.md is the contract this package implements. This module holds
+its public names, and nothing else (spec/client.md, Public interface).
 """
 
 from ._client import MarketDataClient

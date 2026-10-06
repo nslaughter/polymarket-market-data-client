@@ -1,4 +1,5 @@
-"""The harness's copies of spec/conformance.md's tables match the tables."""
+"""The harness's copies of spec/conformance.md's tables match the tables
+(spec/conformance.md, Synthetic markets and Profile)."""
 
 import re
 
