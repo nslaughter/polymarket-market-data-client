@@ -695,7 +695,7 @@ to size 0, leaving a best bid of 0 and a best ask of 1. At 14:37:28.448, 2.5
 minutes after the end date, the stream sent:
 
 ```json
-{"id":"5234673","market":"0x0c1b1a29cf49e127499e878853e4edbe79b929ccaaf45e96345a11fe0c263426","assets_ids":["100888370987976300727976104132259754468885708358624157065950665701873247248130","105432187511272365632213611061207512483403511195339600044714295797509063777660"],"winning_asset_id":"105432187511272365632213611061207512483403511195339600044714295797509063777660","winning_outcome":"Down","event_message":null,"timestamp":"1791124648409","event_type":"market_resolved","tags":["Crypto","Bitcoin","Crypto Prices","Recurring","Up or Down","Hide From New","5M"]}
+{"id":…,"market":…,"assets_ids":[…],"winning_asset_id":…,"winning_outcome":…,"event_message":null,"timestamp":…,"event_type":"market_resolved","tags":[…]}
 ```
 
 Nothing more arrived for that market. The connection stayed open, and the

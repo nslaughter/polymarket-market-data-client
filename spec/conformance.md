@@ -23,8 +23,8 @@ The scenarios use synthetic markets and frames shaped like the ones the
 investigation captured: the same event types, field names, key order,
 string-encoded numbers, and millisecond timestamps, and the same opening
 array and `[]` frame. The shapes were read from the excerpts for this
-document; the findings quote whole frames only for `market_resolved`
-([§6]). The scenarios do not reuse the captured data. The
+document; the findings show a whole frame only for `market_resolved`, with
+its values left out ([§6]). The scenarios do not reuse the captured data. The
 excerpts recorded in [`spikes/evidence/`](../spikes/evidence) are
 Polymarket's market data, which its Terms of Use give no right to
 redistribute, so they are not in git.
