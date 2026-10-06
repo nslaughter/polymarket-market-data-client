@@ -13,3 +13,15 @@ new-market-delivered
 quiet-subscription-pings
 exit-while-connected
 read-timeout
+drop-without-close
+close-frames
+close-slow-consumer
+pong-withheld
+pong-late-within-timeout
+startup-retry
+connect-timeout
+reconnect-refused-then-accepted
+recovery-exhausted-attempts
+recovery-exhausted-time
+recovery-exhausted-no-frame
+cancel-during-recovery
