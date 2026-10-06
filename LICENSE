@@ -1,0 +1,319 @@
+Nathan Slaughter Personal Use License
+Version 1.0
+License identifier: LicenseRef-NSPUL-1.0
+Status: Adopted 2026-10-06
+
+Copyright (c) 2026 Nathan Slaughter
+
+This text has no effect until Nathan Slaughter adopts it. Adoption is
+recorded by changing the status line above to "Adopted" with the adoption
+date (for example, "Status: Adopted 2026-10-15").
+
+
+0. About this license
+
+This is a source-available license. It is not an open-source license. It
+has not been approved by the Open Source Initiative, and it does not grant
+the freedoms the Open Source Definition requires. It lets anyone read the
+source of the Covered Software and lets individuals use it for their own
+Personal Use. It reserves every other use, and all publication and
+distribution, to the Licensor.
+
+
+1. Definitions
+
+1.1  "Licensor" means Nathan Slaughter.
+
+1.2  "Covered Software" means the software and associated project
+     materials that this license accompanies and that the Licensor has the
+     right to license, in any version, and any portion of them. It includes
+     source code, object code, documentation, examples, templates,
+     configuration formats, schemas, tests, fixtures, and data files. It
+     does not include Third-Party Components or Outputs.
+
+1.3  "Modification" means any change to, addition to, deletion from,
+     translation of, or other work based on any portion of the Covered
+     Software. Every restriction this license places on the Covered
+     Software also applies to Modifications.
+
+1.4  "Third-Party Component" means software or other material that is
+     included with or used by the Covered Software and is licensed by
+     someone other than the Licensor under separate terms.
+
+1.5  "You" means the natural person exercising rights under this license.
+
+1.6  "Eligible Individual" means a natural person who uses the Covered
+     Software only on their own behalf, not on behalf of an Organization.
+
+1.7  "Personal Use" means private use by an Eligible Individual for their
+     own purposes, such as learning, study, and personal projects. It does
+     not include use in a trade or business, including the individual's
+     own; work for an employer or other Organization; evaluating the
+     Covered Software, or the Licensor's services, for an Organization;
+     services to clients or other persons; or redistribution.
+
+1.8  "Organization" means any company, partnership, trust, fund,
+     association, government body, nonprofit, or other entity that is not a
+     natural person.
+
+1.9  "Public Project" means any project, repository, package, product,
+     publication, or service that is available to the public or to any
+     group of people beyond You, whether it is free, paid, commercial,
+     nonprofit, source available, or open source.
+
+1.10 "Published Code" means source code, object code, or other code that
+     is published, distributed, or otherwise made available to any person
+     other than You, in any form and by any means.
+
+1.11 "Hosted Service" means making the Covered Software, or functionality
+     it provides, available over a network to any person other than You,
+     including as a web application, API, or managed service.
+
+1.12 "Output" means data, files, and other results that the Covered
+     Software generates from Your inputs or retrieves at Your request.
+
+1.13 "Written Permission" means permission that meets section 9.
+
+1.14 "Contributor" means any person other than the Licensor whose
+     contribution the Licensor has accepted into the Covered Software.
+
+
+2. Grants
+
+2.1  Reading the source. Any natural person, including one acting for an
+     Organization, may view, download, and clone the source of the Covered
+     Software in order to read it, and may keep private copies for that
+     purpose. This section grants no right to run, install, or modify the
+     Covered Software, or to do anything section 4 reserves.
+
+2.2  Personal use. If You are an Eligible Individual and You comply with
+     this license, the Licensor grants You a personal, non-exclusive,
+     non-transferable, non-sublicensable, royalty-free license, for
+     Personal Use only, to:
+
+     (a) download, install, and run the Covered Software;
+     (b) make the copies reasonably necessary for that use, including
+         private backups; and
+     (c) make private Modifications and run them.
+
+2.3  Your copies and Modifications must stay private: kept on devices,
+     accounts, and storage that only You can access.
+
+2.4  This license grants no right to publish, distribute, sublicense,
+     sell, lend, or otherwise supply the Covered Software or any
+     Modification to anyone else, except as Written Permission allows.
+     Section 6 covers Outputs.
+
+2.5  All rights not expressly granted are reserved. No right is granted by
+     implication, estoppel, or otherwise. No trademark right is granted.
+
+
+3. Organizations
+
+Organizations, and individuals using the Covered Software on an
+Organization's behalf, including for an employer or to evaluate the
+Covered Software or the Licensor's services for an Organization, are
+outside the grant in section 2.2. They must obtain Written Permission
+before any use other than reading the source as section 2.1 allows.
+
+
+4. Public projects, published code, and reserved uses
+
+4.1  No person may incorporate the Covered Software, any portion of it, or
+     any Modification into any Public Project or any Published Code without
+     the Licensor's prior express Written Permission. This applies whether
+     the receiving project is free, paid, commercial, nonprofit, source
+     available, or open source.
+
+4.2  The following uses are also reserved. Each requires the Licensor's
+     prior express Written Permission, whether or not the Covered Software
+     has been modified:
+
+     (a) publishing, redistributing, sublicensing, selling, lending, or
+         otherwise supplying copies to anyone else;
+     (b) public forks and other public copies of the source, except as
+         section 4.4 provides;
+     (c) vendoring the source into other software;
+     (d) packages, and binaries, executables, or archives that contain the
+         code;
+     (e) container images and virtual-machine images that contain the code;
+     (f) notebooks or other documents that contain copied code; and
+     (g) Hosted Services that incorporate the Covered Software.
+
+4.3  Written Permission to use the Covered Software for an Organization
+     does not include any right under this section unless it says so
+     expressly.
+
+4.4  Where the Licensor makes the source of the Covered Software available
+     in a public repository on GitHub, GitHub's Terms of Service give
+     GitHub users a license to view public repositories and to reproduce
+     them on GitHub by forking, as GitHub's functionality permits. This
+     license does not restrict those rights, and sections 2.3, 2.4, 4.1,
+     and 4.2(a) and (b) do not apply to a fork made and kept on GitHub in
+     that way. This exception goes no further than GitHub's terms:
+
+     (a) beyond what GitHub's terms grant, and the reading section 2.1
+         allows, it gives no right to use the Covered Software; section
+         2.2 or Written Permission governs any other use;
+     (b) it does not permit publishing Modifications, including by
+         committing them to a public fork; and
+     (c) it does not permit copying the Covered Software from GitHub, or
+         from a fork, into any other Public Project or Published Code.
+
+
+5. Local operation
+
+5.1  Running the Covered Software on a machine You control, for Your own
+     Personal Use, is not a Hosted Service.
+
+5.2  Letting any other person use the Covered Software or its
+     functionality through an interface You run is a Hosted Service under
+     section 4.2(g) and requires Written Permission.
+
+
+6. Outputs
+
+6.1  Outputs are not Covered Software. The Licensor claims no ownership,
+     through this license, of Your inputs, Your Outputs, or third-party
+     data.
+
+6.2  This license does not restrict sharing Outputs.
+
+6.3  Material of the Covered Software that is taken out of an Output and
+     used separately, such as templates, stylesheets, markup structure, or
+     code, remains Covered Software. Section 6.2 does not permit publishing
+     the Covered Software or any code.
+
+6.4  You are responsible for complying with the terms of any data provider
+     or service whose data an Output contains.
+
+
+7. Third-party components
+
+Third-Party Components are licensed under their own terms, and those terms
+govern them. This license does not restrict any right those terms grant,
+and the Licensor claims no rights in material he does not own. If this
+license and a Third-Party Component's license conflict about that
+component, the component's own license controls.
+
+
+8. Notices
+
+Keep the copyright notice, this license, and any notice files the Covered
+Software includes, such as notices of Third-Party Components, intact in
+every copy and Modification. Do not remove or alter the notices the
+Covered Software displays.
+
+
+9. Written Permission
+
+9.1  Written Permission must be express, in writing, and sent or signed by
+     the Licensor. It must identify the recipient, the permitted scope, any
+     duration, and any publication or distribution rights.
+
+9.2  None of the following is Written Permission: an inquiry, silence, a
+     lack of objection, an automatic reply, attribution, a donation, or the
+     purchase of an unrelated product.
+
+9.3  Written Permission grants only what it states. On any matter it does
+     not address, this license applies.
+
+9.4  Send requests to git@nathanslaughter.com.
+
+
+10. Acceptance
+
+By downloading, installing, copying, modifying, or using the Covered
+Software, You accept this license. If You do not accept it, You have no
+right to do any of those things. If You are not an Eligible Individual and
+have no Written Permission, You may not use the Covered Software, except to
+read its source as section 2.1 allows.
+
+
+11. Termination
+
+11.1 Your rights under this license end automatically if You breach it.
+
+11.2 The Licensor may reinstate terminated rights in writing.
+
+11.3 When Your rights end, You must stop using the Covered Software and
+     delete the copies and Modifications in Your possession. You may keep
+     the Outputs You generated, subject to section 6.
+
+
+12. Survival
+
+Sections 1, 6.1, 6.3, 6.4, 7, 11.3, and 12 through 18 survive the end of
+Your rights under this license.
+
+
+13. No warranty
+
+AS IS; AS AVAILABLE; WITH ALL FAULTS. TO THE MAXIMUM EXTENT PERMITTED BY
+APPLICABLE LAW, THE COVERED SOFTWARE AND ALL ASSOCIATED MATERIALS AND
+OUTPUTS ARE PROVIDED WITHOUT ANY WARRANTY, REPRESENTATION, GUARANTEE, OR
+CONDITION, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE. THIS INCLUDES
+WARRANTIES OR CONDITIONS OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, TITLE, NON-INFRINGEMENT, SATISFACTORY QUALITY, ACCURACY,
+COMPLETENESS, TIMELINESS, RELIABILITY, AVAILABILITY, SECURITY,
+COMPATIBILITY, AND THOSE ARISING FROM COURSE OF DEALING, USAGE OF TRADE, OR
+COURSE OF PERFORMANCE.
+
+NO WARRANTY IS MADE THAT THE COVERED SOFTWARE IS ERROR-FREE, UNINTERRUPTED,
+FREE OF HARMFUL COMPONENTS, SUITABLE FOR ANY PARTICULAR PERSON OR
+INVESTMENT, OR CAPABLE OF PRODUCING ANY FINANCIAL BENEFIT. NO DUTY TO
+PROVIDE SUPPORT, UPDATES, CORRECTIONS, OR CONTINUED DATA OR SERVICE ACCESS
+IS UNDERTAKEN EXCEPT UNDER A SEPARATE EXPRESS WRITTEN AGREEMENT.
+
+Nothing in the Covered Software, its documentation, or its Outputs is
+investment, financial, legal, accounting, or tax advice, or a
+recommendation concerning any security or other financial instrument.
+
+
+14. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NATHAN SLAUGHTER AND THE
+CONTRIBUTORS ARE NOT LIABLE FOR LOSSES OR DAMAGES ARISING FROM ACCESS TO,
+USE OF, RELIANCE ON, OR INABILITY TO USE THE COVERED SOFTWARE OR ITS
+OUTPUTS. THIS LIMITATION INCLUDES DIRECT, INDIRECT, INCIDENTAL,
+CONSEQUENTIAL, SPECIAL, EXEMPLARY, AND PUNITIVE DAMAGES; INVESTMENT OR
+TRADING LOSSES; LOST PROFITS, OPPORTUNITIES, SAVINGS, DATA, OR GOODWILL;
+BUSINESS INTERRUPTION; AND THIRD-PARTY CLAIMS, WHETHER ASSERTED IN
+CONTRACT, TORT, INCLUDING ORDINARY NEGLIGENCE WHERE LAWFULLY LIMITABLE,
+STRICT LIABILITY, OR OTHERWISE, EVEN IF THE POSSIBILITY OF SUCH LOSS WAS
+KNOWN.
+
+
+15. Rights preserved by law
+
+NOTHING IN THIS LICENSE EXCLUDES OR LIMITS LIABILITY, WARRANTIES,
+REMEDIES, OR RIGHTS THAT APPLICABLE LAW DOES NOT ALLOW TO BE EXCLUDED,
+LIMITED, OR WAIVED. THIS INCLUDES ANY APPLICABLE NON-WAIVABLE
+SECURITIES-LAW OR CONSUMER-PROTECTION RIGHTS AND LIABILITY FOR FRAUD,
+WILLFUL MISCONDUCT, GROSS NEGLIGENCE, OR OTHER CONDUCT TO THE EXTENT ITS
+EXCLUSION IS PROHIBITED.
+
+This license does not restrict any right that applicable law does not
+allow a license to restrict.
+
+
+16. Governing law
+
+This license is governed by the laws of the State of Texas, without regard
+to its conflict-of-laws rules, except where mandatory applicable law
+requires otherwise.
+
+
+17. Severability
+
+If a court holds any provision of this license unenforceable, that
+provision is enforced to the maximum extent permitted, and the rest of the
+license remains in effect.
+
+
+18. Future versions
+
+The Licensor may publish new versions of this license under new
+identifiers. The Covered Software is licensed under the version that
+accompanies it. A new version does not change the terms that apply to a
+copy You received under an earlier version.
