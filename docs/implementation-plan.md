@@ -33,7 +33,7 @@ scheme.
 | 3. Keep books and token states | | Done | [#10](https://github.com/nslaughter/polymarket-market-data-client/pull/10) |
 | 4. Build the conformance harness | | Done | [#11](https://github.com/nslaughter/polymarket-market-data-client/pull/11) |
 | 5. Connect, subscribe, and deliver records | | Done | [#15](https://github.com/nslaughter/polymarket-market-data-client/pull/15) |
-| 6. Detect interruptions and recover | D1, D2 | Done | |
+| 6. Detect interruptions and recover | D1, D2 | Done | [#18](https://github.com/nslaughter/polymarket-market-data-client/pull/18) |
 | 7. Settle markets through the stream and lookup | D6 | Not started | |
 | 8. Apply subscription changes | D7 | Not started | |
 | 9. Bound the consumer handoff | D3 | Not started | |
