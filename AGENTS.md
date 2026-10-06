@@ -134,6 +134,13 @@ resolve.
   specification by its ID, `(T14)` or `(D8)`, a section of the findings as
   `(docs/source-behavior.md, §4)`, and a scenario by its name,
   `(spec/conformance.md, drop-without-close)`.
+- Parentheses that name a Markdown file hold citations and nothing else,
+  joined by semicolons if there are several:
+  `(spec/conformance.md, Frame notation; spec/client.md, Order-book hash)`
+  or `(T14; spec/client.md, Record order, rule 4)`. Outside them, don't
+  follow a Markdown file's path with a comma or colon, as in
+  `See spec/client.md, Records.`: the check fails it as a citation out of
+  form.
 - A citation may name `spec/client.md`, `spec/conformance.md`,
   `docs/implementation-plan.md`, or `docs/source-behavior.md`.
 - Every module's docstring cites what the module implements or tests. Each

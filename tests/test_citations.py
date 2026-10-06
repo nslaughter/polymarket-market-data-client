@@ -54,8 +54,12 @@ PACKAGE = sorted((ROOT / "src").rglob("*.py"))
 TESTS = [p for p in sorted((ROOT / "tests").rglob("*.py")) if p != HERE]
 BUILD = build_files(ROOT)
 
-CITATION = re.compile(r"\(((?:[\w.-]+/)*[\w.-]+\.md, [^()]*)\)")
-PART = re.compile(r"((?:[\w.-]+/)*[\w.-]+\.md), (.+)")
+DOCUMENT = r"(?:[\w.-]+/)*[\w.-]+\.md"
+# Parentheses that name a document: citations, joined by "; ".
+CITATION = re.compile(r"\(([^()]*\.md\b[^()]*)\)")
+PART = re.compile(rf"({DOCUMENT}), (.+)")
+# A document followed by a comma or colon, as in a citation, but outside one.
+LOOSE = re.compile(rf"{DOCUMENT}`*(?=, |:)")
 ID = re.compile(r"\b[TD][1-9]\d*\b")
 SEPARATORS = (", and ", ", ", " and ")
 
@@ -136,9 +140,9 @@ def module_docstring(path: Path) -> str:
 def citable(document: str) -> frozenset[str]:
     """What a citation of ``document`` may name: each heading, without its
     backticks; each numbered rule of a section, as ``<heading>, rule <n>``
-    or ``<heading>, rules <n> and <m>``; and, for spec/client.md, each
-    transition and owner specification, and for docs/source-behavior.md,
-    each numbered section, as ``§<n>``."""
+    or ``<heading>, rules <n> and <m>``; each transition and owner
+    specification of spec/client.md; and, as ``§<n>``, each numbered
+    section of docs/source-behavior.md."""
     names: set[str] = set()
     rules: dict[str, list[str]] = {}
     heading = ""
@@ -198,9 +202,12 @@ def is_list_of(text: str, names: frozenset[str]) -> bool:
 
 def problems(text: str) -> Iterator[str]:
     """Each citation in ``text`` that names a document it may not, or
-    something its document does not hold."""
+    something its document does not hold, and each document named in the
+    form of a citation, but not as one."""
     for citation in CITATION.finditer(text):
         for part in citation.group(1).split("; "):
+            if is_list_of(part, ids()):
+                continue
             match = PART.fullmatch(part)
             if match is None:
                 yield f"({part}) is not one document and what it names"
@@ -215,6 +222,8 @@ def problems(text: str) -> Iterator[str]:
                 )
             elif not is_list_of(names.replace("`", ""), citable(document)):
                 yield f"({part}) names something {document} does not hold"
+    for loose in LOOSE.finditer(CITATION.sub("", text)):
+        yield f"{loose.group()} is followed by a comma or colon outside a citation"
     for name in ID.findall(text):
         if name not in ids():
             yield f"{name} is not a transition or owner specification"
@@ -343,6 +352,9 @@ def test_the_check_reads_every_comment_and_docstring(
         "(spec/client.md, Record order, rule 3)",
         "(spec/client.md, Record order, rules 3 and 4)",
         "(spec/client.md, D4)",
+        "(spec/client.md, Record order, rule 4; T14)",
+        "(T14; spec/client.md, Record order, rule 4)",
+        "(T11, T15, and T16; spec/client.md, Settlement)",
         "(spec/conformance.md, Frame notation; spec/client.md, Order-book hash)",
         "(spec/conformance.md, initial-books)",
         "(docs/source-behavior.md, §4)",
@@ -350,6 +362,8 @@ def test_the_check_reads_every_comment_and_docstring(
         "the transitions T1 to T18 (D8)",
         "T0 is not an ID, nor is A1",
         "a parenthesis (with no document in it)",
+        "(a parenthesis (spec/client.md, Decoding) around one)",
+        "the scenarios of spec/conformance.md; those of the README.md",
     ],
 )
 def test_a_citation_of_what_a_document_holds_passes(text: str) -> None:
@@ -367,6 +381,16 @@ def test_a_citation_of_what_a_document_holds_passes(text: str) -> None:
         ("(spec/conformance.md, Nesting depth)", "does not hold"),
         ("(client.md, Nesting depth)", "cite client.md as spec/client.md"),
         ("(README.md, Scope)", "README.md is not one of"),
+        ("(see spec/client.md, Records)", "is not one document and what"),
+        ("(spec/client.md: Records)", "is not one document and what"),
+        ("(``spec/client.md``, Records)", "is not one document and what"),
+        ("(spec/client.md)", "is not one document and what"),
+        ("(spec/client.md, Records; the third row)", "is not one document and"),
+        ("(T14; spec/client.md, Recrd order, rule 4)", "does not hold"),
+        ("(spec/client.md, Decoding (third row))", "outside a citation"),
+        ("See spec/client.md, Records.", "outside a citation"),
+        ("See spec/client.md: Records.", "outside a citation"),
+        ("See ``spec/client.md``, Records.", "outside a citation"),
         ("(T19)", "T19 is not"),
         ("(D9)", "D9 is not"),
     ],
