@@ -72,6 +72,9 @@ class _Peer:
         self.owed = 0
         """PONGs held back by ``pong hold``."""
         self.client_close: tuple[int, str, datetime] | None = None
+        self.close_sent: datetime | None = None
+        """When the server sent its close frame: by ``close``, or in reply to
+        the client's, which the protocol sends as the client's arrives."""
         self.last_frame = at
         """Loop time of the last frame from the client."""
 
@@ -270,13 +273,15 @@ class ScriptedServer:
         if peer.protocol.state is State.OPEN:
             peer.protocol.send_close(code, reason)
             self._flush(peer)
-            sent = now()
-        elif peer.client_close is not None:
-            # The client started closing; its handshake was completed as its
-            # close frame arrived.
-            sent = now()
-        else:
+        elif peer.client_close is None:
             raise StepFailed("the connection is not open")
+        # If the client started closing, the server's close frame completed
+        # its handshake as the client's arrived, and that is the step's time.
+        sent = peer.close_sent
+        if sent is None:
+            raise StepFailed(
+                "the connection ended before the server's close frame was sent"
+            )
         await self._wait_for(lambda: peer.ended)
         return sent
 
@@ -426,6 +431,13 @@ class ScriptedServer:
         return now()
 
     def _flush(self, peer: _Peer) -> None:
+        # Whether the server's close frame waits among the data: queued, by
+        # close or in reply to the client's, and not yet written.
+        closing = (
+            peer.close_sent is None
+            and peer.protocol.close_sent is not None
+            and not peer.writer.is_closing()
+        )
         for data in peer.protocol.data_to_send():
             if peer.writer.is_closing():
                 return
@@ -435,6 +447,8 @@ class ScriptedServer:
                 # The closing handshake is over, or the attempt was refused:
                 # the server ends the TCP connection.
                 peer.writer.close()
+        if closing:
+            peer.close_sent = now()
 
     async def _next_attempt(self) -> _Peer:
         await self._wait_for(lambda: self._held)

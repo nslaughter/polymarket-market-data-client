@@ -370,7 +370,9 @@ async def test_close_sends_a_close_frame_and_completes_the_handshake(
     server: ScriptedServer,
 ) -> None:
     client = await opened(server)
-    await server.call(server.close(1001, "going away"))
+    before = datetime.now(UTC)
+    sent = await server.call(server.close(1001, "going away"))
+    assert before <= sent <= datetime.now(UTC)
     await client.wait_closed()
     assert client.protocol.close_rcvd == Close(1001, "going away")
     # The server's close came first, and the client answered it.
@@ -383,10 +385,14 @@ async def test_close_completes_a_closing_handshake_the_client_started(
 ) -> None:
     client = await opened(server)
     await client.close(1000, "pong timeout")
-    await server.call(server.expect_client_close(1000, "pong timeout"))
-    await server.call(server.close(1000, ""))
+    arrived = await server.call(server.expect_client_close(1000, "pong timeout"))
+    await asyncio.sleep(0.5)
+    sent = await server.call(server.close(1000, ""))
     await client.wait_closed()
     assert client.protocol.state is State.CLOSED
+    # The step's time is when the server's close frame went out, in reply as
+    # the client's arrived, not when the step ran.
+    assert 0 <= (sent - arrived).total_seconds() < 0.25
 
 
 @serve
