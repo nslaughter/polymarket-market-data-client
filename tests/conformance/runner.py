@@ -156,6 +156,8 @@ class _Run:
         self.finishing = False
         self.iterator_ended = False
         """An ``expect-end`` read the iterator's end."""
+        self.matched: object | None = None
+        """The record the current ``expect`` step matched."""
 
     def execute(self) -> None:
         """Run the scenario on an event loop of its own, as ``asyncio.run``
@@ -214,15 +216,18 @@ class _Run:
     async def _steps(self) -> None:
         for step in self.scenario.steps:
             self.step = step
+            self.matched = None
             try:
                 at = await self._step(step.action, step.label)
                 if step.within is not None:
                     self._check_within(step.within, at)
                 self._check_violations(self.server.violations())
             except StepFailed as failure:
-                # A step that failed because the block ended says so.
-                ended = self.host.done() and not self.leaving
-                raise self._failed(self._ended_early() if ended else failure) from None
+                raise self._failed(self._step_failure(failure)) from None
+            except Exception as error:
+                # Reported as a failed step, with its line, all the same.
+                raised = StepFailed("the step raised", actual=repr(error))
+                raise self._failed(self._step_failure(raised)) from error
             if step.label is not None:
                 self.times[step.label] = at
         self.step = None
@@ -231,6 +236,14 @@ class _Run:
             await self._finish()
         except StepFailed as failure:
             raise self._failed(failure) from None
+        except Exception as error:
+            raised = StepFailed("the end of the steps raised", actual=repr(error))
+            raise self._failed(raised) from error
+
+    def _step_failure(self, failure: StepFailed) -> StepFailed:
+        """A step that failed because the block ended says so."""
+        ended = self.host.done() and not self.leaving
+        return self._ended_early() if ended else failure
 
     def _ended_early(self) -> StepFailed:
         return StepFailed(
@@ -484,6 +497,7 @@ class _Run:
                 actual=mismatch.actual,
                 record=render_record(record),
             )
+        self.matched = record
         return _record_time(record)
 
     async def _next(self, seconds: float) -> object:
@@ -581,16 +595,21 @@ class _Run:
 
     def _check_within(self, within: Within, at: datetime) -> None:
         start = self.times[within.label]
+        # An expect step's failure prints the record it read.
+        record = None if self.matched is None else render_record(self.matched)
         try:
             delta = (at - start).total_seconds()
         except TypeError as error:
-            raise StepFailed(f"the time {at!r} cannot be compared: {error}") from None
+            raise StepFailed(
+                f"the time {at!r} cannot be compared: {error}", record=record
+            ) from None
         if not within.lo - EARLY <= delta <= within.hi + LATE:
             raise StepFailed(
                 f"the time is outside the window, {within.lo - EARLY:.2f} to "
                 f"{within.hi + LATE:.2f} s after {within.label}",
                 expected=f"within {within.lo:g}..{within.hi:g} of {within.label}",
                 actual=f"{delta:.3f} s after {within.label}",
+                record=record,
             )
 
     def _check_violations(self, violations: list[str]) -> None:

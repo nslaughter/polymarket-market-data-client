@@ -182,6 +182,7 @@ def scenario_run(
     script: Iterable[tuple[float, Item]] = (),
     *,
     step_timeout: float = 5.0,
+    fake: type[Fake] = Fake,
     **options: Any,
 ) -> list[Fake]:
     """Run a scenario against a fake; the fake is returned for inspection."""
@@ -190,7 +191,7 @@ def scenario_run(
     def factory(
         config: ClientConfig, markets: tuple[Market, ...], lookup: MarketLookup
     ) -> Client:
-        fakes.append(Fake(lookup, script, **options))
+        fakes.append(fake(lookup, script, **options))
         return fakes[-1]
 
     run(parse_scenario(text, first_line=500), factory, step_timeout=step_timeout)
@@ -301,6 +302,8 @@ def test_a_record_outside_its_window_fails(delay: float, window: str) -> None:
     )
     assert failed.failure.expected == f"within {window} of o"
     assert "outside the window" in failed.failure.message
+    assert failed.failure.record is not None
+    assert failed.failure.record.startswith("TokenStateChange(token_id=A1, ")
 
 
 def test_a_server_steps_time_is_a_label_too() -> None:
@@ -398,6 +401,37 @@ def test_expect_backlog_and_stats_compare() -> None:
     assert (failed.failure.expected, failed.failure.actual) == ("backlog=1", "0")
     failed = fails("scenario example\nexpect-stats interruptions>=2\n")
     assert failed.failure.actual == "interruptions=1"
+
+
+class Broken(Fake):
+    """A client whose ``stats()`` and ``backlog`` raise."""
+
+    @property
+    def backlog(self) -> int:
+        raise RuntimeError("no backlog")
+
+    def stats(self) -> ClientStats:
+        raise RuntimeError("no stats")
+
+
+@pytest.mark.parametrize(
+    ("step", "message", "actual"),
+    [
+        ("expect-stats frames=0", "the step raised", "RuntimeError('no stats')"),
+        ("expect-backlog 0", "the step raised", "RuntimeError('no backlog')"),
+        ("wait 0", "the end of the steps raised", "RuntimeError('no backlog')"),
+    ],
+)
+def test_an_exception_from_a_step_is_reported_with_its_line(
+    step: str, message: str, actual: str
+) -> None:
+    failed = fails(f"scenario example\n{step}\n", fake=Broken)
+    assert (failed.line, failed.failure.message, failed.failure.actual) == (
+        501,
+        message,
+        actual,
+    )
+    assert isinstance(failed.__cause__, RuntimeError)
 
 
 def test_exit_leaves_the_block_and_checks_shutdown() -> None:
