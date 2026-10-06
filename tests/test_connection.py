@@ -348,11 +348,14 @@ def test_frames_arriving_while_the_client_closes_after_a_pong_timeout() -> None:
         book = again[-1]
         assert isinstance(book, BookEvent)
         assert (book.connection, book.held_book_matched) == (2, True)
-        # The two late price_change frames are counted; the late PONG is not
-        # a frame. Neither was decoded into an event: the books are the two
-        # opening frames'.
-        assert stats.frames_after_interruption == 2
+        # The two late price_change frames and the late PONG are counted, and
+        # none was decoded into an event: the books are the two opening
+        # frames'. The late PONG still answered the oldest PING, and its
+        # delay is how late it was.
+        assert stats.frames_after_interruption == 3
         assert stats.events == {"book": 4}
+        assert (stats.pongs, stats.pongs_unsolicited) == (1, 0)
+        assert stats.pong_delay_last >= 0.5
         assert stats.interruptions == {"pong_timeout": 1}
 
     asyncio.run(main())

@@ -277,8 +277,13 @@ class StateMachine:
     def pong(self, generation: int, received_at: datetime) -> None:
         """A ``PONG`` arrived on the connection of ``generation``. It
         confirms the data before it, since it is queued behind that data."""
-        if generation == self._generation and not self._interrupted:
-            self._last_frame_at = received_at
+        if generation != self._generation or self._interrupted:
+            # It confirms nothing then, but is counted as every frame arriving
+            # then is, though ``frames`` leaves it out (spec/client.md,
+            # Statistics). The connector still measures its delay.
+            self.counts.frames_after_interruption += 1
+            return
+        self._last_frame_at = received_at
 
     def frame(
         self,

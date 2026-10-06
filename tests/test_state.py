@@ -813,9 +813,12 @@ def test_t14_nothing_more_from_the_connection_is_delivered_or_applied() -> None:
     run.drop()
     run.take()
     run.send(pc(A, 100, (A1, "BUY", "0.49", "50")))
+    frames = run.machine.counts.frames
     run.machine.pong(run.generation, run.now)
     assert run.take() == []
-    assert run.machine.counts.frames_after_interruption == 1
+    # The PONG is counted with the frame, though ``frames`` leaves it out.
+    assert run.machine.counts.frames_after_interruption == 2
+    assert run.machine.counts.frames == frames
     assert sides(run, A1)[0] == [("0.47", "250"), ("0.48", "100")]
 
 
