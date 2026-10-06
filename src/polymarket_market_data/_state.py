@@ -355,9 +355,8 @@ class StateMachine:
         close_reason: str | None = None,
     ) -> None:
         """The current connection, subscribed, ended in a way that may have
-        lost events (T14). ``cause`` is the interruption's reason. The
-        connection's record comes before the tokens' (spec/client.md, Record
-        order, rule 4)."""
+        lost events (T14; spec/client.md, Record order, rule 4). ``cause`` is
+        the interruption's reason."""
         self._interrupted = True
         self.counts.interruptions[cause] += 1
         confirmed = self._last_frame_at
@@ -430,10 +429,9 @@ class StateMachine:
         self._idle_if_empty(at)
 
     def failed(self, reason: str, at: datetime) -> None:
-        """Reconnection exhausted its bounds (T18). ``reason`` is
-        ``max_attempts`` or ``max_recovery_time``. The gaps it ends come
-        before ``failed``, the one connection record that follows the token
-        records it causes (spec/client.md, Record order, rule 4)."""
+        """Reconnection exhausted its bounds (T18; spec/client.md, Record
+        order, rule 4). ``reason`` is ``max_attempts`` or
+        ``max_recovery_time``."""
         for market in self._markets.values():
             for token_id in market.token_ids:
                 self._end_gap(self._tokens[token_id], "recovery_failed", at)
@@ -490,9 +488,8 @@ class StateMachine:
     # A frame's items (spec/client.md, Event handling).
 
     def _item(self, item: Decoded, received_at: datetime, clock: float) -> None:
-        """One item of a frame, handled in its order in the frame: its record
-        comes first, then the status records it causes (spec/client.md,
-        Record order, rule 1)."""
+        """One item of a frame, called for each in turn by ``frame``
+        (spec/client.md, Record order, rule 1)."""
         if isinstance(item, UnknownEvent):
             self.counts.unknown += 1
             self._records.append(item)
@@ -567,9 +564,9 @@ class StateMachine:
         if token.state is TokenState.SYNCHRONIZING or (
             token.state is TokenState.UNCERTAIN and token.reason != "interrupted"
         ):
-            # T3 and T10: after the BookEvent, the gap's end, then the state
-            # (spec/client.md, Record order, rule 3). A book for a ready token
-            # replaces its book (T5).
+            # T3 and T10 (spec/client.md, Record order, rule 3), the BookEvent
+            # already appended above. A book for a ready token replaces its
+            # book (T5).
             self._end_gap(
                 token,
                 "book",
@@ -700,9 +697,9 @@ class StateMachine:
         winning_asset_id: str | None,
         at: datetime,
     ) -> None:
-        """Settle every token of a market that takes part (T11, T15, T16);
-        the market leaves the desired set. A token's gap ends just before
-        its state changes (spec/client.md, Record order, rule 3)."""
+        """Settle every token of a market that takes part (T11, T15, T16;
+        spec/client.md, Record order, rule 3); the market leaves the desired
+        set."""
         market = self._markets.get(condition_id)
         if market is None:
             return
