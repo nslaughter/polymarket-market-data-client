@@ -5,10 +5,11 @@
 > [Terms of Use](https://polymarket.com/tos) govern any use of its services
 > and data, including through this client, and nothing in this repository
 > grants a right those terms withhold. This client is not intended for use in
-> any professional capacity, and its [license](#license) does not permit it.
-> It is meant only for individuals to use for themselves, to assist their own
-> personal trading where Polymarket's terms allow it. The client is
-> read-only: it receives market data and places no orders.
+> any professional capacity, and its [license](#license) permits no
+> professional use beyond reading the source. It is meant only for
+> individuals to use for themselves, to assist their own personal trading
+> where Polymarket's terms allow it. The client is read-only: it receives
+> market data and places no orders.
 
 A reusable, read-only Python client demonstration for consuming Polymarket
 market data, restoring subscriptions and state after a disconnect, and making
@@ -56,7 +57,7 @@ its recovery behavior tested and documented. It is meant to show:
   Events are not dropped silently.
 - **Evidence for diagnosis.** Unfamiliar or undecodable events are kept,
   and records carry the identities and timestamps the consumer needs.
-- **Failure behavior anyone can exercise.** A scripted local WebSocket server
+- **Failure behavior exercised locally.** A scripted local WebSocket server
   reproduces disconnects, a missing heartbeat reply, and other failures without
   access to the live service.
 
@@ -301,8 +302,7 @@ and each behavior in the findings' catalog.
   dates checked, markets observed, and observation periods. The investigation
   scripts in `spikes/` are kept out of the package and its checks.
 
-A reader should be able to run the controlled example without access to the
-live service.
+The controlled example should run without access to the live service.
 
 ## What the results will and will not establish
 
@@ -333,10 +333,10 @@ It is not open source.
 - An individual may run it, and change it privately, for their own personal
   use, such as learning, study, personal projects, and their own personal
   trading outside any trade or business.
-- It may not be used in any professional capacity: by or for an
-  organization, including to evaluate this project or my services; in a
-  business, including the individual's own; or for an employer or clients.
-  I don't give permission for these uses.
+- Apart from reading the source, it may not be used in any professional
+  capacity: by or for an organization, including to evaluate this project or
+  my services; in a business, including the individual's own; or for an
+  employer or clients. I don't give permission for these uses.
 - Publishing, redistributing, packaging, or hosting the project, or putting
   its code in another project, needs my written permission first. Ask at
   git@nathanslaughter.com.
