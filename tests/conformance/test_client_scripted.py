@@ -1,11 +1,11 @@
 """The client against the scripted server, for behavior no conformance
 scenario covers: shutdown, the heartbeat's counters, ``keep_raw``, ends of a
 connection the scenarios leave out, the backoff's jitter, the last desired
-market leaving before a connection is subscribed, settlement with no lookup
-available, a defect in the client's own code, and the stopgap that ends the
-client until plan step 9 replaces it (spec/client.md, Cancellation and
-shutdown, Heartbeat, Detecting an interruption, Reconnecting, Connection
-states, Settlement, and Errors).
+market leaving before a connection is subscribed or while an interrupted
+one closes, settlement with no lookup available, a defect in the client's
+own code, and the stopgap that ends the client until plan step 9 replaces
+it (spec/client.md, Cancellation and shutdown, Heartbeat, Detecting an
+interruption, Reconnecting, Connection states, Settlement, and Errors).
 
 Most are scenarios in the conformance notation, which the runner runs as it
 runs those in spec/conformance.md; a test that needs the client itself
@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import pytest
+from websockets.asyncio.client import ClientConnection
 
 from polymarket_market_data import (
     ClientConfig,
@@ -242,6 +243,66 @@ expect-stats events.price_change=1
 @pytest.mark.parametrize("name", SCENARIOS)
 def test_scenario(name: str) -> None:
     run(parse_scenario(f"scenario {name}\n{SCENARIOS[name]}"))
+
+
+# The last market settling while the client closes a connection it
+# interrupted also stops the recovery: a market added then connects once the
+# close has ended, at once, as attempt 1. The interrupted connection's failed
+# attempt, since it delivered no frame, would exhaust max_attempts=1 if the
+# recovery went on (spec/client.md, Reconnecting and Connection states). The
+# scripted server answers a close at once, so the client's close is held for
+# HOLD, as a server slow to answer it would hold it.
+
+HOLD = 1.0
+
+ADDED_WHILE_CLOSING = """
+scenario a-market-added-while-an-interrupted-connection-closes
+markets A
+config close_timeout=2.0 reconnect.max_attempts=1 settlement_poll_interval=0.1
+  settlement_confirm_timeout=10.0
+lookup A error
+pong off
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing
+expect token A2 synchronizing
+expect token A1 uncertain reason=no_book
+expect token A2 uncertain reason=no_book
+expect conn interrupted reason=pong_timeout connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+lookup A closed winner=A2
+expect token A1 settled reason=lookup_closed
+expect token A2 settled reason=lookup_closed
+expect conn idle reason=no_subscriptions connection=none
+subscribe B
+pong auto
+c: expect-client-close 1000 "pong timeout"
+expect conn connecting attempt=1 within 0..0.2 of c
+accept
+recv-subscribe B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+"""
+
+
+def test_a_market_added_while_an_interrupted_connection_closes_connects_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    close = ClientConnection.close
+
+    async def held(self: ClientConnection, code: int = 1000, reason: str = "") -> None:
+        if reason == _connection.PONG_TIMEOUT:
+            await asyncio.sleep(HOLD)
+        await close(self, code, reason)
+
+    monkeypatch.setattr(ClientConnection, "close", held)
+    run(parse_scenario(ADDED_WHILE_CLOSING))
 
 
 # With no lookup available, passed or installed, no settlement can be

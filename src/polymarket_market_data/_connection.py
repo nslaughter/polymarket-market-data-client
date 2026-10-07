@@ -24,7 +24,8 @@ a confirmation through lookup. Confirmations outlive connections, so they
 run in the connector's own task group. Once no desired market is left, no
 connection is needed: the client closes a subscribed connection, or
 abandons a backoff, an attempt, or a subscription frame, and waits until a
-market is added (spec/client.md, Connection states).
+market is added, which starts attempt 1 at once, whatever recovery was
+under way (spec/client.md, Connection states and Reconnecting).
 
 A frame that reaches the queue's limit ends the client with a
 ``ClientError``, a stopgap until plan step 9 responds at the limit, so that
@@ -247,6 +248,10 @@ class Connector:
         # attempt after a backoff, or, if this is None, a first attempt at
         # once if a desired market needs one.
         self._retry: _Retry | None = None
+        # Whether the desired set has been empty since the current attempt
+        # began. If so, no retry follows it, even one an interruption called
+        # for before the set emptied: the recovery stopped there.
+        self._went_idle = False
         # The tasks that outlive a connection, settlement confirmations, by
         # market; they belong to the group run() holds.
         self._tasks: asyncio.TaskGroup | None = None
@@ -320,6 +325,7 @@ class Connector:
         self._recovery.restart(loop.time())
         while self._state.desired:
             self._retry = None
+            self._went_idle = False
             self._state.connecting(self._recovery.attempt, now())
             self.publish()
             socket = await self._attempt()
@@ -329,11 +335,13 @@ class Connector:
                 self._socket = None
             if not self._state.desired:
                 return  # its idle record came when the last market left
-            if self._retry is None:
+            if self._retry is None or self._went_idle:
                 # The all-resolved close left desired markets that were not
                 # on the connection, or a market was added after the last one
-                # left: attempt 1, at once (spec/client.md, Connection
-                # states).
+                # left, even while a connection interrupted before that was
+                # closing: attempt 1, at once, with nothing carried over from
+                # the recovery the interruption began (spec/client.md,
+                # Reconnecting and Connection states).
                 self._recovery.restart(loop.time())
                 continue
             # Decided only now that the connection has ended, so that a close
@@ -451,6 +459,7 @@ class Connector:
         """No desired market is left: abandon the wait before a subscription
         frame, or close the subscribed connection (spec/client.md, Connection
         states). The state machine has emitted the idle record."""
+        self._went_idle = True
         pending = self._pending
         if pending is not None and not pending.expired():
             pending.reschedule(asyncio.get_running_loop().time())
