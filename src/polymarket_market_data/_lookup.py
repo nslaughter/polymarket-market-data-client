@@ -88,12 +88,14 @@ class SdkLookup:
     investigation used it (D6): ``get_market(slug=…)`` for markets and
     ``get_order_book(token_id=…)`` for the hash inputs.
 
-    Each call opens an ``AsyncPublicClient`` and closes it, as the
-    investigation's scripts did, so the lookup holds no connection between
-    calls and needs no closing. An HTTP 404 means not found, as the REST
-    book's did for settled tokens (spec/client.md, Market lookup); the
-    findings do not record what market lookup answers for a slug it does not
-    know. Any other failure is raised, and the client counts it.
+    Each call opens an ``AsyncPublicClient`` and closes it, so that the
+    lookup holds no connection between calls and needs no closing:
+    ``MarketLookup`` has no point at which to close one. (The
+    investigation's scripts made several calls through one client.) An HTTP
+    404 means not found, as the REST book's did for settled tokens
+    (spec/client.md, Market lookup); the findings do not record what market
+    lookup answers for a slug it does not know. Any other failure is raised,
+    and the client counts it.
     """
 
     async def market(self, *, slug: str) -> MarketInfo | None:
