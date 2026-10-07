@@ -1,11 +1,12 @@
 """``MarketDataClient``: its configuration, its desired set before the
-block, and its lifecycle (spec/client.md, Public interface, Configuration,
-and Cancellation and shutdown). None of these tests needs a server; the
-client's behavior against the scripted server is tested in
-``conformance/test_client_scripted.py``.
+block, its lifecycle, and ``resolve`` (spec/client.md, Public interface,
+Configuration, Cancellation and shutdown, and Market lookup). None of these
+tests needs a server; the client's behavior against the scripted server is
+tested in ``conformance/test_client_scripted.py``.
 """
 
 import asyncio
+import sys
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -13,12 +14,16 @@ import pytest
 from pydantic import ValidationError
 
 from polymarket_market_data import (
+    BookParameters,
     ClientConfig,
     ClientError,
     ClientStateError,
     ConfigError,
+    LookupFailed,
     Market,
     MarketDataClient,
+    MarketInfo,
+    MarketNotFound,
     ReconnectPolicy,
 )
 
@@ -169,13 +174,79 @@ def test_changes_after_shutdown_raise() -> None:
     asyncio.run(main())
 
 
-def test_changes_while_running_are_not_implemented_yet() -> None:
-    # Plan steps 7 and 8 apply them; until then they are refused, not lost.
+def test_changes_while_a_market_is_desired_are_not_implemented_yet() -> None:
+    # Plan step 8 applies them; until then they are refused, not lost. A
+    # market added to an empty desired set connects the client, as
+    # resolve-by-slug in spec/conformance.md shows.
     async def main() -> None:
-        async with MarketDataClient(config()) as client:
+        async with MarketDataClient(config(), markets=[MARKET_A]) as client:
             with pytest.raises(NotImplementedError):
-                client.subscribe(MARKET_A)
+                client.subscribe(MARKET_B)
             with pytest.raises(NotImplementedError):
                 client.unsubscribe(MARKET_A.condition_id)
+            assert client.desired == (MARKET_A,)
 
     asyncio.run(main())
+
+
+# resolve.
+
+
+class OneMarket:
+    """A lookup that knows market A, under its slug, and answers anything
+    else with ``answer``."""
+
+    def __init__(self, answer: MarketInfo | Exception | None = None) -> None:
+        self.answer = answer
+
+    async def market(self, *, slug: str) -> MarketInfo | None:
+        if slug == "synthetic-a":
+            return MarketInfo(
+                condition_id=MARKET_A.condition_id,
+                slug="synthetic-a",
+                question=None,
+                token_ids=MARKET_A.token_ids,
+                outcomes=("Yes", "No"),
+                closed=False,
+                end_date=None,
+            )
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+    async def book_parameters(self, token_id: str) -> BookParameters | None:
+        raise AssertionError("not called")
+
+
+def test_resolve_returns_the_market_lookup_found() -> None:
+    client = MarketDataClient(config(), lookup=OneMarket())
+    assert asyncio.run(client.resolve("synthetic-a")) == MARKET_A
+    assert (client.stats().lookups, client.stats().lookup_failures) == (1, 0)
+
+
+def test_resolve_raises_market_not_found_when_lookup_finds_none() -> None:
+    client = MarketDataClient(config(), lookup=OneMarket(None))
+    with pytest.raises(MarketNotFound):
+        asyncio.run(client.resolve("synthetic-u"))
+    assert (client.stats().lookups, client.stats().lookup_failures) == (1, 0)
+
+
+def test_resolve_raises_lookup_failed_with_the_lookups_exception() -> None:
+    error = RuntimeError("scripted")
+    client = MarketDataClient(config(), lookup=OneMarket(error))
+    with pytest.raises(LookupFailed) as info:
+        asyncio.run(client.resolve("synthetic-b"))
+    assert info.value.__cause__ is error
+    assert (client.stats().lookups, client.stats().lookup_failures) == (1, 1)
+
+
+def test_resolve_raises_client_state_error_when_no_lookup_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # verify_hash is off, no lookup is passed, and the SDK, which provides the
+    # default lookup, is not installed.
+    monkeypatch.setitem(sys.modules, "polymarket", None)
+    client = MarketDataClient(config())
+    with pytest.raises(ClientStateError):
+        asyncio.run(client.resolve("synthetic-a"))
+    assert client.stats().lookups == 0

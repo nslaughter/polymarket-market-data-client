@@ -25,3 +25,15 @@ recovery-exhausted-attempts
 recovery-exhausted-time
 recovery-exhausted-no-frame
 cancel-during-recovery
+resolve-by-slug
+settle-announced-others-open
+settle-all-resolved-close
+settle-all-resolved-close-unannounced
+settle-unannounced-drop
+settled-at-subscription
+settled-with-active
+unknown-market
+settlement-unconfirmed
+settlement-confirmation-across-reconnect
+settlement-without-slug
+settle-lookup-after-late-book

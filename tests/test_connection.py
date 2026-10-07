@@ -89,6 +89,19 @@ def test_attempt_numbers_follow_on_until_a_frame_is_delivered() -> None:
     assert (recovery.attempt, recovery.delay()) == (1, 0.5)
 
 
+def test_a_restart_starts_attempt_numbers_and_the_clock_again() -> None:
+    # At startup, when a market is added to an empty desired set, or after
+    # the all-resolved close leaves desired markets (spec/client.md,
+    # Reconnecting and Connection states).
+    recovery = Recovery(policy(max_attempts=100, max_recovery_time=10.0))
+    recovery.begin(0.0)
+    recovery.failed()
+    recovery.restart(50.0)
+    assert (recovery.attempt, recovery.delay()) == (1, 0.5)
+    assert recovery.exhausted(55.0, 5.0) is None
+    assert recovery.exhausted(55.0, 5.5) == "max_recovery_time"
+
+
 def test_max_attempts_failed_in_a_row_exhaust_the_bounds() -> None:
     recovery = Recovery(policy(max_attempts=3))
     recovery.begin(0.0)

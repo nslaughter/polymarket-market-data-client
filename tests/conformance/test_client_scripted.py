@@ -1,9 +1,11 @@
 """The client against the scripted server, for behavior no conformance
 scenario covers: shutdown, the heartbeat's counters, ``keep_raw``, ends of a
-connection the scenarios leave out, the backoff's jitter, a defect in the
-client's own code, and the stopgaps that end the client until later plan
-steps replace them (spec/client.md, Cancellation and shutdown, Heartbeat,
-Detecting an interruption, Reconnecting, and Errors).
+connection the scenarios leave out, the backoff's jitter, the last desired
+market leaving before a connection is subscribed, settlement with no lookup
+available, a defect in the client's own code, and the stopgap that ends the
+client until plan step 9 replaces it (spec/client.md, Cancellation and
+shutdown, Heartbeat, Detecting an interruption, Reconnecting, Connection
+states, Settlement, and Errors).
 
 Most are scenarios in the conformance notation, which the runner runs as it
 runs those in spec/conformance.md; a test that needs the client itself
@@ -11,6 +13,7 @@ drives it step by step.
 """
 
 import asyncio
+import sys
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -22,7 +25,9 @@ from polymarket_market_data import (
     ClientStateError,
     ConnectionState,
     ConnectionStateChange,
+    Market,
     MarketDataClient,
+    MarketLookup,
     ReconnectPolicy,
     RecoveryFailed,
     TokenStateChange,
@@ -127,10 +132,10 @@ expect conn recovering attempt=2 retry_in=0.2 reason=backoff detail=set
 expect conn connecting attempt=2
 expect-stats interruptions.dropped=1 frames=0
 """,
-    # Once no desired market is left on a connection, as after the last one
-    # settled, its end is not an interruption, and the client does not
-    # reconnect (spec/client.md, Detecting an interruption).
-    "a-connection-ending-with-no-desired-market-is-not-an-interruption": """
+    # Once the last desired market settles on a connection, the client closes
+    # it, its end is not an interruption, and the client does not reconnect
+    # (spec/client.md, Detecting an interruption and Connection states).
+    "the-last-market-settling-closes-the-connection": """
 markets A
 start A
 send resolved A t=100 winner=A1
@@ -138,23 +143,87 @@ expect market_resolved A
 expect token A1 settled reason=market_resolved
 expect token A2 settled reason=market_resolved
 expect conn idle connection=1
-drop
+expect-client-close 1000 "no subscriptions"
 expect-no-connect 0.5
 expect-nothing 0.1
 expect-stats interruptions=0
 """,
-    # Stopgaps: until plan step 7 settles on the all-resolved close, and
-    # step 9 responds at the queue's limit, each ends the client with a
-    # ClientError, raised after the records already queued.
-    "the-all-resolved-close-ends-the-client": """
+    # When the desired set empties during recovery, the client stops: a
+    # backoff is abandoned, and a market added then connects at once, as
+    # attempt 1 (spec/client.md, Connection states and Reconnecting).
+    "the-last-market-settling-during-a-backoff-stops-it": """
 markets A
-start A
-close 1000 "all subscribed assets resolved"
-expect-error ClientError
-expect-end
-expect-stats interruptions=0
-subscribe B raises ClientStateError
+config reconnect.base_delay=5.0 reconnect.max_delay=5.0
+lookup A error
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing
+expect token A2 synchronizing
+send opening
+expect token A1 uncertain reason=no_book
+expect token A2 uncertain reason=no_book
+drop
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1 retry_in=5.0
+l: lookup A closed winner=A2
+expect token A1 settled previous=uncertain reason=lookup_closed
+  winning_asset_id=A2 within 0..0.6 of l
+expect token A2 settled reason=lookup_closed
+expect conn idle reason=no_subscriptions connection=none
+expect-nothing 0.3
+a: subscribe B
+expect conn connecting attempt=1 within 0..0.2 of a
+accept
+recv-subscribe B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
 """,
+    # Likewise an attempt the server holds is abandoned.
+    "the-last-market-settling-during-an-attempt-abandons-it": """
+markets A
+config connect_timeout=5.0
+lookup A error
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing
+expect token A2 synchronizing
+send opening
+expect token A1 uncertain reason=no_book
+expect token A2 uncertain reason=no_book
+drop
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1
+expect conn connecting attempt=1
+lookup A closed winner=A2
+expect token A1 settled reason=lookup_closed
+expect token A2 settled reason=lookup_closed
+expect conn idle reason=no_subscriptions connection=none
+wait 0.2
+expect-no-connect 0.5
+a: subscribe B
+expect conn connecting attempt=1 within 0..0.2 of a
+accept
+recv-subscribe B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+""",
+    # Stopgap: until plan step 9 responds at the queue's limit, a frame that
+    # reaches it ends the client with a ClientError, raised after the records
+    # already queued.
     "a-frame-reaching-the-queue-limit-ends-the-client": """
 markets A
 config queue_size=1
@@ -173,6 +242,44 @@ expect-stats events.price_change=1
 @pytest.mark.parametrize("name", SCENARIOS)
 def test_scenario(name: str) -> None:
     run(parse_scenario(f"scenario {name}\n{SCENARIOS[name]}"))
+
+
+# With no lookup available, passed or installed, no settlement can be
+# confirmed, so T13 follows T4 at once, and resolve raises ClientStateError
+# (spec/client.md, Settlement and Market lookup). Every conformance scenario
+# passes the scripted lookup.
+
+WITHOUT_LOOKUP = """
+scenario settlement-without-a-lookup
+markets A
+resolve synthetic-a raises ClientStateError
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing
+expect token A2 synchronizing
+send opening
+n: expect token A1 uncertain previous=synchronizing reason=no_book
+expect token A2 uncertain previous=synchronizing reason=no_book
+expect token A1 uncertain previous=uncertain reason=settlement_unconfirmed
+  within 0..0.1 of n
+expect token A2 uncertain previous=uncertain reason=settlement_unconfirmed
+expect-nothing 0.5
+expect-stats lookups=0 lookup_failures=0
+"""
+
+
+def test_settlement_without_a_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "polymarket", None)  # no SDK installed
+
+    def without_lookup(
+        config: ClientConfig, markets: tuple[Market, ...], lookup: MarketLookup
+    ) -> MarketDataClient:
+        return MarketDataClient(config, markets=markets)
+
+    run(parse_scenario(WITHOUT_LOOKUP), without_lookup)
 
 
 # The backoff's jitter (D2). One run of a scenario cannot show a random
