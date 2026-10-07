@@ -6,8 +6,9 @@ The SDK's HTTP layer is replaced by synthetic responses, shaped like the
 market and the REST book the SDK reads, for synthetic market A of the
 conformance scenarios, never by the live service
 (docs/implementation-plan.md, 7. Settle markets through the stream and
-lookup). Without the SDK extra installed, as in CI's job for the oldest
-dependencies, this module is skipped: it tests the extra.
+lookup). The guard in ``conftest.py``, which refuses every request through
+``httpx``, is checked here too. Without the SDK extra installed, as in CI's
+job for the oldest dependencies, this module is skipped: it tests the extra.
 """
 
 import asyncio
@@ -181,3 +182,23 @@ def test_a_rest_book_that_fails_otherwise_raises(responses: Responses) -> None:
     responses.routes["/book"] = (503, {"error": "unavailable"})
     with pytest.raises(polymarket.RequestRejectedError):
         asyncio.run(SdkLookup().book_parameters(A1))
+
+
+# The guard in conftest.py, which keeps every test from the live service.
+
+
+def test_no_request_through_httpx_leaves_the_tests(no_live_http: list[str]) -> None:
+    # Synchronous and asynchronous alike: the SDK's PublicClient and
+    # AsyncPublicClient each sit on one of httpx's transports.
+    url = "https://example.invalid/markets"
+    with pytest.raises(httpx.ConnectError), httpx.Client() as client:
+        client.get(url)
+
+    async def get() -> None:
+        async with httpx.AsyncClient() as client:
+            await client.get(url)
+
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(get())
+    assert no_live_http == [f"GET {url}", f"GET {url}"]
+    no_live_http.clear()  # refused as they should be, so the test passes
