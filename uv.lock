@@ -856,6 +856,7 @@ sdk = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "polymarket-market-data-client", extra = ["sdk"] },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -871,6 +872,7 @@ provides-extras = ["sdk"]
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1" },
+    { name = "polymarket-market-data-client", extras = ["sdk"] },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.16" },
 ]
