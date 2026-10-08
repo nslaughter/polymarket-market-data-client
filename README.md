@@ -7,9 +7,9 @@
 > grants a right those terms withhold. This client is not intended for use in
 > any professional capacity, and its [license](#license) permits no
 > professional use beyond reading the source. It is meant only for
-> individuals to use for themselves, to assist their own personal trading
-> where Polymarket's terms allow it. The client is read-only: it receives
-> market data and places no orders.
+> individuals to use for themselves: for learning, study, personal projects,
+> or to assist their own personal trading where Polymarket's terms allow it.
+> The client is read-only: it receives market data and places no orders.
 
 A reusable, read-only Python client demonstration for consuming Polymarket
 market data, restoring subscriptions and state after a disconnect, and making
