@@ -379,16 +379,18 @@ is what the client is for.
   and its entries then gave a best bid of 0 and a best ask of 1
   ([findings §6](source-behavior.md#6-settlement)): that is no quote, not
   a midpoint of 0.5.
-- It compares each midpoint it has while a token is `ready` with the last
-  one it had while the token was `ready`. If they lie on opposite sides of
-  the threshold and the token stayed `ready` between them, it prints an
-  alert, stamped with the `received_at` of the record that moved the
-  midpoint. If the token left `ready` between them, it reports a crossing
-  at an unknown time, giving both midpoints and when each arrived. It
-  gives no time for the crossing, and no bounds from a `CaptureGap`: the
-  token may have been `uncertain` before the gap opened, and events
-  outside a gap may be missing too
-  ([Recovery contract](../spec/client.md#recovery-contract)).
+- A midpoint equal to the threshold counts as above it, so every midpoint
+  lies on one side: a rising midpoint crosses when it reaches the
+  threshold, and a falling one when it goes below it. It compares each
+  midpoint it has while a token is `ready` with the last one it had while
+  the token was `ready`. If they lie on opposite sides of the threshold
+  and the token stayed `ready` between them, it prints an alert, stamped
+  with the `received_at` of the record that moved the midpoint. If the
+  token left `ready` between them, it reports a crossing at an unknown
+  time, giving both midpoints and when each arrived. It gives no time for
+  the crossing, and no bounds from a `CaptureGap`: the token may have been
+  `uncertain` before the gap opened, and events outside a gap may be
+  missing too ([Recovery contract](../spec/client.md#recovery-contract)).
 - While a token is `synchronizing` or `uncertain`, the alert prints the
   `reason` its `TokenStateChange` gives, and no alert, then or later. It
   compares at the token's `ready` record, which comes after the `book`
@@ -396,6 +398,11 @@ is what the client is for.
   3), so it reports each crossing once.
 - When a market settles, it stops watching its tokens and reports the
   winner if known.
+- Unit tests of the comparison, with the token `ready` throughout: a
+  midpoint that rises to the threshold and then past it gives one alert,
+  at the record that reached the threshold, and one that falls to the
+  threshold and then below it gives one alert, at the record that went
+  below it.
 - A controlled mode runs it against the scripted server and the scripted
   lookup, in a built-in scenario. The midpoint crosses the threshold once
   while the token is `ready`; once while it is `uncertain` after an
