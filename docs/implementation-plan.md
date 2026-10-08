@@ -17,13 +17,13 @@ examples that show the client as a library to build on: an alert that acts
 correctly on state it knows is incomplete, a seeded synthetic streamer, a
 dashboard, and, if the operator chooses, a way for applications to test
 their own recovery handling. Every example has a controlled mode that CI
-runs against the scripted server or the streamer; none needs the live
-service to be checked, and these steps never contact it, since only step 12
-does. The plan leaves out notebooks, whose output would
-hold Polymarket's data; storage, which is the pipeline's; integrations with
-web frameworks beyond the dashboard's relay; anything that places orders;
-and replacing settled markets while running, which edges toward the
-continuous operation the README leaves out of scope.
+runs against the scripted server or the streamer, each with its scripted
+lookup; none needs the live service to be checked, and these steps never
+contact it, since only step 12 does. The plan leaves out notebooks, whose
+output would hold Polymarket's data; storage, which is the pipeline's;
+integrations with web frameworks beyond the dashboard's relay; anything
+that places orders; and replacing settled markets while running, which
+edges toward the continuous operation the README leaves out of scope.
 
 ## Progress
 
@@ -317,11 +317,20 @@ Follows D4: verification with the recipe, and its burst rule.
   live service. The live mode needs the SDK extra, which provides the
   lookup that market selection and, with `verify_hash` on, hash checks
   need.
-- `examples/quickstart.py`: the shortest useful program. It opens the
-  client, subscribes to one token, and handles each record type with
-  `match`, as the contract's
-  [Public interface](../spec/client.md#public-interface) shows. It takes
-  the endpoint from `url`, so CI runs it against the scripted server.
+- `examples/quickstart.py`: the shortest useful program. It resolves the
+  market whose slug it is given, subscribes to it, and handles each record
+  type with `match`, as the contract's
+  [Public interface](../spec/client.md#public-interface) shows. It leaves
+  the `async with` block, and so ends, when the client reports `idle`,
+  which follows its market's settlement
+  ([Connection states](../spec/client.md#connection-states)). Its `main`
+  takes the configuration and the lookup, defaulting to the client's own.
+- A test runs the quickstart with `url` set to the scripted server and
+  with the scripted lookup. `url` alone is not enough: `resolve` and the
+  hash checks, on by default (D4), call the lookup, and the default one
+  calls the live service (D6). The server plays `A`'s opening books, a
+  `price_change`, and `market_resolved`, and the test checks that the
+  program prints each record and returns.
 - The README gains an installation quickstart, the quickstart program, and
   the examples' commands. A test checks that the README's copy of the
   program matches `examples/quickstart.py`.
@@ -362,17 +371,39 @@ An application that acts correctly on state it knows is incomplete, which
 is what the client is for.
 
 - `examples/alert.py`: watches tokens for their midpoint crossing a
-  threshold, computed in `Decimal` from the best bid and ask the records
-  carry, and prints an alert. It alerts only while the token is `ready`.
-  While a token is `synchronizing` or `uncertain`, it holds alerts and says
-  why. When a capture gap ends with the midpoint on the other side of the
-  threshold from where it was when the gap began, it reports a crossing at
-  an unknown time within the gap's bounds, never an alert at a time it
-  cannot know. When a market settles, it stops watching its tokens and
-  reports the winner if known.
-- A controlled mode runs it against the scripted server with a built-in
-  scenario that crosses the threshold once while the token is `ready` and
-  once during a gap. CI runs it and checks its output.
+  threshold. It keeps each token's book from the records, as the
+  [recovery contract](../spec/client.md#recovery-contract) describes, and
+  computes the midpoint in `Decimal` from that book's best bid and best
+  ask. A book with no bid or no ask has no midpoint, and the alert skips
+  it. The stream emptied each book before the settlements it announced,
+  and its entries then gave a best bid of 0 and a best ask of 1
+  ([findings §6](source-behavior.md#6-settlement)): that is no quote, not
+  a midpoint of 0.5.
+- It compares each midpoint it has while a token is `ready` with the last
+  one it had while the token was `ready`. If they lie on opposite sides of
+  the threshold and the token stayed `ready` between them, it prints an
+  alert, stamped with the `received_at` of the record that moved the
+  midpoint. If the token left `ready` between them, it reports a crossing
+  at an unknown time, giving both midpoints and when each arrived. It
+  gives no time for the crossing, and no bounds from a `CaptureGap`: the
+  token may have been `uncertain` before the gap opened, and events
+  outside a gap may be missing too
+  ([Recovery contract](../spec/client.md#recovery-contract)).
+- While a token is `synchronizing` or `uncertain`, the alert prints the
+  `reason` its `TokenStateChange` gives, and no alert, then or later. It
+  compares at the token's `ready` record, which comes after the `book`
+  that ends a gap ([Record order](../spec/client.md#record-order), rule
+  3), so it reports each crossing once.
+- When a market settles, it stops watching its tokens and reports the
+  winner if known.
+- A controlled mode runs it against the scripted server and the scripted
+  lookup, in a built-in scenario. The midpoint crosses the threshold once
+  while the token is `ready`; once while it is `uncertain` after an
+  undecodable frame, a period that ends with no capture gap; and once
+  across a capture gap that opened while the token was already
+  `uncertain`. Then the book empties, and the market settles. CI runs it
+  and checks that it prints one alert, two crossings at an unknown time,
+  nothing for the emptied book, and the winner.
 - The README lists the example and its commands.
 
 Out of scope: placing orders, sending alerts anywhere but standard output,
@@ -387,7 +418,8 @@ live source beyond [`docs/source-behavior.md`](source-behavior.md).
 
 - `tests/streamer/`: drives the scripted server and its `Source` (step 4),
   so frames and hashes come from the harness's one implementation, never a
-  copy. The same seed gives the same frames in the same order:
+  copy. A seed fixes the source's events, counted in steps of the walk
+  rather than in wall-clock time:
   - for each synthetic market, a bounded random walk of its books: prices
     stay strictly between 0 and 1 and move in tick-size steps, a market's
     two tokens mirror each other, and every update carries its hash;
@@ -395,12 +427,27 @@ live source beyond [`docs/source-behavior.md`](source-behavior.md).
     ([findings §6](source-behavior.md#6-settlement)): the book empties,
     `market_resolved` names the winner, and the server closes with
     `1000 all subscribed assets resolved` once no unresolved market is
-    left on the connection;
+    left on the connection. At some seeded settlements the connection
+    drops without a close frame after the book empties and before any
+    announcement, as it did once in the findings. A later connection
+    sends no book for a settled market;
   - interruptions at seeded points: a drop without a close frame, a close
     frame, a withheld `PONG`, and a slow-consumer close;
   - a load setting that raises the message rate until `PONG` queues behind
     market data ([findings §2](source-behavior.md#2-heartbeat)) and a slow
     consumer's queue fills.
+- The frames a client receives also follow its own timing: the `PONG`s
+  answer its `PING`s, and the time it takes to reconnect decides which
+  steps it misses, and so the books it opens with. So the same seed gives
+  the same events but not the same frames, and a test checks the events.
+- The streamer has its own scripted lookup, which answers for its markets:
+  `open`, with the book parameters the hashes use, and then `closed`, with
+  the winner, once the streamer has settled the market. Every client run
+  against the streamer uses it: in the soak tests, in the examples'
+  controlled modes, and in the relay (step 16). So none falls back to the
+  default lookup, which calls the live service, and a settlement the
+  stream does not announce is confirmed
+  ([Settlement](../spec/client.md#settlement)).
 - A pace setting: real time, for people watching, or as fast as possible,
   for CI.
 - Soak tests: for a fixed set of seeds, each run bounded to a few seconds,
@@ -425,12 +472,16 @@ A browser view built on the client. It draws what only this client knows:
 where each token's book was uncertain, and where a capture gap leaves the
 record incomplete.
 
-- `examples/dashboard/server.py`: an asyncio program, with no threads, that
-  runs the client, relays its records to the browser as JSON written with
+- `examples/dashboard/server.py`: an asyncio program that runs the client,
+  relays its records to the browser as JSON written with
   `TypeAdapter(...).dump_json` (D8), over a WebSocket or server-sent
   events, and serves the built page. It has three sources: the live
-  service, which needs the SDK extra; the streamer (step 15); and a
+  service, which needs the SDK extra; the streamer (step 15), run in the
+  same process, with the streamer's lookup passed to the client; and a
   JSON-lines timeline written by the research example (step 11), replayed.
+  The relay's own code starts no threads. The streamer's scripted server
+  keeps the thread it runs on
+  ([The scripted server](../spec/conformance.md#the-scripted-server)).
   Decimals stay strings until the page draws them. An example-only
   dependency is allowed if the pull request says why.
 - `examples/dashboard/web/`: TypeScript, built with Vite, with no UI
