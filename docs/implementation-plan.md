@@ -15,7 +15,7 @@ Steps 11 to 13 add the example, the live run, and the release.
 Steps 14 to 17 come after the release, so the client ships first. They add
 examples that show the client as a library to build on: an alert that acts
 correctly on state it knows is incomplete, a seeded synthetic streamer, a
-dashboard, and, if the operator chooses, a way for applications to test
+dashboard, and, if the owner chooses, a way for applications to test
 their own recovery handling. Every example has a controlled mode that CI
 runs against the scripted server or the streamer, each with its scripted
 lookup; none needs the live service to be checked, and these steps never
@@ -30,8 +30,8 @@ edges toward the continuous operation the README leaves out of scope.
 Each step's pull request changes its own row: it sets **Status** to `Done`,
 and after the pull request is opened, a follow-up commit on the same branch
 fills in **Pull request**. A row reads `Done` on `main` only once its pull
-request is merged. A step whose status is `Needs operator decision` cannot
-start until the operator records the decision and changes the status here.
+request is merged. A step whose status is `Needs owner decision` cannot
+start until the owner records the decision and changes the status here.
 The contract's design decisions, D1 to D8, are all
 [owner specifications](../spec/client.md#owner-specifications), decided on
 2026-10-05; the **Owner specifications** column names those each step
@@ -53,14 +53,14 @@ decision the owner deferred on 2026-10-08 until step 16 is merged.
 | 9. Bound the consumer handoff | D3 | Not started | |
 | 10. Verify order-book hashes | D4 | Not started | |
 | 11. Add the research example and check the built wheel | | Not started | |
-| 12. Record a limited live run | live-run period and markets | Needs operator decision | |
+| 12. Record a limited live run | live-run period and markets | Needs owner decision | |
 | 13. Release a tagged wheel | release name | Not started | |
 | 14. Add the price-alert example | | Not started | |
 | 15. Stream synthetic markets | | Not started | |
 | 16. Add the dashboard example | | Not started | |
-| 17. Offer the scripted server for testing applications | public testing module | Needs operator decision | |
+| 17. Offer the scripted server for testing applications | public testing module | Needs owner decision | |
 
-If the operator changes an owner specification, the scenarios marked
+If the owner changes an owner specification, the scenarios marked
 `owner-spec` for it may need to change. That change is a new version of the
 specification, made before the step that depends on it, never inside an
 implementation pull request.
@@ -346,7 +346,7 @@ example chooses when it runs, rather than a list fixed in advance. Only
 this step contacts the live service.
 
 - Run the example against the live service for a limited period chosen
-  with the operator, with the client's configuration recorded.
+  with the owner, with the client's configuration recorded.
 - Add `docs/live-run.md`: the client version and commit, the configuration,
   the markets and the observation period, every interruption and settlement
   observed with its records, and the source behavior left unresolved,
@@ -364,7 +364,7 @@ tagged `v0.1.0`: a release's tag is `v` and its version.
 - Set the package's version to `0.1.0`.
 - A release workflow, triggered by a version tag, that builds the wheel,
   runs the full suite against it on each supported Python version, and
-  attaches it to a GitHub release. The operator pushes the tag; the pull
+  attaches it to a GitHub release. The owner pushes the tag; the pull
   request adds the workflow only.
 - Update the README's status line.
 - Done when the workflow passes on the pull request, without publishing.

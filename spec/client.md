@@ -1,8 +1,8 @@
 # Client contract: Polymarket market-data client
 
-**Status:** Draft 0.1.0, for the operator's review; not tagged. Its eight
+**Status:** Draft 0.1.0, for the owner's review; not tagged. Its eight
 design decisions, D1 to D8, are [owner specifications](#owner-specifications):
-the operator decided each on 2026-10-05, and an implementation follows them
+the owner decided each on 2026-10-05, and an implementation follows them
 as written. None of the client exists yet.
 
 This document governs the client's code: its public interface, the records
@@ -462,11 +462,11 @@ in `frames_after_interruption`, and also in `pongs`, `pong_delay_last`, and
 so `last_confirmed_at` does not move, and `frames` leaves it out, as it
 leaves out every `PONG`.
 
-**A late `PONG`: decided by the operator on 2026-10-06,** when plan step
+**A late `PONG`: decided by the owner on 2026-10-06,** when plan step
 6's review found the draft read both ways: this section counts the frames
 that arrive during the close, `PONG` among them, while
 [Statistics](#statistics) leaves `PONG` out of `frames` but not out of
-`frames_after_interruption`. The operator chose to count it in
+`frames_after_interruption`. The owner chose to count it in
 `frames_after_interruption` and in the `PONG` statistics. That follows each
 row's wording, and the real delay of a `PONG` that came after the timeout
 tells a stalled connection from a slow one, should D1 be revisited.
@@ -482,7 +482,7 @@ the connection itself after that, and records the interruption as the table
 gives it: `close_frame`, with the close frame's code and reason, or
 `dropped`.
 
-**A `PONG` deadline on a connection already ending: decided by the operator
+**A `PONG` deadline on a connection already ending: decided by the owner
 on 2026-10-06,** when plan step 6's review found that recording
 `pong_timeout` there lost the server's close frame, and with it the cause
 the table separates. Recording the timeout as soon as it passed was the
@@ -567,7 +567,7 @@ exhausted them, a `CaptureGap` with `end` `recovery_failed` and
 attempt or connection, and the client stays shut down until the block is
 left. Tokens keep their last state, `uncertain`.
 
-**What the draft left open on reconnecting: decided by the operator on
+**What the draft left open on reconnecting: decided by the owner on
 2026-10-06,** when plan step 6's review found four things unsettled:
 
 - *What delivering a frame means.* A frame as the `frame` field counts
@@ -933,7 +933,7 @@ Sixty-four is sixteen times the deepest frame in the excerpts, and about
 half the lowest of those limits, whichever supported version of Pydantic
 is installed. It also bounds the work the decoder does for one frame.
 
-**Decided by the operator on 2026-10-05,** when plan step 2's review found
+**Decided by the owner on 2026-10-05,** when plan step 2's review found
 that a deeply nested payload made a record that does not read back. A
 second exception to D8's round trip, which would leave a consumer's writer
 to fail on such a record, and cutting deep values out of `payload`, which
@@ -983,10 +983,10 @@ on Polymarket, in bursts: 3,689 in an hour, 566 in one minute (Observed,
 counts them and does not deliver them, so they never fill the consumer's
 queue. With `deliver`, each becomes a `NewMarketEvent`.
 
-**Metadata of the wrong type: decided by the operator on 2026-10-05.** The
+**Metadata of the wrong type: decided by the owner on 2026-10-05.** The
 decoding table keeps a `new_market`'s fields beyond `id` and `timestamp`
 uninterpreted, while its record types five of them, and the draft did not
-say which governs a value of the wrong type. The operator chose to treat
+say which governs a value of the wrong type. The owner chose to treat
 one as absent. Refusing it would make the event an `UndecodableFrame`,
 which is always delivered, so if the source changed the type of one of
 these fields, every `new_market`, thousands an hour, would pass the `drop`
@@ -1075,7 +1075,7 @@ by the slug it is given, and settlement confirmation by the market's
 `token_ids`, `outcomes: tuple[str, ...]`, in the same order; `closed:
 bool`; `end_date: datetime | None`; and `winning_asset_id`,
 `resolution_status: str | None`, set when known and `None` by default.
-The draft named these fields without all their types; the operator set
+The draft named these fields without all their types; the owner set
 them on 2026-10-05, when plan step 1 defined the type. `BookParameters`
 holds `min_order_size: Decimal` and `neg_risk: bool`. `None` means not
 found.
@@ -1239,12 +1239,12 @@ raises `ConfigError` the same way, since `model_copy(update=…)` and
 It also raises `ConfigError` when `verify_hash` is on and no lookup is
 available, since no hash could then be checked (D4).
 
-**Validation the draft left open: decided by the operator on
+**Validation the draft left open: decided by the owner on
 2026-10-05.** Building the configuration (plan step 1) found the draft
 silent on four things: what `max_attempts` and `max_message_bytes`
 accept, whether infinity counts as a positive duration, what happens to a
 field the table does not list, and whether a value of another type is
-converted. The operator chose integers of at least 1 for both counts,
+converted. The owner chose integers of at least 1 for both counts,
 since `max_attempts` 0 would fail before any attempt and
 `max_message_bytes` 0 would refuse every frame. Durations must be finite,
 since an infinite `max_recovery_time` would remove one of the two bounds
@@ -1260,7 +1260,7 @@ default, were the options not taken.
 
 ## Decisions
 
-These are proposed by this draft and take effect when the operator approves
+These are proposed by this draft and take effect when the owner approves
 it. Each can be revisited in a later version.
 
 1. **The client owns the connection and does not use the SDK's stream.** The
@@ -1354,16 +1354,16 @@ it. Each can be revisited in a later version.
 
 ## Owner specifications
 
-The operator decided D1 to D8 on 2026-10-05, each by adopting the
+The owner decided D1 to D8 on 2026-10-05, each by adopting the
 recommended default set out below; D4's burst rule and D8 were added after
 review raised them. They are owner specifications: an implementation
-follows them as written, and changing one needs the operator and a new
+follows them as written, and changing one needs the owner and a new
 version of this document. The options and evidence stay with each as the
 record of the choice, and the scenarios that rest on one name it.
 
 ### D1. `PONG` timeout
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05.
 
 | Option | For | Against |
@@ -1390,7 +1390,7 @@ server itself ([§2]).
 
 ### D2. Reconnect bounds
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05.
 
 | Option | For | Against |
@@ -1417,7 +1417,7 @@ counting restarts when a connection delivers a frame (decision 26).**
 
 ### D3. Queue size and the response at the limit
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05.
 
 | Response | What happens | For | Against |
@@ -1447,7 +1447,7 @@ taken.
 
 ### D4. Hash verification
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05.
 
 | Option | For | Against |
@@ -1496,18 +1496,18 @@ be pending when it comes. If a `book` fails its own check, stop checking
 that token until a later `book` verifies, and count it, since the recipe or
 its inputs, not the source's book, are then wrong.
 
-**Hash inputs without a lookup: decided by the operator on 2026-10-05.**
+**Hash inputs without a lookup: decided by the owner on 2026-10-05.**
 Only lookup supplies `min_order_size` and `neg_risk`, and D6 makes the SDK,
 which provides the default lookup, an optional extra. Review found that a
 client installed without it would check no hash at all and say nothing, and
 that one failed fetch would leave a token unchecked until it was removed.
-The operator chose two remedies: refuse `verify_hash` without a lookup, with
+The owner chose two remedies: refuse `verify_hash` without a lookup, with
 `ConfigError` at construction, so the gap cannot pass unnoticed; and retry a
 failed fetch every `settlement_poll_interval`, so one transient failure does
 not switch checking off. Reporting unchecked tokens in a status record or a
 counter, and leaving the gap documented only, were the options not chosen.
 
-**When a burst has ended: decided by the operator on 2026-10-05.** A live
+**When a burst has ended: decided by the owner on 2026-10-05.** A live
 client cannot tell a burst's last entry when it arrives. The investigation's
 replay checked each run of entries sharing a hash once the token's next
 entry, with another hash, or its next `book` had arrived
@@ -1551,7 +1551,7 @@ failed checks with none verifying between them.
 
 ### D5. Supported Python versions, and the package and import names
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05.
 
 Python: the SDK 0.12.0 requires Python 3.11 or later. That is from its
@@ -1582,7 +1582,7 @@ reads as affiliated with Polymarket.
 
 ### D6. How the pinned SDK serves market lookup and settlement confirmation
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05.
 
 | Option | For | Against |
@@ -1612,7 +1612,7 @@ counted in statistics, not trusted alone.
 
 ### D7. Applying subscription changes
 
-**Owner specification:** the recommended default, adopted by the operator
+**Owner specification:** the recommended default, adopted by the owner
 on 2026-10-05. This was found while writing the spec: the
 findings do not cover changing a subscription on an open connection.
 
@@ -1637,8 +1637,8 @@ changes are written for this default.
 
 ### D8. Pydantic v2 or dataclasses for configuration, decoding, and records
 
-**Owner specification:** the recommended default, adopted by the operator
-on 2026-10-05. The operator raised this while reviewing the draft, which
+**Owner specification:** the recommended default, adopted by the owner
+on 2026-10-05. The owner raised this while reviewing the draft, which
 used frozen dataclasses and a hand-written decoder throughout. The options
 and evidence stay as the record of the choice.
 
@@ -1732,7 +1732,7 @@ exception: a `payload` is written as a JSON object, its `Decimal`s as
 strings like every `Decimal`, and since `Any` declares no type to restore,
 they read back as strings.
 
-The operator weighed switching to Pydantic throughout and, on 2026-10-05,
+The owner weighed switching to Pydantic throughout and, on 2026-10-05,
 kept the records as dataclasses. The switch would remove the wire models
 and the mapping for the seven event types with a record, about 100 to 150
 lines and a few mapping tests by estimate, and add back aliases, a copy step

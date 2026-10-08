@@ -1,6 +1,6 @@
 # Conformance scenarios
 
-**Status:** Draft 0.1.0, for the operator's review, with the
+**Status:** Draft 0.1.0, for the owner's review, with the
 [client contract](client.md); not tagged. Scenarios that rest on one of the
 contract's owner specifications name it with an `owner-spec` line.
 
@@ -209,7 +209,7 @@ The block begins with these lines, before any step.
 | `expect-client-close <code> <reason>` | Wait until the client has sent a close frame on the current connection, and check its code and reason. |
 | `expect-no-connect <seconds>` | Fail if a connection attempt arrives within this many seconds, or if one that arrived earlier is still held, neither accepted nor refused, when the step starts. |
 
-**Attempts that arrived before `expect-no-connect`: decided by the operator
+**Attempts that arrived before `expect-no-connect`: decided by the owner
 on 2026-10-06.** Building the harness (plan step 4) found that the step, as
 the draft wrote it, counted only attempts that arrive during its window.
 Every `expect-no-connect` in this document comes where a correct client
@@ -2309,7 +2309,7 @@ expect-stats interruptions=0
 ### Hash verification
 
 These follow D4, an owner specification, and run with `verify_hash` on. As
-the operator decided, a burst is checked when the token's next entry
+the owner decided, a burst is checked when the token's next entry
 carries another hash, when its next `book` arrives, or `burst_quiet` after
 its last entry, 0.1 s in the profile
 ([client contract](client.md#d4-hash-verification)).
