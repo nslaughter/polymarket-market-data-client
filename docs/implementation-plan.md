@@ -35,10 +35,10 @@ start until the operator records the decision and changes the status here.
 The contract's design decisions, D1 to D8, are all
 [owner specifications](../spec/client.md#owner-specifications), decided on
 2026-10-05; the **Owner specifications** column names those each step
-follows. Steps 12 and 13 still wait on the operator: step 12 for the live
-run's period and markets, and step 13 for the release's version and tag
-scheme. Step 17 waits on the operator to decide whether the scripted server
-becomes a supported way to test applications.
+follows. Step 12 still waits on the owner for the live run's period, to be
+agreed once step 11 is merged. Step 17 waits on the owner to decide whether
+the scripted server becomes a supported way to test applications, a
+decision the owner deferred on 2026-10-08 until step 16 is merged.
 
 | Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ becomes a supported way to test applications.
 | 10. Verify order-book hashes | D4 | Not started | |
 | 11. Add the research example and check the built wheel | | Not started | |
 | 12. Record a limited live run | live-run period and markets | Needs operator decision | |
-| 13. Release a tagged wheel | release name | Needs operator decision | |
+| 13. Release a tagged wheel | release name | Not started | |
 | 14. Add the price-alert example | | Not started | |
 | 15. Stream synthetic markets | | Not started | |
 | 16. Add the dashboard example | | Not started | |
@@ -340,8 +340,10 @@ Follows D4: verification with the recipe, and its burst rule.
 
 ### 12. Record a limited live run
 
-Needs the operator to agree the run's period and its markets, or how the
-example chooses them. Only this step contacts the live service.
+Needs the owner to agree the run's period, once step 11 is merged. The
+owner decided on 2026-10-08 that the run watches the markets the research
+example chooses when it runs, rather than a list fixed in advance. Only
+this step contacts the live service.
 
 - Run the example against the live service for a limited period chosen
   with the operator, with the client's configuration recorded.
@@ -356,8 +358,10 @@ example chooses them. Only this step contacts the live service.
 
 ### 13. Release a tagged wheel
 
-Needs the operator to choose the first version and the tag scheme.
+The owner decided on 2026-10-08 that the first release is version `0.1.0`,
+tagged `v0.1.0`: a release's tag is `v` and its version.
 
+- Set the package's version to `0.1.0`.
 - A release workflow, triggered by a version tag, that builds the wheel,
   runs the full suite against it on each supported Python version, and
   attaches it to a GitHub release. The operator pushes the tag; the pull
@@ -378,10 +382,14 @@ is what the client is for.
   it. The stream emptied each book before the settlements it announced,
   and its entries then gave a best bid of 0 and a best ask of 1
   ([findings §6](source-behavior.md#6-settlement)): that is no quote, not
-  a midpoint of 0.5.
+  a midpoint of 0.5. The owner decided on 2026-10-08 that the alert then
+  compares the next midpoint with the last one it had, rather than
+  starting again when both sides return.
 - A midpoint equal to the threshold counts as above it, so every midpoint
   lies on one side: a rising midpoint crosses when it reaches the
-  threshold, and a falling one when it goes below it. It compares each
+  threshold, and a falling one when it goes below it. The owner decided
+  this on 2026-10-08, so a midpoint that touches the threshold from below
+  and falls back gives two alerts. It compares each
   midpoint it has while a token is `ready` with the last one it had while
   the token was `ready`. If they lie on opposite sides of the threshold
   and the token stayed `ready` between them, it prints an alert, stamped
@@ -436,7 +444,8 @@ live source beyond [`docs/source-behavior.md`](source-behavior.md).
     `1000 all subscribed assets resolved` once no unresolved market is
     left on the connection. At some seeded settlements the connection
     drops without a close frame after the book empties and before any
-    announcement, as it did once in the findings. A later connection
+    announcement, as it did once in the findings; the owner decided on
+    2026-10-08 to include these unannounced settlements. A later connection
     sends no book for a settled market;
   - interruptions at seeded points: a drop without a close frame, a close
     frame, a withheld `PONG`, and a slow-consumer close;
@@ -489,7 +498,9 @@ record incomplete.
   The relay's own code starts no threads. The streamer's scripted server
   keeps the thread it runs on
   ([The scripted server](../spec/conformance.md#the-scripted-server)).
-  Decimals stay strings until the page draws them. An example-only
+  The owner decided on 2026-10-08 to run the streamer in the relay's
+  process, rather than as a separate process the relay connects to by
+  `url`. Decimals stay strings until the page draws them. An example-only
   dependency is allowed if the pull request says why.
 - `examples/dashboard/web/`: TypeScript, built with Vite, with no UI
   framework and one small charting library, such as uPlot or Observable
@@ -514,9 +525,10 @@ and any UI framework.
 
 ### 17. Offer the scripted server for testing applications
 
-Needs the operator to decide whether the scripted server and the streamer
+Needs the owner to decide whether the scripted server and the streamer
 become a supported way for applications to test their own handling of
-interruptions and settlements. Today they are test code in `tests/`,
+interruptions and settlements. The owner deferred this decision on
+2026-10-08 until step 16 is merged. Today they are test code in `tests/`,
 outside the wheel and the contract. The options:
 
 - a public module in the distribution, such as
