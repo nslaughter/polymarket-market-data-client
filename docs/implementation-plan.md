@@ -12,6 +12,19 @@ the state machine, and the conformance harness. Steps 5 to 10 build the
 client against the scripted server, one area of the contract at a time.
 Steps 11 to 13 add the example, the live run, and the release.
 
+Steps 14 to 17 come after the release, so the client ships first. They add
+examples that show the client as a library to build on: an alert that acts
+correctly on state it knows is incomplete, a seeded synthetic streamer, a
+dashboard, and, if the operator chooses, a way for applications to test
+their own recovery handling. Every example has a controlled mode that CI
+runs against the scripted server or the streamer; none needs the live
+service to be checked, and these steps never contact it, since only step 12
+does. The plan leaves out notebooks, whose output would
+hold Polymarket's data; storage, which is the pipeline's; integrations with
+web frameworks beyond the dashboard's relay; anything that places orders;
+and replacing settled markets while running, which edges toward the
+continuous operation the README leaves out of scope.
+
 ## Progress
 
 Each step's pull request changes its own row: it sets **Status** to `Done`,
@@ -24,7 +37,8 @@ The contract's design decisions, D1 to D8, are all
 2026-10-05; the **Owner specifications** column names those each step
 follows. Steps 12 and 13 still wait on the operator: step 12 for the live
 run's period and markets, and step 13 for the release's version and tag
-scheme.
+scheme. Step 17 waits on the operator to decide whether the scripted server
+becomes a supported way to test applications.
 
 | Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
@@ -41,6 +55,10 @@ scheme.
 | 11. Add the research example and check the built wheel | | Not started | |
 | 12. Record a limited live run | live-run period and markets | Needs operator decision | |
 | 13. Release a tagged wheel | release name | Needs operator decision | |
+| 14. Add the price-alert example | | Not started | |
+| 15. Stream synthetic markets | | Not started | |
+| 16. Add the dashboard example | | Not started | |
+| 17. Offer the scripted server for testing applications | public testing module | Needs operator decision | |
 
 If the operator changes an owner specification, the scenarios marked
 `owner-spec` for it may need to change. That change is a new version of the
@@ -77,7 +95,8 @@ the import name D5 specifies, `polymarket_market_data`.
 | `_lookup.py` | `MarketLookup` and the default lookup (D6). |
 | `tests/` | Unit tests. |
 | `tests/conformance/` | The scenario parser, the scripted server and lookup, the runner, and `enabled.txt`. It reads `spec/conformance.md` directly. |
-| `examples/` | The research example (step 11). |
+| `tests/streamer/` | The seeded synthetic streamer and its soak tests (step 15), built on the scripted server. |
+| `examples/` | The research example and the quickstart (step 11), the price alert (step 14), and the dashboard (step 16). |
 
 ## Steps
 
@@ -298,7 +317,14 @@ Follows D4: verification with the recipe, and its burst rule.
   live service. The live mode needs the SDK extra, which provides the
   lookup that market selection and, with `verify_hash` on, hash checks
   need.
-- The README gains an installation quickstart and the example's commands.
+- `examples/quickstart.py`: the shortest useful program. It opens the
+  client, subscribes to one token, and handles each record type with
+  `match`, as the contract's
+  [Public interface](../spec/client.md#public-interface) shows. It takes
+  the endpoint from `url`, so CI runs it against the scripted server.
+- The README gains an installation quickstart, the quickstart program, and
+  the examples' commands. A test checks that the README's copy of the
+  program matches `examples/quickstart.py`.
 - CI builds the wheel, installs it in a clean virtual environment on each
   supported Python version, runs the whole conformance suite against the
   installed wheel, and runs the controlled example.
@@ -329,3 +355,121 @@ Needs the operator to choose the first version and the tag scheme.
   request adds the workflow only.
 - Update the README's status line.
 - Done when the workflow passes on the pull request, without publishing.
+
+### 14. Add the price-alert example
+
+An application that acts correctly on state it knows is incomplete, which
+is what the client is for.
+
+- `examples/alert.py`: watches tokens for their midpoint crossing a
+  threshold, computed in `Decimal` from the best bid and ask the records
+  carry, and prints an alert. It alerts only while the token is `ready`.
+  While a token is `synchronizing` or `uncertain`, it holds alerts and says
+  why. When a capture gap ends with the midpoint on the other side of the
+  threshold from where it was when the gap began, it reports a crossing at
+  an unknown time within the gap's bounds, never an alert at a time it
+  cannot know. When a market settles, it stops watching its tokens and
+  reports the winner if known.
+- A controlled mode runs it against the scripted server with a built-in
+  scenario that crosses the threshold once while the token is `ready` and
+  once during a gap. CI runs it and checks its output.
+- The README lists the example and its commands.
+
+Out of scope: placing orders, sending alerts anywhere but standard output,
+and any advice on what to do with one.
+
+### 15. Stream synthetic markets
+
+A seeded streamer that makes the scripted server look like a live market:
+for people watching the examples, for anything published about them, and
+for soak tests. It is synthetic and says so, and it claims nothing about the
+live source beyond [`docs/source-behavior.md`](source-behavior.md).
+
+- `tests/streamer/`: drives the scripted server and its `Source` (step 4),
+  so frames and hashes come from the harness's one implementation, never a
+  copy. The same seed gives the same frames in the same order:
+  - for each synthetic market, a bounded random walk of its books: prices
+    stay strictly between 0 and 1 and move in tick-size steps, a market's
+    two tokens mirror each other, and every update carries its hash;
+  - settlement as the investigation saw it
+    ([findings §6](source-behavior.md#6-settlement)): the book empties,
+    `market_resolved` names the winner, and the server closes with
+    `1000 all subscribed assets resolved` once no unresolved market is
+    left on the connection;
+  - interruptions at seeded points: a drop without a close frame, a close
+    frame, a withheld `PONG`, and a slow-consumer close;
+  - a load setting that raises the message rate until `PONG` queues behind
+    market data ([findings §2](source-behavior.md#2-heartbeat)) and a slow
+    consumer's queue fills.
+- A pace setting: real time, for people watching, or as fast as possible,
+  for CI.
+- Soak tests: for a fixed set of seeds, each run bounded to a few seconds,
+  run the client against the streamer and check rules the contract states
+  for every record sequence, each test citing its rule: the
+  [record order](../spec/client.md#record-order); a token interrupted
+  reaching `ready` again only through a `book` on a later connection
+  ([Per-token state machine](../spec/client.md#per-token-state-machine));
+  every price and size a `Decimal` ([Values](../spec/client.md#values));
+  and no task outliving the `async with` block
+  ([Cancellation and shutdown](../spec/client.md#cancellation-and-shutdown)).
+  They add to the conformance scenarios and replace none.
+- The examples' controlled modes may run against the streamer as well as
+  their built-in scenarios.
+
+Out of scope: realistic price models, any change to the client or to
+`spec/`, and new conformance scenarios.
+
+### 16. Add the dashboard example
+
+A browser view built on the client. It draws what only this client knows:
+where each token's book was uncertain, and where a capture gap leaves the
+record incomplete.
+
+- `examples/dashboard/server.py`: an asyncio program, with no threads, that
+  runs the client, relays its records to the browser as JSON written with
+  `TypeAdapter(...).dump_json` (D8), over a WebSocket or server-sent
+  events, and serves the built page. It has three sources: the live
+  service, which needs the SDK extra; the streamer (step 15); and a
+  JSON-lines timeline written by the research example (step 11), replayed.
+  Decimals stay strings until the page draws them. An example-only
+  dependency is allowed if the pull request says why.
+- `examples/dashboard/web/`: TypeScript, built with Vite, with no UI
+  framework and one small charting library, such as uPlot or Observable
+  Plot; the pull request names its choice and why. For each token, it
+  shows the midpoint and spread over time, shaded wherever the token was
+  not `ready` and with capture gaps marked; connection and recovery events
+  on the same time axis; settlement and the winner; and the backlog.
+- Polymarket's terms give no right to redistribute its data. Every
+  screenshot or recording committed or published comes from the streamer,
+  and nothing in the repository deploys the dashboard where others can see
+  live data.
+- CI, on one Node version, installs from the lockfile, type-checks, runs
+  the page's unit tests of the code that turns records into chart state,
+  and builds the page. It also runs the relay against a short seeded
+  streamer run and checks that a client of the relay receives every record
+  in order.
+- `AGENTS.md` gains the dashboard's commands. The README gains a screenshot
+  made from the streamer, and the commands.
+
+Out of scope: hosting, accounts, storage, which is the pipeline's, orders,
+and any UI framework.
+
+### 17. Offer the scripted server for testing applications
+
+Needs the operator to decide whether the scripted server and the streamer
+become a supported way for applications to test their own handling of
+interruptions and settlements. Today they are test code in `tests/`,
+outside the wheel and the contract. The options:
+
+- a public module in the distribution, such as
+  `polymarket_market_data.testing`, which adds it to the
+  [public interface](../spec/client.md#public-interface) and makes its API
+  a compatibility commitment;
+- a separate distribution, released with the client;
+- neither: the README explains how to run an application against them from
+  a checkout.
+
+The first two need a new version of `spec/client.md` before this step
+starts. Whichever is chosen, this step adds an example of an application's
+own tests: a consumer checked against a dropped connection, a withheld
+`PONG`, and a settlement.
