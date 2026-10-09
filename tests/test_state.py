@@ -583,18 +583,24 @@ def test_t11_lookup_shows_the_market_closed() -> None:
     assert [describe(r) for r in records] == [
         ("token", "S1", "settled", "lookup_closed"),
         ("token", "S2", "settled", "lookup_closed"),
-        ("conn", "idle"),
     ]
-    settled, _, idle = records
+    settled = records[0]
     assert isinstance(settled, TokenStateChange)
     assert (settled.previous, settled.winning_asset_id) == (TokenState.UNCERTAIN, S2)
-    assert isinstance(idle, ConnectionStateChange)
-    assert (idle.reason, idle.connection) == ("no_subscriptions", 1)
     assert run.machine.take_effects() == [
         StartConfirmation(S, "synthetic-s"),
         EndConfirmation(S),
     ]
     assert run.machine.desired == ()
+    # The client closes the connection, and the idle record follows its end.
+    run.machine.closed(run.now)
+    [idle] = run.take()
+    assert isinstance(idle, ConnectionStateChange)
+    assert (idle.state, idle.reason, idle.connection) == (
+        ConnectionState.IDLE,
+        "no_subscriptions",
+        1,
+    )
     assert run.machine.phase is ConnectionState.IDLE
 
 
@@ -616,7 +622,6 @@ def test_t11_settles_every_token_of_the_market_whatever_its_state() -> None:
     assert [describe(r) for r in records] == [
         ("token", "A1", "settled", "lookup_closed"),
         ("token", "A2", "settled", "lookup_closed"),
-        ("conn", "idle"),
     ]
     ready_one = records[0]
     assert isinstance(ready_one, TokenStateChange)
@@ -649,7 +654,6 @@ def test_t11_ends_open_gaps_without_resuming() -> None:
         ("token", "A1", "settled", "lookup_closed"),
         ("gap", "A2", "settled"),
         ("token", "A2", "settled", "lookup_closed"),
-        ("conn", "idle"),
     ]
     assert records[0] == CaptureGap(
         token_id=A1,
@@ -666,7 +670,8 @@ def test_t11_ends_open_gaps_without_resuming() -> None:
         held_book_matched=None,
         at=run.now,
     )
-    idle = records[-1]
+    run.machine.closed(run.now)
+    [idle] = run.take()
     assert isinstance(idle, ConnectionStateChange)
     assert idle.connection == 2
 
@@ -761,8 +766,9 @@ def test_t4_joins_a_running_confirmation_and_the_next_one_starts_afresh() -> Non
     assert run.summary() == [
         ("token", "A1", "settled", "lookup_closed"),
         ("token", "A2", "settled", "lookup_closed"),
-        ("conn", "idle"),
     ]
+    run.machine.closed(run.now)
+    assert run.summary() == [("conn", "idle")]
 
 
 # T14, T2, T3 with a gap: interruption and recovery.
@@ -1096,8 +1102,68 @@ def test_t15_ends_an_open_gap() -> None:
         ("token", "A1", "settled", "market_resolved"),
         ("gap", "A2", "settled"),
         ("token", "A2", "settled", "market_resolved"),
-        ("conn", "idle"),
     ]
+    run.machine.closed(run.now)
+    assert run.summary() == [("conn", "idle")]
+
+
+def test_the_idle_record_follows_the_frames_of_the_connection_the_client_closes() -> (
+    None
+):
+    # What arrives while the client closes the connection the last market
+    # left is handled as before, and one idle record follows the end, even
+    # after a market has been added.
+    run = started(MARKET_A)
+    run.send(resolved(A, 1001, A1))
+    run.take()
+    run.send('{"event_type":"something_new","market":"x"}')
+    run.send(pc(A, 1002, (A1, "BUY", "0.49", "10")))
+    run.machine.subscribe([MARKET_B])
+    assert run.summary() == [("unknown",)]
+    assert run.machine.counts.discarded_outside == 1
+    run.machine.closed(run.now)
+    records = run.take()
+    assert [describe(r) for r in records] == [("conn", "idle")]
+    idle = records[0]
+    assert isinstance(idle, ConnectionStateChange)
+    assert idle.connection == 1
+    run.machine.closed(run.now)
+    assert run.take() == []
+    run.connect()
+    assert run.summary() == [
+        ("conn", "connecting"),
+        ("conn", "open"),
+        ("conn", "subscribed"),
+        ("token", "B1", "synchronizing", "subscribed"),
+        ("token", "B2", "synchronizing", "subscribed"),
+    ]
+
+
+def test_the_last_market_leaving_before_the_subscription_frame_idles_at_the_end() -> (
+    None
+):
+    # A confirmation outlives its connection, so lookup can settle the last
+    # market while the next connection's subscription frame is being sent.
+    run = Run(MARKET_A)
+    run.connect()
+    run.send(opening())
+    run.book_timeout()
+    run.drop()
+    run.machine.connecting(1, run.now)
+    run.generation += 1
+    run.machine.opened(run.generation, run.now)
+    run.take()
+    run.machine.confirmation(A, closed(MARKET_A, A2), run.now)
+    assert run.summary() == [
+        ("token", "A1", "settled", "lookup_closed"),
+        ("token", "A2", "settled", "lookup_closed"),
+    ]
+    run.machine.closed(run.now)
+    records = run.take()
+    assert [describe(r) for r in records] == [("conn", "idle")]
+    idle = records[0]
+    assert isinstance(idle, ConnectionStateChange)
+    assert idle.connection == 2
 
 
 def test_t16_the_all_resolved_close_settles_every_token_on_the_connection() -> None:
@@ -1186,8 +1252,9 @@ def test_t17_removing_every_market_goes_idle() -> None:
     assert run.summary() == [
         ("token", "A1", "removed", "removed"),
         ("token", "A2", "removed", "removed"),
-        ("conn", "idle"),
     ]
+    run.machine.closed(run.now)
+    assert run.summary() == [("conn", "idle")]
     run.machine.subscribe([MARKET_B])
     run.connect()
     assert run.summary()[-2:] == [

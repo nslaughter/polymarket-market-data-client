@@ -2,7 +2,8 @@
 scenario covers: shutdown, the heartbeat's counters, ``keep_raw``, ends of a
 connection the scenarios leave out, the backoff's jitter, the last desired
 market leaving before a connection is subscribed or while an interrupted
-one closes, settlement with no lookup available, a defect in the client's
+one closes, frames arriving while the client closes the connection the last
+market left, settlement with no lookup available, a defect in the client's
 own code, and the stopgap that ends the client until plan step 9 replaces
 it (spec/client.md, Cancellation and shutdown, Heartbeat, Detecting an
 interruption, Reconnecting, Connection states, Settlement, and Errors).
@@ -291,18 +292,63 @@ expect token B2 synchronizing previous=none
 """
 
 
-def test_a_market_added_while_an_interrupted_connection_closes_connects_at_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def hold_close(monkeypatch: pytest.MonkeyPatch, held_reason: str) -> None:
+    """Hold the client's close with ``held_reason`` for ``HOLD``."""
     close = ClientConnection.close
 
     async def held(self: ClientConnection, code: int = 1000, reason: str = "") -> None:
-        if reason == _connection.PONG_TIMEOUT:
+        if reason == held_reason:
             await asyncio.sleep(HOLD)
         await close(self, code, reason)
 
     monkeypatch.setattr(ClientConnection, "close", held)
+
+
+def test_a_market_added_while_an_interrupted_connection_closes_connects_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hold_close(monkeypatch, _connection.PONG_TIMEOUT)
     run(parse_scenario(ADDED_WHILE_CLOSING))
+
+
+# Frames that arrive while the client closes the connection the last market
+# left are handled as on any connection, and the idle record follows its
+# end, after them, even when a market was added meanwhile (spec/client.md,
+# Connection states and Events outside the desired set). The client's close
+# is held as above.
+
+FRAMES_WHILE_CLOSING = """
+scenario frames-while-the-client-closes-with-no-subscriptions
+markets A
+config close_timeout=2.0
+start A
+send resolved A t=100 winner=A1
+expect market_resolved A
+expect token A1 settled reason=market_resolved
+expect token A2 settled reason=market_resolved
+send-text {"market":"${A}","asset_id":"${A1}","timestamp":"${t:101}",
+  "event_type":"something_new"}
+send pc A t=102 A1:BUY:0.49:10
+expect unknown event_type=something_new connection=1
+subscribe B
+c: expect-client-close 1000 "no subscriptions"
+expect conn idle reason=no_subscriptions connection=1
+expect conn connecting attempt=1 within 0..0.2 of c
+accept
+recv-subscribe B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+expect-stats unknown=1 discarded_outside=1 interruptions=0
+"""
+
+
+def test_frames_while_the_client_closes_come_before_the_idle_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hold_close(monkeypatch, _connection.NO_SUBSCRIPTIONS)
+    run(parse_scenario(FRAMES_WHILE_CLOSING))
 
 
 # With no lookup available, passed or installed, no settlement can be

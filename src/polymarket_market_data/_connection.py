@@ -22,10 +22,12 @@ subscribed assets resolved``, which ends the connection without interrupting
 it; and a token without a book once ``book_timeout`` has passed, which starts
 a confirmation through lookup. Confirmations outlive connections, so they
 run in the connector's own task group. Once no desired market is left, no
-connection is needed: the client closes a subscribed connection, or
-abandons a backoff, an attempt, or a subscription frame, and waits until a
-market is added, which starts attempt 1 at once, whatever recovery was
-under way (spec/client.md, Connection states and Reconnecting).
+connection is needed: the client closes an open connection, or abandons a
+backoff, an attempt, or a subscription frame, and waits until a market is
+added, which starts attempt 1 at once, whatever recovery was under way
+(spec/client.md, Connection states and Reconnecting). The ``idle`` record of
+a connection the client closes follows its end, after every frame it
+delivered.
 
 A frame that reaches the queue's limit ends the client with a
 ``ClientError``, a stopgap until plan step 9 responds at the limit, so that
@@ -334,7 +336,7 @@ class Connector:
                 await self._serve(socket)
                 self._socket = None
             if not self._state.desired:
-                return  # its idle record came when the last market left
+                return  # its idle record has come
             if self._retry is None or self._went_idle:
                 # The all-resolved close left desired markets that were not
                 # on the connection, or a market was added after the last one
@@ -383,7 +385,8 @@ class Connector:
         self._generation += 1
         generation = self._generation
         if not self._state.desired:
-            # The last market left as the handshake completed.
+            # The last market left as the handshake completed, and its idle
+            # record has come: no open record follows it.
             await self._close(socket, NO_SUBSCRIPTIONS)
             return
         self._state.opened(generation, now())
@@ -393,7 +396,7 @@ class Connector:
             async with self._unless_emptied():
                 await socket.send(subscription_frame(tokens))
         except _Emptied:
-            await self._close(socket, NO_SUBSCRIPTIONS)
+            await self._close_unsubscribed(socket)
             return
         except ConnectionClosed as closed:
             # A failed attempt, not an interruption: no token was subscribed
@@ -405,7 +408,7 @@ class Connector:
             )
             return
         if not self._state.desired:
-            await self._close(socket, NO_SUBSCRIPTIONS)
+            await self._close_unsubscribed(socket)
             return
         subscribed = loop.time()
         self._state.subscribed(tokens, now())
@@ -458,7 +461,8 @@ class Connector:
     def _emptied(self) -> None:
         """No desired market is left: abandon the wait before a subscription
         frame, or close the subscribed connection (spec/client.md, Connection
-        states). The state machine has emitted the idle record."""
+        states). The state machine has emitted the idle record, unless a
+        connection is open, whose end it waits for."""
         self._went_idle = True
         pending = self._pending
         if pending is not None and not pending.expired():
@@ -468,9 +472,17 @@ class Connector:
             live.idle.set()
 
     async def _close_when_idle(self, socket: ClientConnection, live: _Live) -> None:
-        """Close the connection once no desired market is left on it."""
+        """Close the connection once no desired market is left on it. The
+        reader records its end, after the frames still arriving."""
         await live.idle.wait()
         await self._close(socket, NO_SUBSCRIPTIONS)
+
+    async def _close_unsubscribed(self, socket: ClientConnection) -> None:
+        """Close a connection whose subscription frame was not sent, since no
+        desired market is left, and record its end, the idle record."""
+        await self._close(socket, NO_SUBSCRIPTIONS)
+        self._state.closed(now())
+        self.publish()
 
     async def _book_timeout(self, live: _Live, subscribed: float) -> None:
         """``book_timeout`` after the subscription frame, the tokens still
@@ -577,8 +589,10 @@ class Connector:
         or a protocol error (spec/client.md, Detecting an interruption)."""
         if live.idle.is_set():
             # No desired market is left on it, so its end, however it came,
-            # interrupts nothing; its idle record came then.
+            # interrupts nothing; its idle record follows.
             live.ended = True
+            self._state.closed(now())
+            self.publish()
             return
         at, clock = now(), asyncio.get_running_loop().time()
         close = closed.rcvd
