@@ -3,10 +3,12 @@ scenario covers: shutdown, the heartbeat's counters, ``keep_raw``, ends of a
 connection the scenarios leave out, the backoff's jitter, the last desired
 market leaving before a connection is subscribed or while an interrupted
 one closes, frames arriving while the client closes the connection the last
-market left, settlement with no lookup available, a defect in the client's
-own code, and the stopgap that ends the client until plan step 9 replaces
-it (spec/client.md, Cancellation and shutdown, Heartbeat, Detecting an
-interruption, Reconnecting, Connection states, Settlement, and Errors).
+market left, subscription changes on a connection opened during a recovery
+or while an interrupted one closes, settlement with no lookup available, a
+defect in the client's own code, and the stopgap that ends the client until
+plan step 9 replaces it (spec/client.md, Cancellation and shutdown,
+Heartbeat, Detecting an interruption, Reconnecting, Connection states,
+Settlement, and Errors).
 
 Most are scenarios in the conformance notation, which the runner runs as it
 runs those in spec/conformance.md; a test that needs the client itself
@@ -223,6 +225,83 @@ expect conn subscribed connection=2
 expect token B1 synchronizing previous=none
 expect token B2 synchronizing previous=none
 """,
+    # A connection the client closes to apply a subscription change is never
+    # a failed attempt, so the next attempt is the one that opened it again,
+    # attempt 2 here, and max_attempts=2 is not exhausted (D7;
+    # spec/client.md, Reconnecting).
+    "a-subscription-change-repeats-the-attempt-that-opened-the-connection": """
+markets A
+config reconnect.max_attempts=2
+expect conn connecting attempt=1
+refuse 1
+expect conn recovering attempt=2 reason=backoff retry_in=0.2 detail=set
+expect conn connecting attempt=2
+accept
+recv-subscribe A1 A2
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing previous=none
+expect token A2 synchronizing previous=none
+add: subscribe B
+expect conn interrupted reason=subscription_change connection=1
+  within 0..0.5 of add
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=2 reason=subscription_change retry_in=0
+expect-client-close 1000 "subscription change"
+expect conn connecting attempt=2
+accept
+recv-subscribe A1 A2 B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+send opening A1 A2 B1 B2
+expect book A1 held_book_matched=none
+expect token A1 ready
+expect book A2
+expect token A2 ready
+expect book B1
+expect token B1 ready
+expect book B2
+expect token B2 ready
+expect-stats connections=2 interruptions.subscription_change=1
+""",
+    # The bounds are checked as for any interruption. Connection 2 delivers
+    # no frame, so the recovery that connection 1's end began goes on, and a
+    # change after max_recovery_time has passed exhausts it, with no wait
+    # (spec/client.md, Detecting an interruption and Reconnecting).
+    "a-subscription-change-after-max-recovery-time-fails": """
+markets A
+config reconnect.max_recovery_time=1.0 book_timeout=5.0
+start A
+drop
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1 reason=backoff retry_in=0.1
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+wait 1.0
+add: subscribe B
+expect conn interrupted reason=subscription_change connection=2
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect gap A1 cause=dropped end=recovery_failed resumed=false
+expect gap A2 cause=dropped end=recovery_failed resumed=false
+expect conn failed reason=max_recovery_time detail=none within 0..0.5 of add
+expect-client-close 1000 "subscription change"
+expect-error RecoveryFailed
+expect-end
+expect-no-connect 0.5
+""",
     # Stopgap: until plan step 9 responds at the queue's limit, a frame that
     # reaches it ends the client with a ClientError, raised after the records
     # already queued.
@@ -309,6 +388,85 @@ def test_a_market_added_while_an_interrupted_connection_closes_connects_at_once(
 ) -> None:
     hold_close(monkeypatch, _connection.PONG_TIMEOUT)
     run(parse_scenario(ADDED_WHILE_CLOSING))
+
+
+# To apply a subscription change, recovering comes with the interruption,
+# before the client's close has ended, unlike after a pong_timeout; the
+# attempt starts once the close has ended; and the frames that arrive
+# meanwhile are counted and discarded (D7; spec/client.md, Detecting an
+# interruption). The client's close is held as above.
+
+CHANGE_WHILE_CLOSING = """
+scenario a-subscription-change-announces-recovering-before-its-close-ends
+markets A
+config close_timeout=2.0
+start A
+add: subscribe B
+expect conn interrupted reason=subscription_change connection=1
+  within 0..0.3 of add
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1 reason=subscription_change retry_in=0
+  within 0..0.3 of add
+send pc A t=100 A1:BUY:0.49:10
+c: expect-client-close 1000 "subscription change"
+expect conn connecting attempt=1 within 0..0.2 of c
+accept
+recv-subscribe A1 A2 B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+# The PONGs of the PINGs sent meanwhile are counted too.
+expect-stats frames=2 frames_after_interruption>=1 events.price_change=0
+"""
+
+
+def test_a_subscription_change_announces_recovering_before_its_close_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hold_close(monkeypatch, _connection.SUBSCRIPTION_CHANGE)
+    run(parse_scenario(CHANGE_WHILE_CLOSING))
+
+
+# A market added while the client closes a connection it has interrupted
+# joins the next subscription frame: no connection is subscribed then, so
+# the addition causes no second interruption and no extra reconnect (D7;
+# spec/client.md, Connection states). The client's close is held as above.
+
+ADDED_AFTER_PONG_TIMEOUT = """
+scenario a-market-added-while-the-client-closes-after-a-pong-timeout
+markets A
+config close_timeout=2.0
+start A
+pong off
+expect conn interrupted reason=pong_timeout connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+subscribe B
+pong auto
+c: expect-client-close 1000 "pong timeout"
+expect conn recovering attempt=1 reason=backoff retry_in=0.1 within 0..0.2 of c
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2 B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+expect-stats connections=2 interruptions=1 interruptions.pong_timeout=1
+"""
+
+
+def test_a_market_added_while_the_client_closes_after_a_pong_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hold_close(monkeypatch, _connection.PONG_TIMEOUT)
+    run(parse_scenario(ADDED_AFTER_PONG_TIMEOUT))
 
 
 # Frames that arrive while the client closes the connection the last market

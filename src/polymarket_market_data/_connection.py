@@ -29,6 +29,15 @@ added, which starts attempt 1 at once, whatever recovery was under way
 a connection the client closes follows its end, after every frame it
 delivered.
 
+Changes to the desired set follow D7. A removal needs no new connection: the
+state machine makes the market's tokens ``removed`` and discards its events,
+and the next subscription frame leaves it out. An addition needs one once a
+connection is subscribed, since its frame does not name the market added:
+the client interrupts the connection (``subscription_change``), which is
+never a failed attempt, emits ``recovering`` at once, closes it, and starts
+the next attempt as soon as it has ended. An addition before then, during a
+backoff or an attempt, is in the next subscription frame.
+
 A frame that reaches the queue's limit ends the client with a
 ``ClientError``, a stopgap until plan step 9 responds at the limit, so that
 nothing is lost silently.
@@ -64,6 +73,10 @@ PONG_TIMEOUT = "pong timeout"
 NO_SUBSCRIPTIONS = "no subscriptions"
 """The reason of the close frame the client sends once no desired market is
 left."""
+
+SUBSCRIPTION_CHANGE = "subscription change"
+"""The reason of the close frame the client sends to apply an addition to the
+desired set."""
 
 
 def now() -> datetime:
@@ -203,6 +216,10 @@ class _Retry:
     """How it failed, if it was a failed attempt."""
     error: BaseException | None
     """The exception that ended it, if one did."""
+    change: bool = False
+    """Whether the client closed it to apply a subscription change: its
+    ``recovering`` record came with the interruption, and the next attempt
+    starts at once (D7)."""
 
 
 class _Emptied(Exception):
@@ -223,11 +240,15 @@ class _Live:
     ended: bool = False
     """Whether the client has recorded its end: nothing that arrives on it
     afterwards is delivered or applied."""
-    closing: bool = False
-    """Whether the client is closing it after a ``pong_timeout``."""
+    closer: asyncio.Task[None] | None = None
+    """The task closing it after a ``pong_timeout`` or to apply a
+    subscription change, which completes the close on its own."""
     idle: asyncio.Event = field(default_factory=asyncio.Event)
     """Set once no desired market is left: the client closes it, and its end
     is no interruption."""
+    change: asyncio.Event = field(default_factory=asyncio.Event)
+    """Set when markets are added to the desired set, which its subscription
+    frame did not name."""
 
 
 class Connector:
@@ -285,9 +306,15 @@ class Connector:
                     await self._wanted.wait()
                 await self._connections()
 
-    def wanted(self) -> None:
-        """A market was added to an empty desired set: connect at once."""
+    def added(self) -> None:
+        """Markets were added to the desired set. To an empty one, connect at
+        once. To a subscribed connection, whose frame does not name them,
+        applying them needs a new connection (D7), which the connection's own
+        task sees to. Otherwise the next subscription frame names them."""
         self._wanted.set()
+        live = self._live
+        if live is not None:
+            live.change.set()
 
     async def close(self) -> None:
         """Close the open connection, if any, as the client shuts down."""
@@ -347,6 +374,10 @@ class Connector:
                 # the recovery the interruption began (spec/client.md,
                 # Reconnecting and Connection states).
                 self._recovery.restart(loop.time())
+                continue
+            if self._retry.change:
+                # Its recovering record came with the interruption, and the
+                # attempt starts at once (spec/client.md, Reconnecting).
                 continue
             # Decided only now that the connection has ended, so that a close
             # the client started cannot hold the attempt past the wait that
@@ -432,6 +463,12 @@ class Connector:
         self.publish()
         live = _Live(generation, _Heartbeat(self.pongs))
         self._live = live
+        if self._state.outdated():
+            # Markets were added while the frame was sent, which holds the
+            # desired set as it was before: the connection is subscribed to
+            # that set, and the addition is applied as on any subscribed
+            # connection (D7).
+            live.change.set()
         try:
             async with asyncio.TaskGroup() as group:
                 heartbeat = group.create_task(
@@ -443,11 +480,15 @@ class Connector:
                 idle = group.create_task(
                     self._close_when_idle(socket, live), name="close-when-idle"
                 )
+                change = group.create_task(
+                    self._apply_change(socket, live), name="subscription-change"
+                )
                 await self._read(socket, live)
                 books.cancel()
                 # A close the client started completes on its own.
-                if not live.closing:
-                    heartbeat.cancel()
+                for task in (heartbeat, change):
+                    if task is not live.closer:
+                        task.cancel()
                 if not live.idle.is_set():
                     idle.cancel()
         finally:
@@ -499,6 +540,32 @@ class Connector:
         reader records its end, after the frames still arriving."""
         await live.idle.wait()
         await self._close(socket, NO_SUBSCRIPTIONS)
+
+    async def _apply_change(self, socket: ClientConnection, live: _Live) -> None:
+        """Once the desired set holds a market the connection's subscription
+        frame did not name, interrupt the connection and close it, so that
+        the next attempt subscribes the new set (D7). The interruption is
+        never a failed attempt, and its ``recovering`` record, with no wait,
+        follows it at once, unless the bounds are exhausted (spec/client.md,
+        Detecting an interruption and Reconnecting)."""
+        while True:
+            await live.change.wait()
+            live.change.clear()
+            if live.ended or live.idle.is_set():
+                return  # the next subscription frame names what was added
+            # An addition undone since needs no new connection.
+            if self._state.outdated():
+                break
+        live.closer = asyncio.current_task()
+        retry = self._interrupt(
+            live, "subscription_change", now(), asyncio.get_running_loop().time()
+        )
+        try:
+            self._next(retry)
+        finally:
+            # The reader goes on reading while the close completes, so that
+            # the frames still arriving are counted and discarded.
+            await self._close(socket, SUBSCRIPTION_CHANGE)
 
     async def _close_unsubscribed(
         self, socket: ClientConnection, generation: int
@@ -570,7 +637,7 @@ class Connector:
             # interruption). The server may be slow to end it.
             await self._await_end(socket)
             return
-        live.closing = True
+        live.closer = asyncio.current_task()
         self._interrupt(live, "pong_timeout", now(), clock)
         # The reader goes on reading while the close completes, so that the
         # frames still arriving are counted and discarded.
@@ -663,22 +730,29 @@ class Connector:
         close_code: int | None = None,
         close_reason: str | None = None,
         error: BaseException | None = None,
-    ) -> None:
+    ) -> _Retry:
         """Record the end of a subscribed connection that may have lost
         events, and that another attempt follows it (T14; spec/client.md,
         Record order, rule 4). One that delivered no frame is also a failed
-        attempt. ``error`` is the exception that ended it, if one did."""
+        attempt, unless the client closed it to apply a subscription change,
+        since the server did not fail it. ``error`` is the exception that
+        ended it, if one did."""
         live.ended = True
         self._state.interrupted(
             cause, at, close_code=close_code, close_reason=close_reason
         )
         self.publish()
+        # A subscription change begins a recovery too, if none is running, so
+        # that max_recovery_time bounds the attempts after it; one running
+        # keeps its clock (spec/client.md, Reconnecting).
         self._recovery.begin(clock)
+        change = cause == "subscription_change"
         detail = None
-        if not live.delivered:
+        if not (live.delivered or change):
             self._recovery.failed()
             detail = f"connection {live.generation} ended before delivering a frame"
-        self._retry = _Retry(detail, error)
+        self._retry = _Retry(detail, error, change)
+        return self._retry
 
     def _attempt_failed(self, detail: str, error: BaseException) -> None:
         """An attempt failed before its connection was subscribed."""
@@ -686,21 +760,22 @@ class Connector:
         self._retry = _Retry(detail, error)
 
     def _next(self, retry: _Retry) -> float:
-        """Emit ``recovering`` and return the backoff before the next
-        attempt, or fail if the bounds are exhausted (D2). Failing emits
-        each open gap's ``CaptureGap``, then ``failed``, with no
-        ``recovering`` record for the attempt the client will not make
-        (T18; spec/client.md, Record order, rule 4). Either record says how
-        the last attempt failed, if it did, and ``RecoveryFailed`` keeps the
-        exception that ended it as its ``__cause__``, since no later record
-        reports that attempt."""
+        """Emit ``recovering`` and return the wait before the next attempt:
+        its backoff, or none to apply a subscription change (D7). Or fail if
+        the bounds are exhausted (D2). Failing emits each open gap's
+        ``CaptureGap``, then ``failed``, with no ``recovering`` record for
+        the attempt the client will not make (T18; spec/client.md, Record
+        order, rule 4). Either record says how the last attempt failed, if
+        it did, and ``RecoveryFailed`` keeps the exception that ended it as
+        its ``__cause__``, since no later record reports that attempt."""
         at, clock = now(), asyncio.get_running_loop().time()
         recovery = self._recovery
-        wait = recovery.delay()
+        wait = 0.0 if retry.change else recovery.delay()
         exhausted = recovery.exhausted(clock, wait)
         if exhausted is None:
+            reason = "subscription_change" if retry.change else "backoff"
             self._state.recovering(
-                recovery.attempt, "backoff", at, retry_in=wait, detail=retry.detail
+                recovery.attempt, reason, at, retry_in=wait, detail=retry.detail
             )
             self.publish()
             return wait

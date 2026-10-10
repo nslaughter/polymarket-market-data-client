@@ -7,9 +7,10 @@ own tasks belong to ``TaskGroup``s inside it. Leaving the ``async with``
 block cancels that task and waits for it, and the task closes an open
 connection as it ends, so nothing the client started outlives the block.
 
-Not yet here: changing the desired set while a market is desired, which
-needs a connection changed (plan step 8), and refusing ``verify_hash``
-without a lookup (step 10).
+``subscribe`` and ``unsubscribe`` change the desired set at once, and the
+connection task applies the change to the connection, as D7 specifies.
+
+Not yet here: refusing ``verify_hash`` without a lookup (plan step 10).
 """
 
 import asyncio
@@ -141,14 +142,16 @@ class MarketDataClient:
         two markets of the desired set."""
         self._changing()
         if self._state.subscribe(markets) and self._stage is _Stage.RUNNING:
-            # Added to an empty desired set: the first attempt starts at once
-            # (spec/client.md, Reconnecting).
+            # Added to an empty desired set, the first attempt starts at once
+            # (spec/client.md, Reconnecting); added on a subscribed
+            # connection, they need a new one (D7).
             self._start()
-            self._connector.wanted()
+            self._connector.added()
 
     def unsubscribe(self, *condition_ids: str) -> None:
-        """Remove markets from the desired set; an ID not in it is
-        ignored."""
+        """Remove markets from the desired set; an ID not in it is ignored.
+        Their tokens become ``removed`` at once, without reconnecting
+        (D7)."""
         self._changing()
         self._state.unsubscribe(condition_ids, now())
         self._connector.publish()
@@ -156,11 +159,6 @@ class MarketDataClient:
     def _changing(self) -> None:
         if self._stage in (_Stage.ENDED, _Stage.SHUT_DOWN):
             raise ClientStateError("the client has shut down")
-        if self._stage is _Stage.RUNNING and self._state.desired:
-            raise NotImplementedError(
-                "changing the desired set while a market is desired comes with "
-                "plan step 8"
-            )
 
     # The consumer's side.
 

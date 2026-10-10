@@ -49,7 +49,7 @@ decision the owner deferred on 2026-10-08 until step 16 is merged.
 | 5. Connect, subscribe, and deliver records | | Done | [#15](https://github.com/nslaughter/polymarket-market-data-client/pull/15) |
 | 6. Detect interruptions and recover | D1, D2 | Done | [#18](https://github.com/nslaughter/polymarket-market-data-client/pull/18) |
 | 7. Settle markets through the stream and lookup | D6 | Done | [#20](https://github.com/nslaughter/polymarket-market-data-client/pull/20) |
-| 8. Apply subscription changes | D7 | Not started | |
+| 8. Apply subscription changes | D7 | Done | [#24](https://github.com/nslaughter/polymarket-market-data-client/pull/24) |
 | 9. Bound the consumer handoff | D3 | Not started | |
 | 10. Verify order-book hashes | D4 | Not started | |
 | 11. Add the research example and check the built wheel | | Not started | |

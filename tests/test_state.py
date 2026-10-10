@@ -1271,6 +1271,27 @@ def test_t17_a_market_no_subscription_frame_named_has_no_records() -> None:
     assert run.machine.desired == (MARKET_A,)
 
 
+def test_only_an_addition_after_the_subscription_frame_needs_a_new_connection() -> None:
+    # D7: an addition reconnects; a removal does not.
+    run = started(MARKET_A, MARKET_B)
+    assert not run.machine.outdated()
+    run.machine.subscribe([MARKET_S])
+    assert run.machine.outdated()
+    # Undone before it was applied, it needs nothing.
+    run.machine.unsubscribe([S], run.now)
+    assert not run.machine.outdated()
+    run.machine.unsubscribe([A], run.now)
+    assert not run.machine.outdated()
+    # A market added again is outside the desired set until a subscription
+    # frame names it.
+    run.machine.subscribe([MARKET_A])
+    assert run.machine.outdated()
+    run.machine.interrupted("subscription_change", run.now)
+    run.machine.recovering(1, "subscription_change", run.now, retry_in=0)
+    run.connect()
+    assert not run.machine.outdated()
+
+
 def test_t1_a_market_added_again_starts_over() -> None:
     # resubscribe-removed
     run = started(MARKET_A, MARKET_B)

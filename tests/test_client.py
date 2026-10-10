@@ -174,17 +174,23 @@ def test_changes_after_shutdown_raise() -> None:
     asyncio.run(main())
 
 
-def test_changes_while_a_market_is_desired_are_not_implemented_yet() -> None:
-    # Plan step 8 applies them; until then they are refused, not lost. A
-    # market added to an empty desired set connects the client, as
-    # resolve-by-slug in spec/conformance.md shows.
+def test_changes_inside_the_block_change_the_desired_set_at_once() -> None:
+    # The connection task applies them to the connection (D7), as the
+    # scenarios under Subscription changes in spec/conformance.md show.
     async def main() -> None:
         async with MarketDataClient(config(), markets=[MARKET_A]) as client:
-            with pytest.raises(NotImplementedError):
-                client.subscribe(MARKET_B)
-            with pytest.raises(NotImplementedError):
-                client.unsubscribe(MARKET_A.condition_id)
-            assert client.desired == (MARKET_A,)
+            client.subscribe(MARKET_B, MARKET_A)
+            added = client.desired
+            client.unsubscribe(MARKET_A.condition_id)
+            removed = client.desired
+            clash = Market("0xother", (MARKET_B.token_ids[0],), None)
+            with pytest.raises(ValueError, match="belongs to market"):
+                client.subscribe(clash)
+            assert (added, removed, client.desired) == (
+                (MARKET_A, MARKET_B),
+                (MARKET_B,),
+                (MARKET_B,),
+            )
 
     asyncio.run(main())
 
