@@ -37,6 +37,9 @@ Repository = "https://github.com/nslaughter/polymarket-market-data-client"
 [dependency-groups]
 dev = [
     "mypy>=1",
+    # The sdk extra, so that the default lookup is tested (D6). Its HTTP is
+    # replaced in the tests, which talk to no live service.
+    "polymarket-market-data-client[sdk]",
     "pytest>=8",
     "ruff>=0.16",
 ]

@@ -72,6 +72,8 @@ jobs:
           uv pip install --python "$python" --no-deps dist/*.whl
           uv pip install --python "$python" "pytest>=8"
           "$python" -c "import pydantic, websockets; print(pydantic.VERSION, websockets.__version__)"
+      # Without the sdk extra, so tests/test_lookup_sdk.py, which tests it,
+      # is skipped here; the check job runs it with the locked versions.
       - name: Test against the installed wheel
         run: |
           cd "$RUNNER_TEMP"

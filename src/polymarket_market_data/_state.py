@@ -54,7 +54,8 @@ Position = tuple[int, int, int]
 ALL_RESOLVED = "all subscribed assets resolved"
 
 _TAKING_PART = (TokenState.SYNCHRONIZING, TokenState.READY, TokenState.UNCERTAIN)
-_CONNECTED = (ConnectionState.OPEN, ConnectionState.SUBSCRIBED, ConnectionState.ENDED)
+_OPEN = (ConnectionState.OPEN, ConnectionState.SUBSCRIBED)
+_CONNECTED = (*_OPEN, ConnectionState.ENDED)
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +145,9 @@ class StateMachine:
         self._phase: ConnectionState | None = None
         self._generation = 0
         self._interrupted = False
+        # Whether the desired set emptied while the current connection was
+        # open: the client closes it, and its idle record waits for its end.
+        self._idle_held = False
         self._last_frame_at: datetime | None = None
         self._repeats = RepeatDetector(repeat_window)
         self._records: list[Record] = []
@@ -432,6 +436,14 @@ class StateMachine:
             for condition_id in dict.fromkeys(token.market for token in unsettled):
                 self._settle(condition_id, "all_resolved_close", None, at)
         self._idle_if_empty(at)
+
+    def closed(self, at: datetime) -> None:
+        """The connection the client closed once no desired market was left
+        has ended, however it ended, and after every frame it delivered: its
+        ``idle`` record follows now, even if a market has been added since
+        (spec/client.md, Connection states)."""
+        if self._idle_held:
+            self._idle(at)
 
     def failed(self, reason: str, at: datetime, *, detail: str | None = None) -> None:
         """Reconnection exhausted its bounds (T18; spec/client.md, Record
@@ -734,13 +746,22 @@ class StateMachine:
 
     def _idle_if_empty(self, at: datetime) -> None:
         """No connection is needed once the desired set has no unsettled
-        market; one ``idle`` record follows."""
+        market; one ``idle`` record follows. While a connection is open, it
+        waits for the connection's end (``closed``), so that it is the
+        connection's last record (spec/client.md, Connection states)."""
         if self._markets or self._phase in (
             None,
             ConnectionState.IDLE,
             ConnectionState.FAILED,
         ):
             return
+        if self._phase in _OPEN and not self._interrupted:
+            self._idle_held = True
+            return
+        self._idle(at)
+
+    def _idle(self, at: datetime) -> None:
+        self._idle_held = False
         connected = self._phase in _CONNECTED
         self._connection_record(
             ConnectionState.IDLE,

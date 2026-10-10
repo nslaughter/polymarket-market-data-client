@@ -1,15 +1,15 @@
 """``MarketDataClient``: the desired set, the queue, the statistics, and the
 tasks (spec/client.md, Public interface).
 
-The client owns one task while it runs, which runs the connection; the
-connection's own tasks belong to a ``TaskGroup`` inside it. Leaving the
-``async with`` block cancels that task and waits for it, and the task closes
-an open connection as it ends, so nothing the client started outlives the
-block.
+The client owns one task while it runs, started once the desired set is
+non-empty, which runs the connections and settlement confirmations; their
+own tasks belong to ``TaskGroup``s inside it. Leaving the ``async with``
+block cancels that task and waits for it, and the task closes an open
+connection as it ends, so nothing the client started outlives the block.
 
-Not yet here: changing the desired set while the client runs (plan steps 7
-and 8), ``resolve`` and the default lookup (step 7), and refusing
-``verify_hash`` without a lookup (step 10).
+Not yet here: changing the desired set while a market is desired, which
+needs a connection changed (plan step 8), and refusing ``verify_hash``
+without a lookup (step 10).
 """
 
 import asyncio
@@ -22,8 +22,8 @@ from pydantic import ValidationError
 
 from ._config import ClientConfig
 from ._connection import Connector, now
-from ._errors import ClientError, ClientStateError, ConfigError
-from ._lookup import MarketLookup
+from ._errors import ClientError, ClientStateError, ConfigError, MarketNotFound
+from ._lookup import Lookups, MarketLookup, default_lookup
 from ._queue import AnyRecord, RecordIterator, RecordQueue
 from ._records import ClientStats, Market
 from ._state import StateMachine
@@ -59,15 +59,21 @@ class MarketDataClient:
         lookup: MarketLookup | None = None,
     ) -> None:
         self._config = _validated(config)
-        self._lookup = lookup
+        if lookup is None:
+            lookup = default_lookup()
+        self._lookups = (
+            None if lookup is None else Lookups(lookup, self._config.lookup_timeout)
+        )
         self._state = StateMachine(
             repeat_window=self._config.repeat_window,
             deliver_new_market=self._config.new_market == "deliver",
-            can_look_up=lookup is not None,
+            can_look_up=self._lookups is not None,
             markets=markets,
         )
         self._queue = RecordQueue(self._config.queue_size)
-        self._connector = Connector(self._config, self._state, self._queue)
+        self._connector = Connector(
+            self._config, self._state, self._queue, self._lookups
+        )
         self._stage = _Stage.NEW
         self._task: asyncio.Task[None] | None = None
         self._iterating = False
@@ -79,8 +85,14 @@ class MarketDataClient:
             raise ClientStateError("a client can be entered once")
         self._stage = _Stage.RUNNING
         if self._state.desired:
-            self._task = asyncio.create_task(self._run(), name="market-data-client")
+            self._start()
         return self
+
+    def _start(self) -> None:
+        """Start the client's task, which connects once a market is desired;
+        until then, it starts nothing (spec/client.md, Connection states)."""
+        if self._task is None:
+            self._task = asyncio.create_task(self._run(), name="market-data-client")
 
     async def __aexit__(
         self,
@@ -128,22 +140,26 @@ class MarketDataClient:
         is left where it is. Raises ``ValueError`` if a token would belong to
         two markets of the desired set."""
         self._changing()
-        self._state.subscribe(markets)
+        if self._state.subscribe(markets) and self._stage is _Stage.RUNNING:
+            # Added to an empty desired set: the first attempt starts at once
+            # (spec/client.md, Reconnecting).
+            self._start()
+            self._connector.wanted()
 
     def unsubscribe(self, *condition_ids: str) -> None:
         """Remove markets from the desired set; an ID not in it is
         ignored."""
         self._changing()
         self._state.unsubscribe(condition_ids, now())
-        self._queue.put(self._state.take())
+        self._connector.publish()
 
     def _changing(self) -> None:
         if self._stage in (_Stage.ENDED, _Stage.SHUT_DOWN):
             raise ClientStateError("the client has shut down")
-        if self._stage is _Stage.RUNNING:
+        if self._stage is _Stage.RUNNING and self._state.desired:
             raise NotImplementedError(
-                "changing the desired set while the client runs comes with plan "
-                "steps 7 and 8"
+                "changing the desired set while a market is desired comes with "
+                "plan step 8"
             )
 
     # The consumer's side.
@@ -179,8 +195,8 @@ class MarketDataClient:
             pong_delay_max=pongs.delay_max,
             connections=counts.connections,
             interruptions=dict(counts.interruptions),
-            lookups=0,
-            lookup_failures=0,
+            lookups=0 if self._lookups is None else self._lookups.calls,
+            lookup_failures=0 if self._lookups is None else self._lookups.failures,
             rest_book_not_found=0,
             hash_verified=0,
             hash_retried=0,
@@ -188,8 +204,20 @@ class MarketDataClient:
         )
 
     async def resolve(self, slug: str) -> Market:
-        """Look a market up by slug and return its ``Market``."""
-        raise NotImplementedError("resolve comes with plan step 7")
+        """Look a market up by slug and return its ``Market``. Raises
+        ``MarketNotFound`` if lookup finds none, ``LookupFailed`` if it raises
+        or exceeds ``lookup_timeout``, and ``ClientStateError`` if no lookup
+        is available (spec/client.md, Market lookup)."""
+        if self._lookups is None:
+            raise ClientStateError(
+                "no market lookup is available: install the sdk extra, or pass a lookup"
+            )
+        info = await self._lookups.market(slug)
+        if info is None:
+            raise MarketNotFound(f"market lookup found no market with slug {slug!r}")
+        # The slug it was found by, so that settlement can be confirmed by the
+        # same lookup.
+        return Market(info.condition_id, info.token_ids, slug)
 
 
 def _validated(config: ClientConfig) -> ClientConfig:
