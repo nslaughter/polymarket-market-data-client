@@ -1,6 +1,7 @@
 """The default lookup the SDK extra provides: ``get_market(slug=…)`` for
-markets and ``get_order_book(token_id=…)`` for the hash inputs (D6;
-spec/client.md, Market lookup).
+markets and ``get_order_book(token_id=…)`` for the hash inputs, and the
+client's use of it when it is given no lookup (D6; spec/client.md, Market
+lookup and Public interface).
 
 The SDK's HTTP layer is replaced by synthetic responses, shaped like the
 market and the REST book the SDK reads, for synthetic market A of the
@@ -19,7 +20,13 @@ from typing import Any
 
 import pytest
 
-from polymarket_market_data import BookParameters, MarketInfo
+from polymarket_market_data import (
+    BookParameters,
+    ClientConfig,
+    Market,
+    MarketDataClient,
+    MarketInfo,
+)
 from polymarket_market_data._lookup import SdkLookup, default_lookup
 
 polymarket = pytest.importorskip("polymarket", reason="the sdk extra is not installed")
@@ -109,6 +116,15 @@ def test_a_market_is_looked_up_by_its_slug(responses: Responses) -> None:
         winning_asset_id=None,
         resolution_status=None,
     )
+    assert responses.requests == ["gamma-api.polymarket.com/markets/slug/synthetic-a?"]
+
+
+def test_a_client_given_no_lookup_uses_the_default_one(responses: Responses) -> None:
+    responses.routes["/markets/slug/synthetic-a"] = (200, GAMMA_A)
+    client = MarketDataClient(ClientConfig(verify_hash=False))
+    market = asyncio.run(client.resolve("synthetic-a"))
+    assert market == Market(CONDITION_A, (A1, A2), "synthetic-a")
+    assert client.stats().lookups == 1
     assert responses.requests == ["gamma-api.polymarket.com/markets/slug/synthetic-a?"]
 
 
