@@ -212,7 +212,9 @@ class _Emptied(Exception):
 
 @dataclass(slots=True)
 class _Live:
-    """A subscribed connection, as its reader and its own tasks share it."""
+    """A connection the client reads, as its reader and its own tasks share
+    it: a subscribed one, or one whose subscription frame was abandoned,
+    which the client closes."""
 
     generation: int
     heartbeat: _Heartbeat
@@ -391,7 +393,10 @@ class Connector:
         if self._went_idle:
             # The last market left as the handshake completed, and its idle
             # record has come, even if a market has been added since: no open
-            # record follows it, and the market added starts attempt 1.
+            # record follows it, and the market added starts attempt 1. It is
+            # not read: the source's first frame answers the subscription
+            # frame, and none was sent on it (spec/client.md, Connecting and
+            # subscribing).
             await self._close(socket, NO_SUBSCRIPTIONS)
             return
         self._state.opened(generation, now())
@@ -409,8 +414,9 @@ class Connector:
             # The last market left before the send was over, even if the send
             # completed or the connection ended first, and even if a market
             # has been added since: the frame is abandoned, and the
-            # connection's end gives its idle record, however it ended.
-            await self._close_unsubscribed(socket)
+            # connection's end gives its idle record, however it ended, after
+            # the frames that arrived on it before then.
+            await self._close_unsubscribed(socket, generation)
             return
         if ended is not None:
             # A failed attempt, not an interruption: no token was subscribed
@@ -494,12 +500,23 @@ class Connector:
         await live.idle.wait()
         await self._close(socket, NO_SUBSCRIPTIONS)
 
-    async def _close_unsubscribed(self, socket: ClientConnection) -> None:
+    async def _close_unsubscribed(
+        self, socket: ClientConnection, generation: int
+    ) -> None:
         """Close a connection whose subscription frame was abandoned, since no
-        desired market is left, and record its end, the idle record."""
-        await self._close(socket, NO_SUBSCRIPTIONS)
-        self._state.closed(now())
-        self.publish()
+        desired market is left, and read it until it ends, as a subscribed
+        one the last market left: the frames that arrive meanwhile are
+        handled as on any connection, and the idle record its end gives
+        follows them (spec/client.md, Events outside the desired set and
+        Connection states). They can come: the frame may have gone out all
+        the same, and been answered before the close."""
+        live = _Live(generation, _Heartbeat(self.pongs))
+        live.idle.set()
+        async with asyncio.TaskGroup() as group:
+            group.create_task(
+                self._close_when_idle(socket, live), name="close-when-idle"
+            )
+            await self._read(socket, live)
 
     async def _book_timeout(self, live: _Live, subscribed: float) -> None:
         """``book_timeout`` after the subscription frame, the tokens still

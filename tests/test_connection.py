@@ -7,12 +7,13 @@ cannot bring about: a ``PING`` held by flow control, a connection left open
 after its closing handshake, a connection that ends before its subscription
 frame, and an attempt that raises; and the last market leaving in the turn
 of the event loop in which a backoff, an attempt, or a subscription frame's
-send ends.
+send ends, and the frames that arrive on a connection whose subscription
+frame the client abandoned before it ends.
 """
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Any, Self
 
 import pytest
@@ -602,7 +603,8 @@ def test_a_defect_in_an_attempt_ends_the_client_at_once(
 # These bring that turn about: lookup shows market A closed, which settles it
 # and empties the set, then the application adds market B, and then the wait
 # ends. The wait is abandoned all the same: the connection the set emptied
-# on, if one is open, ends and gives its idle record, and B starts attempt 1.
+# on, if one is open, ends and gives its idle record, after the frames that
+# arrived on it, and B starts attempt 1.
 
 MARKET_B = Market(
     "0x" + "b2".rjust(64, "0"), (PREFIX + "21", PREFIX + "22"), "synthetic-b"
@@ -640,16 +642,20 @@ class HeldLookup:
 
 
 class FakeSocket:
-    """A connection that delivers no frame. Its sends complete once
-    ``release`` is done, at once unless ``held``, and then end the connection
-    instead if ``ends``. It ends without a close frame once ``drop`` is set
-    or the client closes it."""
+    """A connection that delivers no frame but ``last``. Its sends complete
+    once ``release`` is done, at once unless ``held``, and then end the
+    connection instead if ``ends``. It ends without a close frame once
+    ``drop`` is set, the client closes it, or a send ends it, and the frames
+    in ``last``, which arrived before then, can still be read."""
 
-    def __init__(self, *, held: bool = False, ends: bool = False) -> None:
+    def __init__(
+        self, *, held: bool = False, ends: bool = False, last: Sequence[str] = ()
+    ) -> None:
         self.release: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         if not held:
             self.release.set_result(None)
         self.ends = ends
+        self.last = list(last)
         self.sending = asyncio.Event()
         self.drop = asyncio.Event()
         self.closes: list[tuple[int, str]] = []
@@ -658,10 +664,13 @@ class FakeSocket:
         self.sending.set()
         await self.release
         if self.ends:
+            self.drop.set()
             raise ConnectionClosed(None, None)
 
     async def recv(self) -> str:
         await self.drop.wait()
+        if self.last:
+            return self.last.pop(0)
         raise ConnectionClosed(None, None)
 
     async def close(self, code: int = 1000, reason: str = "") -> None:
@@ -838,6 +847,66 @@ def test_a_connection_ending_as_the_last_market_leaves_gives_its_idle_record(
             *(subscribed_b(3) if add else []),
         ]
         assert endpoint.attempts == (3 if add else 2)
+
+    asyncio.run(main())
+
+
+@pytest.mark.parametrize("send", ["abandoned", "completed", "ended"])
+def test_frames_arriving_as_an_unsubscribed_connection_closes_come_before_idle(
+    monkeypatch: pytest.MonkeyPatch, send: str
+) -> None:
+    # Whether the send was abandoned, completed, or ended the connection,
+    # the frames that arrived on it before its end are handled as during the
+    # close of a subscribed connection: the unknown event is delivered, and
+    # A's price change is discarded as outside the desired set
+    # (spec/client.md, Events outside the desired set and Connection states).
+    unknown = json.dumps(
+        {
+            "market": MARKET_A.condition_id,
+            "asset_id": A1,
+            "timestamp": str(T0 + 101),
+            "event_type": "something_new",
+        },
+        separators=(",", ":"),
+    )
+
+    async def main() -> None:
+        lookup = HeldLookup()
+        first = FakeSocket()
+        second = FakeSocket(
+            held=True, ends=send == "ended", last=[unknown, price_change(102)]
+        )
+        endpoint = Endpoint([first, second, FakeSocket()])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(held_config(), markets=[MARKET_A], lookup=lookup)
+        records = client.records()
+        async with client:
+            got = await until_dropped(records, lookup, first)
+            got += await read(records, 2)
+            await second.sending.wait()
+            # An abandoned send is still held when the abandonment takes
+            # effect.
+            ending = None if send == "abandoned" else second.release
+            settle_and_add(client, lookup, ending)
+            last = subscribed_b(3)[-1]
+            got += [
+                summary(record)
+                for record in await read_until(
+                    records, lambda record: summary(record) == last
+                )
+            ]
+            stats = client.stats()
+        assert got == [
+            *DROPPED,
+            ("connecting", 2, None),
+            ("open", None, 2),
+            *SETTLED,
+            ("UnknownEvent",),
+            ("idle", None, 2),
+            *subscribed_b(3),
+        ]
+        assert (stats.unknown, stats.discarded_outside) == (1, 1)
+        assert second.closes == [(1000, "no subscriptions")]
 
     asyncio.run(main())
 
