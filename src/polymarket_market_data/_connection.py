@@ -355,6 +355,10 @@ class Connector:
                     await asyncio.sleep(wait)
             except _Emptied:
                 return
+            if self._went_idle:
+                # The set emptied as the backoff ended: as if it had been
+                # abandoned, so that a market added since starts attempt 1.
+                return
 
     async def _attempt(self) -> ClientConnection | None:
         """Open a connection, or return ``None`` if the attempt failed or no
@@ -384,31 +388,38 @@ class Connector:
         loop = asyncio.get_running_loop()
         self._generation += 1
         generation = self._generation
-        if not self._state.desired:
+        if self._went_idle:
             # The last market left as the handshake completed, and its idle
-            # record has come: no open record follows it.
+            # record has come, even if a market has been added since: no open
+            # record follows it, and the market added starts attempt 1.
             await self._close(socket, NO_SUBSCRIPTIONS)
             return
         self._state.opened(generation, now())
         self.publish()
         tokens = self._state.subscription()
+        ended: ConnectionClosed | None = None
         try:
             async with self._unless_emptied():
                 await socket.send(subscription_frame(tokens))
         except _Emptied:
+            pass
+        except ConnectionClosed as closed:
+            ended = closed
+        if self._went_idle:
+            # The last market left before the send was over, even if the send
+            # completed or the connection ended first, and even if a market
+            # has been added since: the frame is abandoned, and the
+            # connection's end gives its idle record, however it ended.
             await self._close_unsubscribed(socket)
             return
-        except ConnectionClosed as closed:
+        if ended is not None:
             # A failed attempt, not an interruption: no token was subscribed
             # on it (spec/client.md, Connecting and subscribing).
             self._attempt_failed(
                 f"connection {generation} ended before its subscription frame "
-                f"was sent: {closed}",
-                closed,
+                f"was sent: {ended}",
+                ended,
             )
-            return
-        if not self._state.desired:
-            await self._close_unsubscribed(socket)
             return
         subscribed = loop.time()
         self._state.subscribed(tokens, now())
@@ -441,7 +452,13 @@ class Connector:
         """Wrap a wait before a subscription frame is sent: a backoff, an
         attempt, or the frame's send. If no desired market is left meanwhile,
         the wait is abandoned and ``_Emptied`` raised, since no connection is
-        needed (spec/client.md, Connection states)."""
+        needed (spec/client.md, Connection states).
+
+        The abandonment takes effect in a later turn of the event loop, so a
+        wait that ends in the turn the set empties can end first, with its
+        result or its exception, and ``_Emptied`` is not raised; a market may
+        even have been added by then. Each caller therefore checks
+        ``_went_idle`` once its wait is over."""
         # A timeout that never expires unless publish() reschedules it to
         # now: a cancel scope, which tells its own cancellation from the
         # client's, and its expiry from a TimeoutError of the wait.
@@ -478,7 +495,7 @@ class Connector:
         await self._close(socket, NO_SUBSCRIPTIONS)
 
     async def _close_unsubscribed(self, socket: ClientConnection) -> None:
-        """Close a connection whose subscription frame was not sent, since no
+        """Close a connection whose subscription frame was abandoned, since no
         desired market is left, and record its end, the idle record."""
         await self._close(socket, NO_SUBSCRIPTIONS)
         self._state.closed(now())

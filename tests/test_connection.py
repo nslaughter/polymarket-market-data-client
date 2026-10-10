@@ -1,11 +1,13 @@
 """Reconnection and the end of a connection, for what no conformance
-scenario can show (D1; D2; spec/client.md, Detecting an interruption and
-Reconnecting): the backoff's delays and bounds; frames that arrive while the
-client closes a connection after a ``pong_timeout``, which a scenario cannot
-time; and what the scripted server cannot bring about: a ``PING`` held by
-flow control, a connection left open after its closing handshake, a
-connection that ends before its subscription frame, and an attempt that
-raises.
+scenario can show (D1; D2; spec/client.md, Detecting an interruption,
+Reconnecting, and Connection states): the backoff's delays and bounds;
+frames that arrive while the client closes a connection after a
+``pong_timeout``, which a scenario cannot time; what the scripted server
+cannot bring about: a ``PING`` held by flow control, a connection left open
+after its closing handshake, a connection that ends before its subscription
+frame, and an attempt that raises; and the last market leaving in the turn
+of the event loop in which a backoff, an attempt, or a subscription frame's
+send ends.
 """
 
 import asyncio
@@ -24,12 +26,14 @@ from websockets.server import ServerProtocol
 
 from polymarket_market_data import (
     BookEvent,
+    BookParameters,
     ClientConfig,
     ClientError,
     ConnectionState,
     ConnectionStateChange,
     Market,
     MarketDataClient,
+    MarketInfo,
     ReconnectPolicy,
     RecoveryFailed,
     TokenStateChange,
@@ -586,5 +590,316 @@ def test_a_defect_in_an_attempt_ends_the_client_at_once(
         assert (len(read), states) == (1, [("connecting", 1)])
         assert type(ended) is ClientError
         assert ended.__cause__ is defect
+
+    asyncio.run(main())
+
+
+# The last market leaving as a wait before the subscription frame ends
+# (spec/client.md, Connection states and Reconnecting). Once no desired
+# market is left, the client abandons a backoff, an attempt, or the
+# subscription frame's send, but that takes effect in a later turn of the
+# event loop, so a wait that ends in the turn the set empties ends first.
+# These bring that turn about: lookup shows market A closed, which settles it
+# and empties the set, then the application adds market B, and then the wait
+# ends. The wait is abandoned all the same: the connection the set emptied
+# on, if one is open, ends and gives its idle record, and B starts attempt 1.
+
+MARKET_B = Market(
+    "0x" + "b2".rjust(64, "0"), (PREFIX + "21", PREFIX + "22"), "synthetic-b"
+)
+B1, B2 = MARKET_B.token_ids
+NAMES = {A1: "A1", A2: "A2", B1: "B1", B2: "B2"}
+CLOSED_A = MarketInfo(
+    condition_id=MARKET_A.condition_id,
+    slug=MARKET_A.slug,
+    question=None,
+    token_ids=MARKET_A.token_ids,
+    outcomes=("Yes", "No"),
+    closed=True,
+    end_date=None,
+)
+
+
+class HeldLookup:
+    """A market lookup that answers each call when the test does."""
+
+    def __init__(self) -> None:
+        self.calls: list[asyncio.Future[MarketInfo | None]] = []
+        self.called = asyncio.Event()
+
+    async def market(self, *, slug: str) -> MarketInfo | None:
+        call: asyncio.Future[MarketInfo | None] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self.calls.append(call)
+        self.called.set()
+        return await call
+
+    async def book_parameters(self, token_id: str) -> BookParameters | None:
+        return None
+
+
+class FakeSocket:
+    """A connection that delivers no frame. Its sends complete once
+    ``release`` is done, at once unless ``held``, and then end the connection
+    instead if ``ends``. It ends without a close frame once ``drop`` is set
+    or the client closes it."""
+
+    def __init__(self, *, held: bool = False, ends: bool = False) -> None:
+        self.release: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        if not held:
+            self.release.set_result(None)
+        self.ends = ends
+        self.sending = asyncio.Event()
+        self.drop = asyncio.Event()
+        self.closes: list[tuple[int, str]] = []
+
+    async def send(self, message: str) -> None:
+        self.sending.set()
+        await self.release
+        if self.ends:
+            raise ConnectionClosed(None, None)
+
+    async def recv(self) -> str:
+        await self.drop.wait()
+        raise ConnectionClosed(None, None)
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.closes.append((code, reason))
+        self.drop.set()
+
+
+class Endpoint:
+    """Stands in for ``connect``: attempt *n* opens ``sockets[n - 1]``, at
+    once, or, if *n* is ``held``, once ``release`` is done."""
+
+    def __init__(self, sockets: list[FakeSocket], *, held: int | None = None) -> None:
+        self.sockets = sockets
+        self.held = held
+        self.attempts = 0
+        self.release: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.waiting = asyncio.Event()
+
+    async def connect(self, *args: object, **kwargs: object) -> FakeSocket:
+        self.attempts += 1
+        if self.attempts == self.held:
+            self.waiting.set()
+            await self.release
+        return self.sockets[self.attempts - 1]
+
+
+def settle_and_add(
+    client: MarketDataClient,
+    lookup: HeldLookup,
+    wait: asyncio.Future[None] | None,
+    *,
+    add: bool = True,
+) -> None:
+    """In one turn of the event loop, and in this order: lookup shows A
+    closed, which settles it and empties the desired set; the application
+    adds B, if ``add``; and ``wait`` ends, if one is given. All three come
+    before the turn in which the client would abandon the wait."""
+    [call] = lookup.calls
+    call.set_result(CLOSED_A)
+    if add:
+        asyncio.get_running_loop().call_soon(client.subscribe, MARKET_B)
+    if wait is not None:
+        wait.set_result(None)
+
+
+def summary(record: object) -> tuple[object, ...]:
+    match record:
+        case ConnectionStateChange(state=state, attempt=attempt, connection=gen):
+            return (state.value, attempt, gen)
+        case TokenStateChange(token_id=token_id, state=state, reason=reason):
+            return (NAMES[token_id], state.value, reason)
+    return (type(record).__name__,)
+
+
+async def read(records: AsyncIterator[object], count: int) -> list[tuple[object, ...]]:
+    summaries: list[tuple[object, ...]] = []
+    for _ in range(count):
+        async with asyncio.timeout(5):
+            summaries.append(summary(await anext(records)))
+    return summaries
+
+
+# Connection 1 subscribes A, gets no book, and is dropped once A's
+# confirmation has asked lookup, which holds its answer. Since it delivered
+# no frame, the next attempt is attempt 2.
+DROPPED = [
+    ("connecting", 1, None),
+    ("open", None, 1),
+    ("subscribed", None, 1),
+    ("A1", "synchronizing", "subscribed"),
+    ("A2", "synchronizing", "subscribed"),
+    ("A1", "uncertain", "no_book"),
+    ("A2", "uncertain", "no_book"),
+    ("interrupted", None, 1),
+    ("A1", "uncertain", "interrupted"),
+    ("A2", "uncertain", "interrupted"),
+    ("recovering", 2, None),
+]
+SETTLED = [("A1", "settled", "lookup_closed"), ("A2", "settled", "lookup_closed")]
+
+
+def subscribed_b(connection: int) -> list[tuple[object, ...]]:
+    """B connects at once, as attempt 1."""
+    return [
+        ("connecting", 1, None),
+        ("open", None, connection),
+        ("subscribed", None, connection),
+        ("B1", "synchronizing", "subscribed"),
+        ("B2", "synchronizing", "subscribed"),
+    ]
+
+
+def held_config() -> ClientConfig:
+    """No PING, and confirmations and lookups that outlast the test."""
+    return profile(
+        "ws://127.0.0.1:9",
+        book_timeout=0.05,
+        ping_interval=60.0,
+        pong_timeout=60.0,
+        settlement_confirm_timeout=60.0,
+        lookup_timeout=60.0,
+    )
+
+
+async def until_dropped(
+    records: AsyncIterator[object], lookup: HeldLookup, first: FakeSocket
+) -> list[tuple[object, ...]]:
+    got = await read(records, 7)
+    await lookup.called.wait()
+    first.drop.set()
+    return got + await read(records, len(DROPPED) - 7)
+
+
+def test_a_send_completing_as_the_last_market_leaves_subscribes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def main() -> None:
+        lookup = HeldLookup()
+        first, second, third = FakeSocket(), FakeSocket(held=True), FakeSocket()
+        endpoint = Endpoint([first, second, third])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(held_config(), markets=[MARKET_A], lookup=lookup)
+        records = client.records()
+        async with client:
+            got = await until_dropped(records, lookup, first)
+            got += await read(records, 2)
+            await second.sending.wait()
+            settle_and_add(client, lookup, second.release)
+            got += await read(records, 3 + 5)
+        # Connection 2's frame named only A, so subscribing on it would leave
+        # B desired and never subscribed. Its end gives its idle record first.
+        assert got == [
+            *DROPPED,
+            ("connecting", 2, None),
+            ("open", None, 2),
+            *SETTLED,
+            ("idle", None, 2),
+            *subscribed_b(3),
+        ]
+        assert second.closes == [(1000, "no subscriptions")]
+
+    asyncio.run(main())
+
+
+@pytest.mark.parametrize("add", [False, True], ids=["nothing added", "B added"])
+def test_a_connection_ending_as_the_last_market_leaves_gives_its_idle_record(
+    monkeypatch: pytest.MonkeyPatch, add: bool
+) -> None:
+    async def main() -> None:
+        lookup = HeldLookup()
+        first, second = FakeSocket(), FakeSocket(held=True, ends=True)
+        endpoint = Endpoint([first, second, FakeSocket()])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(held_config(), markets=[MARKET_A], lookup=lookup)
+        records = client.records()
+        async with client:
+            got = await until_dropped(records, lookup, first)
+            got += await read(records, 2)
+            await second.sending.wait()
+            settle_and_add(client, lookup, second.release, add=add)
+            got += await read(records, 3 + (5 if add else 0))
+            if not add:
+                # Idle: no attempt follows.
+                with pytest.raises(TimeoutError):
+                    async with asyncio.timeout(0.3):
+                        got.append(summary(await anext(records)))
+        # Not a failed attempt: no desired market was left before it ended.
+        assert got == [
+            *DROPPED,
+            ("connecting", 2, None),
+            ("open", None, 2),
+            *SETTLED,
+            ("idle", None, 2),
+            *(subscribed_b(3) if add else []),
+        ]
+        assert endpoint.attempts == (3 if add else 2)
+
+    asyncio.run(main())
+
+
+def test_a_handshake_completing_as_the_last_market_leaves_opens_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def main() -> None:
+        lookup = HeldLookup()
+        first, second, third = FakeSocket(), FakeSocket(), FakeSocket()
+        endpoint = Endpoint([first, second, third], held=2)
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(held_config(), markets=[MARKET_A], lookup=lookup)
+        records = client.records()
+        async with client:
+            got = await until_dropped(records, lookup, first)
+            got += await read(records, 1)
+            await endpoint.waiting.wait()
+            settle_and_add(client, lookup, endpoint.release)
+            got += await read(records, 3 + 5)
+        # Connection 2 was opened as the set emptied: it is closed unused,
+        # though it keeps its generation, and no open record follows idle
+        # without an attempt before it.
+        assert got == [
+            *DROPPED,
+            ("connecting", 2, None),
+            *SETTLED,
+            ("idle", None, None),
+            *subscribed_b(3),
+        ]
+        assert second.closes == [(1000, "no subscriptions")]
+
+    asyncio.run(main())
+
+
+def test_a_backoff_ending_as_the_last_market_leaves_restarts_the_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def main() -> None:
+        lookup = HeldLookup()
+        first, second = FakeSocket(), FakeSocket()
+        endpoint = Endpoint([first, second])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(held_config(), markets=[MARKET_A], lookup=lookup)
+
+        def delay(self: Recovery) -> float:
+            # As the backoff after connection 1 is decided: a wait of 0, as
+            # jitter can give, which ends in the next turn of the event loop.
+            settle_and_add(client, lookup, None)
+            return 0.0
+
+        monkeypatch.setattr(Recovery, "delay", delay)
+        records = client.records()
+        async with client:
+            got = await until_dropped(records, lookup, first)
+            got += await read(records, 3 + 5)
+        # Not attempt 2 of the recovery that connection 1's end began.
+        assert got == [
+            *DROPPED,
+            *SETTLED,
+            ("idle", None, None),
+            *subscribed_b(2),
+        ]
 
     asyncio.run(main())
