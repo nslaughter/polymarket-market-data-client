@@ -1,14 +1,15 @@
 """Reconnection and the end of a connection, for what no conformance
-scenario can show (D1; D2; spec/client.md, Detecting an interruption,
+scenario can show (D1; D2; D7; spec/client.md, Detecting an interruption,
 Reconnecting, and Connection states): the backoff's delays and bounds;
 frames that arrive while the client closes a connection after a
 ``pong_timeout``, which a scenario cannot time; what the scripted server
 cannot bring about: a ``PING`` held by flow control, a connection left open
 after its closing handshake, a connection that ends before its subscription
-frame, and an attempt that raises; and the last market leaving in the turn
+frame, and an attempt that raises; the last market leaving in the turn
 of the event loop in which a backoff, an attempt, or a subscription frame's
 send ends, and the frames that arrive on a connection whose subscription
-frame the client abandoned before it ends.
+frame the client abandoned before it ends; and markets added while a
+subscription frame is sent, or in the same turn as a removal.
 """
 
 import asyncio
@@ -970,5 +971,155 @@ def test_a_backoff_ending_as_the_last_market_leaves_restarts_the_attempts(
             ("idle", None, None),
             *subscribed_b(2),
         ]
+
+    asyncio.run(main())
+
+
+# Additions to the desired set at moments no scenario can bring about (D7;
+# spec/client.md, Detecting an interruption and Reconnecting). The fake
+# connections deliver no frame, and no book_timeout or PING comes during a
+# test.
+
+
+def change_config() -> ClientConfig:
+    return profile(
+        "ws://127.0.0.1:9", book_timeout=60.0, ping_interval=60.0, pong_timeout=60.0
+    )
+
+
+async def read_records(records: AsyncIterator[object], count: int) -> list[object]:
+    read: list[object] = []
+    for _ in range(count):
+        async with asyncio.timeout(5):
+            read.append(await anext(records))
+    return read
+
+
+SUBSCRIBED_A = [
+    ("connecting", 1, None),
+    ("open", None, 1),
+    ("subscribed", None, 1),
+    ("A1", "synchronizing", "subscribed"),
+    ("A2", "synchronizing", "subscribed"),
+]
+
+
+def test_a_market_added_while_the_subscription_frame_is_sent_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The frame holds the desired set as it was before the addition. Once it
+    # has been sent, the connection is subscribed to that set, and the
+    # addition is applied as on any subscribed connection: a
+    # subscription_change, which is not a failed attempt.
+    async def main() -> None:
+        first, second = FakeSocket(held=True), FakeSocket()
+        endpoint = Endpoint([first, second])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(
+            change_config(), markets=[MARKET_A], lookup=HeldLookup()
+        )
+        records = client.records()
+        async with client:
+            got = await read_records(records, 2)
+            await first.sending.wait()
+            client.subscribe(MARKET_B)
+            first.release.set_result(None)
+            got += await read_records(records, 3 + 4 + 7)
+        assert [summary(record) for record in got] == [
+            *SUBSCRIBED_A,
+            ("interrupted", None, 1),
+            ("A1", "uncertain", "interrupted"),
+            ("A2", "uncertain", "interrupted"),
+            ("recovering", 1, None),
+            ("connecting", 1, None),
+            ("open", None, 2),
+            ("subscribed", None, 2),
+            ("A1", "synchronizing", "subscribed"),
+            ("A2", "synchronizing", "subscribed"),
+            ("B1", "synchronizing", "subscribed"),
+            ("B2", "synchronizing", "subscribed"),
+        ]
+        interrupted, recovering = got[5], got[8]
+        assert isinstance(interrupted, ConnectionStateChange)
+        assert interrupted.reason == "subscription_change"
+        assert isinstance(recovering, ConnectionStateChange)
+        assert (recovering.reason, recovering.retry_in) == ("subscription_change", 0)
+        assert first.closes == [(1000, "subscription change")]
+        assert endpoint.attempts == 2
+
+    asyncio.run(main())
+
+
+def test_a_market_added_and_removed_before_the_change_is_applied_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def main() -> None:
+        first, second = FakeSocket(), FakeSocket()
+        endpoint = Endpoint([first, second])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(
+            change_config(), markets=[MARKET_A], lookup=HeldLookup()
+        )
+        records = client.records()
+        async with client:
+            got = await read(records, 5)
+            client.subscribe(MARKET_B)
+            client.unsubscribe(MARKET_B.condition_id)
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.3):
+                    await anext(records)
+            assert (first.closes, endpoint.attempts) == ([], 1)
+            # Added for good, it is applied.
+            client.subscribe(MARKET_B)
+            got += await read(records, 4 + 7)
+        assert got == [
+            *SUBSCRIBED_A,
+            ("interrupted", None, 1),
+            ("A1", "uncertain", "interrupted"),
+            ("A2", "uncertain", "interrupted"),
+            ("recovering", 1, None),
+            ("connecting", 1, None),
+            ("open", None, 2),
+            ("subscribed", None, 2),
+            ("A1", "synchronizing", "subscribed"),
+            ("A2", "synchronizing", "subscribed"),
+            ("B1", "synchronizing", "subscribed"),
+            ("B2", "synchronizing", "subscribed"),
+        ]
+        assert first.closes == [(1000, "subscription change")]
+
+    asyncio.run(main())
+
+
+def test_a_market_added_as_every_market_on_the_connection_leaves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # B is added and A, the only market on connection 1, removed in the same
+    # turn of the event loop, before the client applies the addition. It is
+    # applied as any other, so connection 1 is interrupted, though no desired
+    # token is left on it to make uncertain, and the desired set never
+    # empties, so no idle record comes.
+    async def main() -> None:
+        first, second = FakeSocket(), FakeSocket()
+        endpoint = Endpoint([first, second])
+        monkeypatch.setattr(_connection, "connect", endpoint.connect)
+        client = MarketDataClient(
+            change_config(), markets=[MARKET_A], lookup=HeldLookup()
+        )
+        records = client.records()
+        async with client:
+            got = await read(records, 5)
+            client.subscribe(MARKET_B)
+            client.unsubscribe(MARKET_A.condition_id)
+            got += await read(records, 2 + 2 + 5)
+        assert got == [
+            *SUBSCRIBED_A,
+            ("A1", "removed", "removed"),
+            ("A2", "removed", "removed"),
+            ("interrupted", None, 1),
+            ("recovering", 1, None),
+            *subscribed_b(2),
+        ]
+        assert first.closes == [(1000, "subscription change")]
 
     asyncio.run(main())

@@ -196,6 +196,13 @@ class StateMachine:
             token for market in self._markets.values() for token in market.token_ids
         )
 
+    def outdated(self) -> bool:
+        """Whether the desired set holds a token that does not take part on
+        the current connection: one added, or added again, since its
+        subscription frame was sent. Applying that addition needs a new
+        connection (D7)."""
+        return not all(self._takes_part(token) for token in self.subscription())
+
     # Changes to the desired set (spec/client.md, Public interface).
 
     def subscribe(self, markets: Iterable[Market]) -> bool:

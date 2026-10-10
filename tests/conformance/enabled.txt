@@ -37,3 +37,9 @@ settlement-unconfirmed
 settlement-confirmation-across-reconnect
 settlement-without-slug
 settle-lookup-after-late-book
+subscribe-while-connected
+subscribe-before-first-frame
+subscribe-during-outage
+unsubscribe
+unsubscribe-all-then-subscribe
+resubscribe-removed
