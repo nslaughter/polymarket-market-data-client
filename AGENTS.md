@@ -34,10 +34,10 @@ The README describes the project for people; it is not a specification.
   [Doing the next item](#doing-the-next-item). Note anything you deferred in
   the pull request description.
 - **Follow the owner specifications.** D1 to D8 in `spec/client.md` are
-  owner specifications, decided by the operator on 2026-10-05. Implement
+  owner specifications, decided by the owner on 2026-10-05. Implement
   them as written, and don't reopen one or depart from it on your own; if
   one seems wrong, stop and report it, as for any specification. Do not
-  start a step whose status is `Needs operator decision`.
+  start a step whose status is `Needs owner decision`.
 - **Done means verified.** A pull request is done when formatting, lint,
   type checks, and tests pass, and every scenario in
   `tests/conformance/enabled.txt`, including the ones the step adds, passes
@@ -46,9 +46,9 @@ The README describes the project for people; it is not a specification.
   scenario is turned on only by listing it in `enabled.txt`.
 - **No live service in checks.** Tests and CI talk only to the scripted
   server and scripted lookup on localhost. Only plan step 12 contacts the
-  live service, for the period the operator agrees.
+  live service, for the period the owner agrees.
 - **Nothing outside this repository.** Do not open issues, post comments, or
-  send anything to other projects, the SDK's included, unless the operator
+  send anything to other projects, the SDK's included, unless the owner
   asks.
 
 ## Implementation guidance
@@ -114,7 +114,7 @@ D8 settles where each is used. Keep to it:
   `ValidationError`, since `ConfigError` is a `ValueError`.
 - Don't make a record a model, add `model_dump`-style methods to it, or
   subclass `BaseModel` outside configuration and `_decode.py`. Changing
-  that is a new version of D8, which is the operator's.
+  that is a new version of D8, which is the owner's.
 - Keep the wire models lenient, unlike the SDK's, whose strict validation
   dropped most `new_market` events
   ([findings §1](docs/source-behavior.md#1-reconnection-and-subscription-restoration-in-the-sdk)).
@@ -185,8 +185,8 @@ When asked to do the next item:
    item is the first step whose status is not `Done`.
 2. Stop and report instead of starting if any of these holds:
    - `gh pr list --state open` shows a pull request for that step; report its
-     state, because the operator reviews and merges it;
-   - the step's status is `Needs operator decision`; name the decision.
+     state, because the owner reviews and merges it;
+   - the step's status is `Needs owner decision`; name the decision.
 3. Create a branch named `step-<N>-<short-slug>`, such as
    `step-2-decode-frames`, and implement the step within its scope.
 4. Run every check the step lists. If a check fails because a specification
