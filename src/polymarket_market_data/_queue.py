@@ -103,11 +103,11 @@ class RecordQueue:
         reach the limit: ``queue_size`` or more are waiting."""
         return self._backlog >= self.limit
 
-    def holds_back(self) -> bool:
-        """Whether ``queue_size`` or more status records are waiting, so that
-        the client starts no connection attempt (spec/client.md,
-        Reconnecting)."""
-        return self._status >= self.limit
+    def holds_back(self, adding: int = 0) -> bool:
+        """Whether ``queue_size`` or more status records are waiting, or will
+        be once ``adding`` more are queued, so that the client starts no
+        connection attempt (spec/client.md, Reconnecting)."""
+        return self._status + adding >= self.limit
 
     def put(self, records: Iterable[AnyRecord]) -> None:
         """Queue records, in order, without waiting: the records one cause

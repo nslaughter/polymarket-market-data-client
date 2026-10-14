@@ -843,17 +843,22 @@ class Connector:
         before the next attempt: its backoff; none to apply a subscription
         change (D7); or ``None`` to wait for the consumer, after
         ``consumer_overflow`` (D3) or in place of either while ``queue_size``
-        or more status records are waiting (spec/client.md, Reconnecting).
-        Or fail if the bounds are exhausted (D2). Failing emits each open
-        gap's ``CaptureGap``, then ``failed``, with no ``recovering`` record
-        for the attempt the client will not make (T18; spec/client.md, Record
-        order, rule 4). Either record says how the last attempt failed, if
-        it did, and ``RecoveryFailed`` keeps the exception that ended it as
-        its ``__cause__``, since no later record reports that attempt."""
+        or more status records are waiting, this record included
+        (spec/client.md, Reconnecting). Or fail if the bounds are exhausted
+        (D2). Failing emits each open gap's ``CaptureGap``, then ``failed``,
+        with no ``recovering`` record for the attempt the client will not
+        make (T18; spec/client.md, Record order, rule 4). Either record says
+        how the last attempt failed, if it did, and ``RecoveryFailed`` keeps
+        the exception that ended it as its ``__cause__``, since no later
+        record reports that attempt."""
         at, clock = now(), asyncio.get_running_loop().time()
         recovery = self._recovery
         wait: float | None
-        if retry.cause == "consumer_overflow" or self._queue.holds_back():
+        # The recovering record itself counts. When it brings the status
+        # records waiting to queue_size, the attempt waits for the consumer,
+        # so it is that wait's record, in place of the backoff's or the
+        # subscription change's, and the attempt's only one.
+        if retry.cause == "consumer_overflow" or self._queue.holds_back(adding=1):
             reason, wait = WAITING_FOR_CONSUMER, None
         elif retry.cause == "subscription_change":
             reason, wait = "subscription_change", 0.0

@@ -6,11 +6,11 @@ one closes, frames arriving while the client closes the connection the last
 market left, subscription changes on a connection opened during a recovery
 or while an interrupted one closes, settlement with no lookup available, a
 defect in the client's own code, waits for the consumer before a
-subscription change's attempt or a first one and after the queue's limit,
-and the limit reached on a connection closing with no subscriptions
-(spec/client.md, Cancellation and shutdown, Heartbeat, Detecting an
-interruption, Reconnecting, Connection states, Settlement, Errors, and
-Consumer handoff).
+subscription change's attempt, a first one, or one its own recovering record
+holds back, and after the queue's limit, and the limit reached on a
+connection closing with no subscriptions (spec/client.md, Cancellation and
+shutdown, Heartbeat, Detecting an interruption, Reconnecting, Connection
+states, Settlement, Errors, and Consumer handoff).
 
 Most are scenarios in the conformance notation, which the runner runs as it
 runs those in spec/conformance.md; a test that needs the client itself
@@ -366,6 +366,36 @@ expect conn open connection=2
 expect conn subscribed connection=2
 expect token B1 synchronizing previous=none
 expect token B2 synchronizing previous=none
+""",
+    # The recovering record counts toward the status records that hold back
+    # the attempt it announces: with eight waiting after the drop, the ninth,
+    # recovering itself, reaches queue_size, so it is waiting_for_consumer in
+    # place of the backoff's, the attempt's only one, and the attempt starts
+    # once the consumer has read one record (spec/client.md, Reconnecting).
+    "its-own-recovering-record-can-hold-back-the-attempt": """
+markets A
+config queue_size=9
+accept
+recv-subscribe A1 A2
+send opening
+drop
+expect-no-connect 0.5
+expect conn connecting attempt=1
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing previous=none
+expect token A2 synchronizing previous=none
+expect conn interrupted reason=dropped connection=1
+expect token A1 uncertain previous=synchronizing reason=interrupted
+expect token A2 uncertain previous=synchronizing reason=interrupted
+expect conn recovering attempt=1 reason=waiting_for_consumer retry_in=none
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
 """,
     # The time spent waiting for the consumer after consumer_overflow does
     # not count toward max_recovery_time, so when the attempt after it fails,
