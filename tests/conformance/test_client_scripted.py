@@ -608,9 +608,12 @@ def test_frames_while_the_client_closes_come_before_the_idle_record(
 # A frame that reaches the queue's limit while the client closes the
 # connection the last market left is neither delivered nor applied, nor is
 # anything after it on that connection, as at any limit (D3). The connection
-# is no interruption, however it ends, so its idle record follows its end
-# (spec/client.md, Consumer handoff, Detecting an interruption, and
-# Connection states). The client's close is held as above.
+# is no interruption, however it ends: what arrives after that frame, PONGs
+# included, counts in frames but not in frames_after_interruption, and its
+# idle record follows its end, after the Backlog record of a read during the
+# close, even when the market is removed again meanwhile (spec/client.md,
+# Consumer handoff, Detecting an interruption, Statistics, and Connection
+# states). The client's close is held as above.
 
 LIMIT_WHILE_CLOSING = """
 scenario a-frame-reaching-the-limit-while-the-client-closes-with-no-subscriptions
@@ -622,8 +625,8 @@ send-text {"event_type":"something_new","n":1}
 send-text {"event_type":"something_new","n":2}
 send-text {"event_type":"something_new","n":3}
 send-text {"event_type":"something_new","n":4}
-expect-client-close 1000 "no subscriptions"
 wait 0.3
+unsubscribe A
 expect-backlog 3
 expect market_resolved A
 expect token A1 settled reason=market_resolved
@@ -631,10 +634,11 @@ expect token A2 settled reason=market_resolved
 expect unknown payload.n=1
 expect unknown payload.n=2
 expect backlog queued=3 limit=3 rising=true
-expect conn idle reason=no_subscriptions connection=1
 expect backlog queued=2 limit=3 rising=false
+expect-client-close 1000 "no subscriptions"
+expect conn idle reason=no_subscriptions connection=1
 expect-no-connect 0.2
-expect-stats unknown=2 interruptions=0
+expect-stats frames=6 frames_after_interruption=0 unknown=2 interruptions=0
 """
 
 

@@ -145,6 +145,11 @@ class StateMachine:
         self._phase: ConnectionState | None = None
         self._generation = 0
         self._interrupted = False
+        # Whether a frame on the current connection reached the queue's
+        # limit. Nothing from it is delivered or applied from that frame on,
+        # whether or not the connection is interrupted: it is not, if no
+        # desired market was left on it.
+        self._limit_reached = False
         # Whether the desired set emptied while the current connection was
         # open: the client closes it, and its idle record waits for its end.
         self._idle_held = False
@@ -263,6 +268,7 @@ class StateMachine:
         """The handshake of a new connection completed."""
         self._generation = generation
         self._interrupted = False
+        self._limit_reached = False
         self._last_frame_at = None
         self.counts.connections += 1
         self._connection_record(ConnectionState.OPEN, at, connection=generation)
@@ -294,6 +300,8 @@ class StateMachine:
             # Statistics). The connector still measures its delay.
             self.counts.frames_after_interruption += 1
             return
+        if self._limit_reached:
+            return  # it confirms nothing after the frame that reached it
         self._last_frame_at = received_at
 
     def frame(
@@ -313,6 +321,11 @@ class StateMachine:
             # has been interrupted.
             self.counts.frames_after_interruption += 1
             return
+        if self._limit_reached:
+            # Nor once a frame on it has reached the limit. With no desired
+            # market left on it, that is no interruption, so the frame counts
+            # in frames alone.
+            return
         self._last_frame_at = received_at
         for item in items:
             self._item(item, received_at, clock)
@@ -321,11 +334,15 @@ class StateMachine:
         """A frame on the current connection reached the queue's limit (D3).
         It is counted as received, and neither it nor anything after it on
         the connection is delivered or applied (spec/client.md, Consumer
-        handoff). The client interrupts the connection, unless no desired
-        token is left on it, since that connection's end is no interruption,
-        however it comes."""
+        handoff). The client interrupts the connection with ``interrupted``,
+        unless no desired market is left on it, since that connection's end
+        is no interruption, however it comes. So this marks no interruption:
+        what arrives afterwards counts in ``frames_after_interruption`` only
+        once there is one, and the idle record still waits for the
+        connection's end (spec/client.md, Statistics and Connection
+        states)."""
         self.counts.frames += 1
-        self._interrupted = True
+        self._limit_reached = True
 
     def delivers(self, generation: int, items: Sequence[Decoded]) -> bool:
         """Whether ``frame`` would deliver a market-event record for these
@@ -333,7 +350,7 @@ class StateMachine:
         (spec/client.md, Consumer handoff). The items before the first such
         record are dropped or discarded and change no state, so the state
         the frame finds decides."""
-        if generation != self._generation or self._interrupted:
+        if generation != self._generation or self._interrupted or self._limit_reached:
             return False
         for item in items:
             if not isinstance(item, DecodedEvent):
