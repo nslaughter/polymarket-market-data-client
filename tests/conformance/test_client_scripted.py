@@ -5,10 +5,12 @@ market leaving before a connection is subscribed or while an interrupted
 one closes, frames arriving while the client closes the connection the last
 market left, subscription changes on a connection opened during a recovery
 or while an interrupted one closes, settlement with no lookup available, a
-defect in the client's own code, and the stopgap that ends the client until
-plan step 9 replaces it (spec/client.md, Cancellation and shutdown,
-Heartbeat, Detecting an interruption, Reconnecting, Connection states,
-Settlement, and Errors).
+defect in the client's own code, waits for the consumer before a
+subscription change's attempt or a first one and after the queue's limit,
+and the limit reached on a connection closing with no subscriptions
+(spec/client.md, Cancellation and shutdown, Heartbeat, Detecting an
+interruption, Reconnecting, Connection states, Settlement, Errors, and
+Consumer handoff).
 
 Most are scenarios in the conformance notation, which the runner runs as it
 runs those in spec/conformance.md; a test that needs the client itself
@@ -302,20 +304,114 @@ expect-error RecoveryFailed
 expect-end
 expect-no-connect 0.5
 """,
-    # Stopgap: until plan step 9 responds at the queue's limit, a frame that
-    # reaches it ends the client with a ClientError, raised after the records
-    # already queued.
-    "a-frame-reaching-the-queue-limit-ends-the-client": """
+    # While queue_size or more status records are waiting, recovering with
+    # waiting_for_consumer takes the place of the subscription_change one,
+    # and the attempt starts once the consumer's reading leaves fewer
+    # waiting: here once it has read six of them, the sixth being A1's ready
+    # record (spec/client.md, Consumer handoff and Reconnecting).
+    "status-records-hold-back-a-subscription-change": """
 markets A
-config queue_size=1
+config queue_size=6
+accept
+recv-subscribe A1 A2
+send opening A1 A2
+wait 0.2
+subscribe B
+expect-client-close 1000 "subscription change"
+expect-no-connect 0.5
+expect conn connecting attempt=1
+expect conn open connection=1
+expect conn subscribed connection=1
+expect token A1 synchronizing
+expect token A2 synchronizing
+expect book A1
+expect token A1 ready
+expect book A2
+expect token A2 ready
+expect conn interrupted reason=subscription_change connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1 reason=waiting_for_consumer retry_in=none
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2 B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+""",
+    # The client starts no attempt while queue_size or more status records
+    # are waiting, a first attempt included: a market added to an empty
+    # desired set waits for the consumer, and recovering says so
+    # (spec/client.md, Consumer handoff and Reconnecting).
+    "status-records-hold-back-a-first-attempt": """
+markets A
+config queue_size=3 backlog_warning=1
+start A
+unsubscribe A
+expect-client-close 1000 "no subscriptions"
+wait 0.2
+subscribe B
+expect-no-connect 0.5
+expect token A1 removed
+expect token A2 removed
+expect conn idle connection=1
+expect conn recovering attempt=1 reason=waiting_for_consumer retry_in=none
+expect conn connecting attempt=1
+accept
+recv-subscribe B1 B2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token B1 synchronizing previous=none
+expect token B2 synchronizing previous=none
+""",
+    # The time spent waiting for the consumer after consumer_overflow does
+    # not count toward max_recovery_time, so when the attempt after it fails,
+    # the next one still gets its backoff (spec/client.md, Reconnecting). The
+    # frame that reached the limit was received, and none of its events was
+    # applied (spec/client.md, Statistics).
+    "waiting-for-the-consumer-does-not-count-toward-max-recovery-time": """
+markets A
+config queue_size=4 backlog_warning=0.75 resume_below=0.25
+  reconnect.max_recovery_time=0.5
 start A
 send pc A t=100 A1:BUY:0.49:10
-send pc A t=101 A1:BUY:0.49:20
-expect-client-close 1000 "client exit"
+send pc A t=101 A1:BUY:0.49:11
+send pc A t=102 A1:BUY:0.49:12
+send pc A t=103 A1:BUY:0.49:13
+send pc A t=104 A1:BUY:0.49:14
+expect-client-close 1000 "client backlog"
+expect-stats frames=6 events.price_change=4
+wait 1.0
 expect price_change A t=100
-expect-error ClientError
-expect-end
-expect-stats events.price_change=1
+expect price_change A t=101
+expect price_change A t=102
+expect backlog queued=3 limit=4 rising=true
+expect price_change A t=103
+expect conn interrupted reason=consumer_overflow connection=1
+expect token A1 uncertain reason=interrupted
+expect token A2 uncertain reason=interrupted
+expect conn recovering attempt=1 reason=waiting_for_consumer retry_in=none
+expect backlog queued=2 limit=4 rising=false
+expect conn connecting attempt=1
+refuse 1
+expect conn recovering attempt=2 reason=backoff retry_in=0.2 detail=set
+expect conn connecting attempt=2
+accept
+recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+send opening A1 A2
+expect book A1 held_book_matched=false
+expect gap A1 cause=consumer_overflow end=book
+expect token A1 ready
+expect book A2 held_book_matched=true
+expect gap A2 cause=consumer_overflow end=book
+expect token A2 ready
 """,
 }
 
@@ -507,6 +603,46 @@ def test_frames_while_the_client_closes_come_before_the_idle_record(
 ) -> None:
     hold_close(monkeypatch, _connection.NO_SUBSCRIPTIONS)
     run(parse_scenario(FRAMES_WHILE_CLOSING))
+
+
+# A frame that reaches the queue's limit while the client closes the
+# connection the last market left is neither delivered nor applied, nor is
+# anything after it on that connection, as at any limit (D3). The connection
+# is no interruption, however it ends, so its idle record follows its end
+# (spec/client.md, Consumer handoff, Detecting an interruption, and
+# Connection states). The client's close is held as above.
+
+LIMIT_WHILE_CLOSING = """
+scenario a-frame-reaching-the-limit-while-the-client-closes-with-no-subscriptions
+markets A
+config close_timeout=2.0 queue_size=3 backlog_warning=1
+start A
+send resolved A t=100 winner=A1
+send-text {"event_type":"something_new","n":1}
+send-text {"event_type":"something_new","n":2}
+send-text {"event_type":"something_new","n":3}
+send-text {"event_type":"something_new","n":4}
+expect-client-close 1000 "no subscriptions"
+wait 0.3
+expect-backlog 3
+expect market_resolved A
+expect token A1 settled reason=market_resolved
+expect token A2 settled reason=market_resolved
+expect unknown payload.n=1
+expect unknown payload.n=2
+expect backlog queued=3 limit=3 rising=true
+expect conn idle reason=no_subscriptions connection=1
+expect backlog queued=2 limit=3 rising=false
+expect-no-connect 0.2
+expect-stats unknown=2 interruptions=0
+"""
+
+
+def test_a_frame_reaching_the_limit_while_the_client_closes_interrupts_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hold_close(monkeypatch, _connection.NO_SUBSCRIPTIONS)
+    run(parse_scenario(LIMIT_WHILE_CLOSING))
 
 
 # With no lookup available, passed or installed, no settlement can be

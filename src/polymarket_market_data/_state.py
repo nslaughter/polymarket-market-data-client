@@ -317,6 +317,16 @@ class StateMachine:
         for item in items:
             self._item(item, received_at, clock)
 
+    def overflowed(self) -> None:
+        """A frame on the current connection reached the queue's limit (D3).
+        It is counted as received, and neither it nor anything after it on
+        the connection is delivered or applied (spec/client.md, Consumer
+        handoff). The client interrupts the connection, unless no desired
+        token is left on it, since that connection's end is no interruption,
+        however it comes."""
+        self.counts.frames += 1
+        self._interrupted = True
+
     def delivers(self, generation: int, items: Sequence[Decoded]) -> bool:
         """Whether ``frame`` would deliver a market-event record for these
         items, which decides whether the frame can reach the queue's limit
