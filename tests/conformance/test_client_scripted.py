@@ -443,6 +443,53 @@ expect book A2 held_book_matched=true
 expect gap A2 cause=consumer_overflow end=book
 expect token A2 ready
 """,
+    # After consumer_overflow, the attempt waits for the consumer's reading to
+    # bring the backlog to resume_below × queue_size, here 2, even with too
+    # few status records waiting to hold it back: none at the close, none
+    # while 3 remain, and it starts once a read leaves 2 (spec/client.md,
+    # Consumer handoff and Reconnecting).
+    "after-the-limit-the-attempt-waits-for-the-resume-level": """
+markets A
+config queue_size=10 backlog_warning=0.5 resume_below=0.2
+start A
+send pc A t=100 A1:BUY:0.49:10
+send pc A t=101 A1:BUY:0.49:11
+send pc A t=102 A1:BUY:0.49:12
+send pc A t=103 A1:BUY:0.49:13
+send pc A t=104 A1:BUY:0.49:14
+send pc A t=105 A1:BUY:0.49:15
+send pc A t=106 A1:BUY:0.49:16
+send pc A t=107 A1:BUY:0.49:17
+send pc A t=108 A1:BUY:0.49:18
+send pc A t=109 A1:BUY:0.49:19
+send pc A t=110 A1:BUY:0.49:20
+expect-client-close 1000 "client backlog"
+expect-no-connect 0.5
+expect price_change A t=100
+expect price_change A t=101
+expect price_change A t=102
+expect price_change A t=103
+expect price_change A t=104
+expect backlog queued=5 limit=10 rising=true
+expect price_change A t=105
+expect price_change A t=106
+expect-no-connect 0.3
+expect price_change A t=107
+expect price_change A t=108
+expect price_change A t=109
+expect conn interrupted reason=consumer_overflow connection=1
+expect token A1 uncertain previous=ready reason=interrupted
+expect token A2 uncertain previous=ready reason=interrupted
+expect conn recovering attempt=1 reason=waiting_for_consumer retry_in=none
+expect backlog queued=4 limit=10 rising=false
+expect conn connecting attempt=1
+accept
+recv-subscribe A1 A2
+expect conn open connection=2
+expect conn subscribed connection=2
+expect token A1 synchronizing previous=uncertain
+expect token A2 synchronizing previous=uncertain
+""",
 }
 
 
