@@ -138,6 +138,18 @@ def test_the_recovery_clock_runs_from_the_interruption_that_began_it() -> None:
     assert recovery.exhausted(58.0, 2.5) == "max_recovery_time"
 
 
+def test_time_waiting_for_the_consumer_does_not_count_toward_the_bound() -> None:
+    recovery = Recovery(policy(max_attempts=100, max_recovery_time=10.0))
+    recovery.begin(0.0)
+    # Waiting 30 s for the consumer, from 2 s to 32 s (spec/client.md,
+    # Reconnecting).
+    recovery.paused(30.0)
+    # A wait ending at 40 s ends 10 s after the recovery began, not counting
+    # those 30 s.
+    assert recovery.exhausted(35.0, 5.0) is None
+    assert recovery.exhausted(35.0, 5.5) == "max_recovery_time"
+
+
 # Frames that arrive while the client closes a connection after a
 # pong_timeout are neither delivered nor applied, and are counted
 # (spec/client.md, Detecting an interruption).

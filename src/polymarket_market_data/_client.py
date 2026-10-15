@@ -71,7 +71,11 @@ class MarketDataClient:
             can_look_up=self._lookups is not None,
             markets=markets,
         )
-        self._queue = RecordQueue(self._config.queue_size)
+        self._queue = RecordQueue(
+            self._config.queue_size,
+            backlog_warning=self._config.backlog_warning,
+            resume_below=self._config.resume_below,
+        )
         self._connector = Connector(
             self._config, self._state, self._queue, self._lookups
         )

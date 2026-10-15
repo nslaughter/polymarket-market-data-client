@@ -38,9 +38,14 @@ never a failed attempt, emits ``recovering`` at once, closes it, and starts
 the next attempt as soon as it has ended. An addition before then, during a
 backoff or an attempt, is in the next subscription frame.
 
-A frame that reaches the queue's limit ends the client with a
-``ClientError``, a stopgap until plan step 9 responds at the limit, so that
-nothing is lost silently.
+A frame that reaches the queue's limit gets D3's ``disconnect`` response:
+the client interrupts the connection (``consumer_overflow``), emits
+``recovering`` at once, closes it, and once it has ended waits for the
+consumer's reading to drain the queue before the next attempt. Nothing from
+the frame on is delivered or applied. The client also starts no attempt
+while ``queue_size`` or more status records are waiting, which keeps them
+bounded; time spent waiting for the consumer does not count toward
+``max_recovery_time`` (spec/client.md, Consumer handoff and Reconnecting).
 """
 
 import asyncio
@@ -59,7 +64,7 @@ from websockets.protocol import State
 
 from ._config import ClientConfig, ReconnectPolicy
 from ._decode import decode_frame
-from ._errors import ClientError, LookupFailed, RecoveryFailed
+from ._errors import LookupFailed, RecoveryFailed
 from ._lookup import Lookups
 from ._queue import RecordQueue
 from ._state import ALL_RESOLVED, EndConfirmation, StartConfirmation, StateMachine
@@ -77,6 +82,14 @@ left."""
 SUBSCRIPTION_CHANGE = "subscription change"
 """The reason of the close frame the client sends to apply an addition to the
 desired set."""
+
+CLIENT_BACKLOG = "client backlog"
+"""The reason of the close frame the client sends when a frame reaches the
+queue's limit (D3)."""
+
+WAITING_FOR_CONSUMER = "waiting_for_consumer"
+"""The reason of a ``recovering`` record while the client waits for the
+consumer before its next attempt."""
 
 
 def now() -> datetime:
@@ -141,6 +154,13 @@ class Recovery:
     def failed(self) -> None:
         """An attempt failed."""
         self._failed += 1
+
+    def paused(self, seconds: float) -> None:
+        """The client waited ``seconds`` for the consumer, which says nothing
+        about the server, so it does not count toward ``max_recovery_time``
+        (spec/client.md, Reconnecting)."""
+        if self._began is not None:
+            self._began += seconds
 
     def delay(self) -> float:
         """The wait before the next attempt, *k*: ``min(max_delay,
@@ -216,10 +236,12 @@ class _Retry:
     """How it failed, if it was a failed attempt."""
     error: BaseException | None
     """The exception that ended it, if one did."""
-    change: bool = False
-    """Whether the client closed it to apply a subscription change: its
-    ``recovering`` record came with the interruption, and the next attempt
-    starts at once (D7)."""
+    cause: str | None = None
+    """``subscription_change`` or ``consumer_overflow``, if the client
+    interrupted the connection to apply a subscription change (D7) or at the
+    queue's limit (D3). Its ``recovering`` record then came with the
+    interruption, and the next attempt starts at once or once the consumer
+    has caught up."""
 
 
 class _Emptied(Exception):
@@ -241,8 +263,8 @@ class _Live:
     """Whether the client has recorded its end: nothing that arrives on it
     afterwards is delivered or applied."""
     closer: asyncio.Task[None] | None = None
-    """The task closing it after a ``pong_timeout`` or to apply a
-    subscription change, which completes the close on its own."""
+    """The task closing it after a ``pong_timeout``, to apply a subscription
+    change, or at the queue's limit, which completes the close on its own."""
     idle: asyncio.Event = field(default_factory=asyncio.Event)
     """Set once no desired market is left: the client closes it, and its end
     is no interruption."""
@@ -273,6 +295,9 @@ class Connector:
         # attempt after a backoff, or, if this is None, a first attempt at
         # once if a desired market needs one.
         self._retry: _Retry | None = None
+        # The wait before the next attempt that its recovering record
+        # announced: seconds, or None to wait for the consumer.
+        self._wait: float | None = None
         # Whether the desired set has been empty since the current attempt
         # began. If so, no retry follows it, even one an interruption called
         # for before the set emptied: the recovery stopped there.
@@ -357,6 +382,18 @@ class Connector:
         while self._state.desired:
             self._retry = None
             self._went_idle = False
+            if self._queue.holds_back():
+                # No attempt starts while queue_size or more status records
+                # are waiting, a first attempt's included. One whose
+                # recovering record said so has waited already, so this
+                # comes only when they built up since (spec/client.md,
+                # Consumer handoff and Reconnecting).
+                self._state.recovering(
+                    self._recovery.attempt, WAITING_FOR_CONSUMER, now()
+                )
+                self.publish()
+                if not await self._caught_up(drained=False):
+                    return
             self._state.connecting(self._recovery.attempt, now())
             self.publish()
             socket = await self._attempt()
@@ -375,14 +412,26 @@ class Connector:
                 # Reconnecting and Connection states).
                 self._recovery.restart(loop.time())
                 continue
-            if self._retry.change:
-                # Its recovering record came with the interruption, and the
-                # attempt starts at once (spec/client.md, Reconnecting).
+            retry = self._retry
+            if retry.cause is None:
+                # Decided only now that the connection has ended, so that a
+                # close the client started cannot hold the attempt past the
+                # wait that recovering announced, or past the bound it was
+                # checked against.
+                self._next(retry)
+            # Otherwise its recovering record came with the interruption.
+            wait = self._wait
+            if wait is None:
+                # After consumer_overflow, the consumer's reading must also
+                # drain the queue; the one recovering record covers both
+                # waits (spec/client.md, Reconnecting).
+                if not await self._caught_up(
+                    drained=retry.cause == "consumer_overflow"
+                ):
+                    return
                 continue
-            # Decided only now that the connection has ended, so that a close
-            # the client started cannot hold the attempt past the wait that
-            # recovering announced, or past the bound it was checked against.
-            wait = self._next(self._retry)
+            if retry.cause == "subscription_change":
+                continue  # the attempt starts at once (D7)
             try:
                 async with self._unless_emptied():
                     await asyncio.sleep(wait)
@@ -483,7 +532,7 @@ class Connector:
                 change = group.create_task(
                     self._apply_change(socket, live), name="subscription-change"
                 )
-                await self._read(socket, live)
+                await self._read(socket, live, group)
                 books.cancel()
                 # A close the client started completes on its own.
                 for task in (heartbeat, change):
@@ -583,7 +632,7 @@ class Connector:
             group.create_task(
                 self._close_when_idle(socket, live), name="close-when-idle"
             )
-            await self._read(socket, live)
+            await self._read(socket, live, group)
 
     async def _book_timeout(self, live: _Live, subscribed: float) -> None:
         """``book_timeout`` after the subscription frame, the tokens still
@@ -643,10 +692,13 @@ class Connector:
         # frames still arriving are counted and discarded.
         await self._close(socket, PONG_TIMEOUT)
 
-    async def _read(self, socket: ClientConnection, live: _Live) -> None:
+    async def _read(
+        self, socket: ClientConnection, live: _Live, group: asyncio.TaskGroup
+    ) -> None:
         """Read every frame until the connection ends. Once its end is
         recorded, what still arrives is counted and discarded
-        (spec/client.md, Detecting an interruption)."""
+        (spec/client.md, Detecting an interruption). ``group`` is the
+        connection's, for a close the reader starts."""
         loop = asyncio.get_running_loop()
         frame = 0
         while True:
@@ -672,16 +724,41 @@ class Connector:
                 frame=frame,
                 keep_raw=self._config.keep_raw,
             )
+            # The limit is checked once per frame, so a frame is never split
+            # (spec/client.md, Consumer handoff).
             if self._queue.full() and self._state.delivers(live.generation, items):
-                raise ClientError(
-                    f"{self._queue.backlog} market-event records are waiting for "
-                    "the consumer, and the response at the limit comes with plan "
-                    "step 9"
-                )
+                self._overflowed(socket, live, group, clock)
+                continue
             self._state.frame(
                 live.generation, items, received_at=received_at, clock=clock
             )
             self.publish()
+
+    def _overflowed(
+        self,
+        socket: ClientConnection,
+        live: _Live,
+        group: asyncio.TaskGroup,
+        clock: float,
+    ) -> None:
+        """A frame reached the queue's limit: D3's ``disconnect`` response.
+        The frame is neither delivered nor applied, nor is anything after it
+        on the connection; it is left out of ``last_confirmed_at``, so the
+        gap includes it. The client interrupts the connection
+        (``consumer_overflow``), emits ``recovering`` at once, and closes it
+        (spec/client.md, Consumer handoff)."""
+        self._state.overflowed()
+        if live.idle.is_set():
+            # No desired market is left on it, and its close is under way:
+            # its end is no interruption, and its idle record follows.
+            return
+        retry = self._interrupt(live, "consumer_overflow", now(), clock)
+        # The reader goes on reading while the close completes, so that the
+        # frames still arriving are counted and discarded.
+        live.closer = group.create_task(
+            self._close(socket, CLIENT_BACKLOG), name="close-at-limit"
+        )
+        self._next(retry)
 
     def _ended(self, live: _Live, closed: ConnectionClosed) -> None:
         """The connection ended before the client recorded its end: by the
@@ -735,8 +812,9 @@ class Connector:
         events, and that another attempt follows it (T14; spec/client.md,
         Record order, rule 4). One that delivered no frame is also a failed
         attempt, unless the client closed it to apply a subscription change,
-        since the server did not fail it. ``error`` is the exception that
-        ended it, if one did."""
+        since the server did not fail it. One closed at the queue's limit has
+        always delivered a frame: the one that reached it. ``error`` is the
+        exception that ended it, if one did."""
         live.ended = True
         self._state.interrupted(
             cause, at, close_code=close_code, close_reason=close_reason
@@ -751,7 +829,8 @@ class Connector:
         if not (live.delivered or change):
             self._recovery.failed()
             detail = f"connection {live.generation} ended before delivering a frame"
-        self._retry = _Retry(detail, error, change)
+        at_once = cause in ("subscription_change", "consumer_overflow")
+        self._retry = _Retry(detail, error, cause if at_once else None)
         return self._retry
 
     def _attempt_failed(self, detail: str, error: BaseException) -> None:
@@ -759,29 +838,65 @@ class Connector:
         self._recovery.failed()
         self._retry = _Retry(detail, error)
 
-    def _next(self, retry: _Retry) -> float:
-        """Emit ``recovering`` and return the wait before the next attempt:
-        its backoff, or none to apply a subscription change (D7). Or fail if
-        the bounds are exhausted (D2). Failing emits each open gap's
-        ``CaptureGap``, then ``failed``, with no ``recovering`` record for
-        the attempt the client will not make (T18; spec/client.md, Record
-        order, rule 4). Either record says how the last attempt failed, if
-        it did, and ``RecoveryFailed`` keeps the exception that ended it as
-        its ``__cause__``, since no later record reports that attempt."""
+    def _next(self, retry: _Retry) -> float | None:
+        """Emit ``recovering``, and keep in ``_wait`` and return the wait
+        before the next attempt: its backoff; none to apply a subscription
+        change (D7); or ``None`` to wait for the consumer, after
+        ``consumer_overflow`` (D3) or in place of either while ``queue_size``
+        or more status records are waiting, this record included
+        (spec/client.md, Reconnecting). Or fail if the bounds are exhausted
+        (D2). Failing emits each open gap's ``CaptureGap``, then ``failed``,
+        with no ``recovering`` record for the attempt the client will not
+        make (T18; spec/client.md, Record order, rule 4). Either record says
+        how the last attempt failed, if it did, and ``RecoveryFailed`` keeps
+        the exception that ended it as its ``__cause__``, since no later
+        record reports that attempt."""
         at, clock = now(), asyncio.get_running_loop().time()
         recovery = self._recovery
-        wait = 0.0 if retry.change else recovery.delay()
-        exhausted = recovery.exhausted(clock, wait)
+        wait: float | None
+        # The recovering record itself counts. When it brings the status
+        # records waiting to queue_size, the attempt waits for the consumer,
+        # so it is that wait's record, in place of the backoff's or the
+        # subscription change's, and the attempt's only one.
+        if retry.cause == "consumer_overflow" or self._queue.holds_back(adding=1):
+            reason, wait = WAITING_FOR_CONSUMER, None
+        elif retry.cause == "subscription_change":
+            reason, wait = "subscription_change", 0.0
+        else:
+            reason, wait = "backoff", recovery.delay()
+        # Time spent waiting for the consumer does not count toward the
+        # bound, and the attempt follows that wait at once.
+        exhausted = recovery.exhausted(clock, 0.0 if wait is None else wait)
         if exhausted is None:
-            reason = "subscription_change" if retry.change else "backoff"
             self._state.recovering(
                 recovery.attempt, reason, at, retry_in=wait, detail=retry.detail
             )
             self.publish()
+            self._wait = wait
             return wait
         self._state.failed(exhausted, at, detail=retry.detail)
         self.publish()
         raise RecoveryFailed(_exhausted(exhausted, self._config)) from retry.error
+
+    async def _caught_up(self, *, drained: bool) -> bool:
+        """Wait for the consumer before the next attempt, until fewer than
+        ``queue_size`` status records are waiting and, with ``drained``,
+        the backlog has fallen to ``resume_below × queue_size``. The time
+        does not count toward ``max_recovery_time``. Returns false if no
+        desired market is left meanwhile: the recovery stopped there, as
+        when a backoff is abandoned (spec/client.md, Reconnecting)."""
+        loop = asyncio.get_running_loop()
+        began = loop.time()
+        try:
+            async with self._unless_emptied():
+                await self._queue.caught_up(drained=drained)
+        except _Emptied:
+            return False
+        finally:
+            self._recovery.paused(loop.time() - began)
+        # The set may have emptied as the wait ended: as if it had been
+        # abandoned, so that a market added since starts attempt 1.
+        return not self._went_idle
 
     async def _close(self, socket: ClientConnection, reason: str) -> None:
         """Close the connection with code 1000 and ``reason``, waiting at

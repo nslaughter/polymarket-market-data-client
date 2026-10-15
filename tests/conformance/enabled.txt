@@ -43,3 +43,7 @@ subscribe-during-outage
 unsubscribe
 unsubscribe-all-then-subscribe
 resubscribe-removed
+consumer-stops-reading
+frame-larger-than-queue
+status-records-bounded
+consumer-pause-outlasts-recovery-time

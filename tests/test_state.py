@@ -1139,6 +1139,36 @@ def test_the_idle_record_follows_the_frames_of_the_connection_the_client_closes(
     ]
 
 
+def test_the_limit_reached_on_the_connection_the_client_closes_interrupts_nothing() -> (
+    None
+):
+    # After a frame reaches the queue's limit on the connection the last
+    # market left, nothing more from it is delivered or applied. Since that
+    # connection's end is no interruption, what arrives counts in frames but
+    # not in frames_after_interruption, and the idle record still waits for
+    # the end, even when a market is removed again (D3; spec/client.md,
+    # Consumer handoff, Statistics, and Connection states).
+    run = started(MARKET_A)
+    run.send(resolved(A, 1001, A1))
+    run.take()
+    run.machine.overflowed()
+    frames = run.machine.counts.frames
+    unknown = '{"event_type":"something_new","market":"x"}'
+    items = decode_frame(
+        unknown, received_at=run.now, connection=1, frame=9, keep_raw=False
+    )
+    assert not run.machine.delivers(run.generation, items)
+    run.send(unknown)
+    run.machine.pong(run.generation, run.now)
+    assert run.take() == []
+    assert run.machine.counts.frames == frames + 1
+    assert run.machine.counts.frames_after_interruption == 0
+    run.machine.unsubscribe([A], run.now)
+    assert run.take() == []
+    run.machine.closed(run.now)
+    assert run.summary() == [("conn", "idle")]
+
+
 def test_the_last_market_leaving_before_the_subscription_frame_idles_at_the_end() -> (
     None
 ):
