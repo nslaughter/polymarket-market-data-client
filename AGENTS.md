@@ -220,13 +220,15 @@ owner starts the review. Each of its reviews, the third included, is by a
 reviewer who didn't write or fix the change and doesn't share the context of
 whoever did. It runs in this order:
 
-1. Two reviews at the same time.
+1. Two reviews at the same time. If neither finds anything, the review ends
+   there.
 2. Fixes: each finding is fixed, or declined with a reason, and answered under
    it on the pull request.
 3. A third review of the fixes, when the first two reviews found anything of
    medium or high severity or the fixes changed behavior or tests, and only if
-   the fixes pushed a change. Its findings are fixed or declined the same way,
-   which ends the review. Without a third review, the fixes end it.
+   the fixes pushed a change. If it finds nothing, the review ends there;
+   otherwise its findings are fixed or declined the same way, which ends it.
+   Without a third review, the fixes end it.
 
 Each review is posted on the pull request as a review of its own, numbered,
 even when it finds nothing, so the pull request shows which reviews ran. The
