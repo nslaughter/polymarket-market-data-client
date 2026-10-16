@@ -236,5 +236,12 @@ say so, and stop.
 
 A ruleset on `main` enforces the end of this: a pull request merges only by
 squash, once every review thread on it is resolved and the CI jobs pass
-(Python 3.12, 3.13, and 3.14, and oldest dependencies). It requires no
-approval, so the owner can merge their own pull requests.
+(`Python 3.12`, `Python 3.13`, `Python 3.14`, and `Oldest dependencies`).
+It requires no approval, so the owner can merge their own pull requests.
+
+The ruleset names those jobs, and only the owner changes it. A pull request
+that adds, removes, or renames a CI job, or a Python version in the matrix,
+updates the list above to match, and asks the owner in its description, as
+a pending task, to change the ruleset's required checks the same way. Until
+the owner does, a new job can fail without blocking a merge, and a required
+job that no longer runs blocks every merge, that pull request's included.
