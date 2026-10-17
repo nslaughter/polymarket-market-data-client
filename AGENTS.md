@@ -25,10 +25,13 @@ The README describes the project for people; it is not a specification.
   passages, instead of choosing an interpretation or editing an expectation
   to match the code.
 - **Do not change the evidence.** `docs/source-behavior.md`, `spikes/`, and
-  `spikes/evidence/` record what was observed on October 4, 2026. Code and
-  documents must not claim more about the source or the SDK than the
-  findings support. If you observe new source behavior, report it; do not
-  build it into the client on your own.
+  `spikes/evidence/` record what was observed on October 4, 2026. Don't edit
+  that record. When the owner asks for a recheck, add it after the finding
+  it rechecks, dated, with its own pinned and locked copy of the script, as
+  the October 16, 2026 recheck in §1 does. Code and documents must not claim
+  more about the source or the SDK than the findings support. If you observe
+  new source behavior, report it; do not build it into the client on your
+  own.
 - **Follow the plan.** Do one pull request from the implementation plan at a
   time, in order, within its stated scope, as described in
   [Doing the next item](#doing-the-next-item). Note anything you deferred in
