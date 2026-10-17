@@ -198,7 +198,9 @@ When asked to do the next item:
 5. In the same branch, set the step's status to `Done` in the Progress table.
 6. Push, and open a pull request as described below. Then add its number to
    the step's row in a follow-up commit on the same branch.
-7. Do not merge. Report the pull request's link, the checks you ran and their
+7. Do not merge: the pull request waits for the owner's iterative review, and
+   then for the owner, as [Review before merging](#review-before-merging)
+   describes. Report the pull request's link, the checks you ran and their
    results, and anything deferred.
 
 ## Commits and pull requests
@@ -212,3 +214,39 @@ becomes the commit on `main`. Keep it current as commits are added. It names
 its step in the implementation plan, lists the scenarios it turns on and the
 checks run with their results, and lists anything deferred and any
 specification question raised.
+
+### Review before merging
+
+No pull request is merged until the owner's iterative review has run on it,
+documentation-only ones included, as the owner decided on 2026-10-14. The
+owner starts the review. Each of its reviews, the third included, is by a
+reviewer who didn't write or fix the change and doesn't share the context of
+whoever did. It runs in this order:
+
+1. Two reviews at the same time. If neither finds anything, the review ends
+   there.
+2. Fixes: each finding is fixed, or declined with a reason, and answered under
+   it on the pull request.
+3. A third review of the fixes, when the first two reviews found anything of
+   medium or high severity or the fixes changed behavior or tests, and only if
+   the fixes pushed a change. If it finds nothing, the review ends there;
+   otherwise its findings are fixed or declined the same way, which ends it.
+   Without a third review, the fixes end it.
+
+Each review is posted on the pull request as a review of its own, numbered,
+even when it finds nothing, so the pull request shows which reviews ran. The
+owner then reads the pull request, resolves its threads, and merges it. If
+the review hasn't run, or hasn't ended, don't merge, even when the owner asks:
+say so, and stop.
+
+A ruleset on `main` enforces the end of this: a pull request merges only by
+squash, once every review thread on it is resolved and the CI jobs pass
+(`Python 3.12`, `Python 3.13`, `Python 3.14`, and `Oldest dependencies`).
+It requires no approval, so the owner can merge their own pull requests.
+
+The ruleset names those jobs, and only the owner changes it. A pull request
+that adds, removes, or renames a CI job, or a Python version in the matrix,
+updates the list above to match, and asks the owner in its description, as
+a pending task, to change the ruleset's required checks the same way. Until
+the owner does, a new job can fail without blocking a merge, and a required
+job that no longer runs blocks every merge, that pull request's included.
