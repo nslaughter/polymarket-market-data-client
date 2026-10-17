@@ -29,6 +29,11 @@ uv run spikes/repro_sdk_next.py drops-events
 uv run spikes/repro_sdk.py drops-events     # still 0.12.0
 ```
 
+A recheck that is kept gets a versioned name instead of `_next`.
+`repro_sdk_0_13.py` is the copy pinned to 0.13.0 for the October 16, 2026
+recheck recorded at the end of section 1 of
+[`docs/source-behavior.md`](../docs/source-behavior.md#rechecked-october-16-2026).
+
 The service has no version, so a service finding is tied to the time it was
 checked. A later NOT REPRODUCED verdict, with its recorded time and server
 headers, is the evidence that the behavior changed.

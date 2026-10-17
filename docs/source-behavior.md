@@ -346,6 +346,33 @@ WebSocket to the proxy. Also untested were the SDK with several
 subscriptions or with subscription changes during a fault, and behavior over
 longer periods.
 
+### Rechecked October 16, 2026
+
+`polymarket-client` 0.13.0, released October 9 and still the latest release
+on October 16, reconnects the same way without telling its consumer.
+[`repro_sdk_0_13.py`](../spikes/repro_sdk_0_13.py), a copy of
+[`repro_sdk.py`](../spikes/repro_sdk.py) pinned to 0.13.0 with its own
+lockfile, ran `silent-reconnect` on the current 15-minute Bitcoin market,
+`btc-updown-15m-1792182600`. The original 0.12.0 script ran right after it
+as a control. Both reported REPRODUCED. Times are UTC.
+
+| Version | Checked | After the kill at 22.7 s | With `PONG` withheld from 52.7 s |
+| --- | --- | --- | --- |
+| 0.13.0 | 20:33:24 | resubscribed after 0.7 s; 288 source book states never delivered; nothing logged above DEBUG | resubscribed after 26.9 s; 1,320 book states never delivered; `WARNING WebSocket heartbeat stale; closing` |
+| 0.12.0 | 20:35:34 | resubscribed after 0.7 s; 324 source book states never delivered; nothing logged above DEBUG | resubscribed after 33.3 s; no book states missed; the same `WARNING` |
+
+Both runs used `websockets` 15.0.1 and CPython 3.12.13 under uv. The 0.13.0
+lockfile resolved `pydantic` 2.14.1, and the 0.12.0 one 2.13.5. Cloudflare
+answered both handshakes (rays `a4b9d69f5d6f758e-DFW` and
+`a4b9d9cdce0d479a-DFW`). The captures stayed on the machine that ran them,
+like the others, with SHA-256
+`e6b22e8ec5e744f41905f0bb7432625c8bf478b115c874887cce8ed9fc24ff9f` for
+`silent-reconnect-20261016T203324Z.jsonl` (0.13.0) and
+`15e3d08d19f5849bfe9f9e82c995fd2020a67ec45737a876e68b015f84519d7b` for
+`silent-reconnect-20261016T203534Z.jsonl` (0.12.0). No excerpt was cut
+from them. Only `silent-reconnect` was rerun; the parser drops and the
+other runs above were not rechecked on 0.13.0.
+
 ## 2. Heartbeat
 
 **Checked** October 4, 2026, with a raw socket (`websockets` 15.0.1).
