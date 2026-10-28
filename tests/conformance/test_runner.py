@@ -649,3 +649,11 @@ def test_enabled_txt_lists_scenarios_once() -> None:
         enabled_names("no-such-scenario\n", known)
     with pytest.raises(ValueError, match="twice"):
         enabled_names("initial-books\ninitial-books\n", known)
+
+
+def test_every_scenario_is_enabled() -> None:
+    # By the end of plan step 10 every scenario is listed
+    # (docs/implementation-plan.md, How a step turns on its scenarios).
+    known = {scenario.name for scenario in SCENARIOS}
+    enabled = enabled_names(ENABLED.read_text(), known)
+    assert sorted(known - set(enabled)) == []

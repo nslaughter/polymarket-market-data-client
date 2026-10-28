@@ -51,7 +51,7 @@ decision the owner deferred on 2026-10-08 until step 16 is merged.
 | 7. Settle markets through the stream and lookup | D6 | Done | [#20](https://github.com/nslaughter/polymarket-market-data-client/pull/20) |
 | 8. Apply subscription changes | D7 | Done | [#24](https://github.com/nslaughter/polymarket-market-data-client/pull/24) |
 | 9. Bound the consumer handoff | D3 | Done | [#25](https://github.com/nslaughter/polymarket-market-data-client/pull/25) |
-| 10. Verify order-book hashes | D4 | Not started | |
+| 10. Verify order-book hashes | D4 | Done | |
 | 11. Add the research example and check the built wheel | | Not started | |
 | 12. Record a limited live run | live-run period and markets | Needs owner decision | |
 | 13. Release a tagged wheel | release name | Not started | |
