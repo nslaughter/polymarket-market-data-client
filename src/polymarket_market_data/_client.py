@@ -10,7 +10,9 @@ connection as it ends, so nothing the client started outlives the block.
 ``subscribe`` and ``unsubscribe`` change the desired set at once, and the
 connection task applies the change to the connection, as D7 specifies.
 
-Not yet here: refusing ``verify_hash`` without a lookup (plan step 10).
+With ``verify_hash`` on, the client verifies order-book hashes, which needs
+the two hash inputs only lookup supplies, so it refuses to be built without a
+lookup (D4).
 """
 
 import asyncio
@@ -24,6 +26,7 @@ from pydantic import ValidationError
 from ._config import ClientConfig
 from ._connection import Connector, now
 from ._errors import ClientError, ClientStateError, ConfigError, MarketNotFound
+from ._hash import Verifier
 from ._lookup import Lookups, MarketLookup, default_lookup
 from ._queue import AnyRecord, RecordIterator, RecordQueue
 from ._records import ClientStats, Market
@@ -62,14 +65,30 @@ class MarketDataClient:
         self._config = _validated(config)
         if lookup is None:
             lookup = default_lookup()
+        if self._config.verify_hash and lookup is None:
+            # No hash could be checked, and the gap would pass unnoticed (D4).
+            raise ConfigError(
+                "verify_hash is on and no market lookup is available, which "
+                "hash checks need: install the sdk extra, pass a lookup, or "
+                "turn verify_hash off"
+            )
         self._lookups = (
             None if lookup is None else Lookups(lookup, self._config.lookup_timeout)
+        )
+        self._verifier = (
+            Verifier(
+                hash_grace=self._config.hash_grace,
+                burst_quiet=self._config.burst_quiet,
+            )
+            if self._config.verify_hash
+            else None
         )
         self._state = StateMachine(
             repeat_window=self._config.repeat_window,
             deliver_new_market=self._config.new_market == "deliver",
             can_look_up=self._lookups is not None,
             markets=markets,
+            verifier=self._verifier,
         )
         self._queue = RecordQueue(
             self._config.queue_size,
@@ -182,6 +201,8 @@ class MarketDataClient:
         """A snapshot of the client's counters, cumulative since it started."""
         counts = self._state.counts
         pongs = self._connector.pongs
+        lookups = self._lookups
+        checks = None if self._verifier is None else self._verifier.counts
         return ClientStats(
             frames=counts.frames,
             frames_after_interruption=counts.frames_after_interruption,
@@ -197,12 +218,12 @@ class MarketDataClient:
             pong_delay_max=pongs.delay_max,
             connections=counts.connections,
             interruptions=dict(counts.interruptions),
-            lookups=0 if self._lookups is None else self._lookups.calls,
-            lookup_failures=0 if self._lookups is None else self._lookups.failures,
-            rest_book_not_found=0,
-            hash_verified=0,
-            hash_retried=0,
-            hash_failed=0,
+            lookups=0 if lookups is None else lookups.calls,
+            lookup_failures=0 if lookups is None else lookups.failures,
+            rest_book_not_found=0 if lookups is None else lookups.rest_book_not_found,
+            hash_verified=0 if checks is None else checks.verified,
+            hash_retried=0 if checks is None else checks.retried,
+            hash_failed=0 if checks is None else checks.failed,
         )
 
     async def resolve(self, slug: str) -> Market:

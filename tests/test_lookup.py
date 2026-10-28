@@ -1,12 +1,14 @@
 """Market lookup: the calls the client makes, each limited to
-``lookup_timeout`` and counted, and whether the default lookup is available
-(spec/client.md, Market lookup and Statistics; D6). ``test_lookup_sdk.py``
-tests the default lookup itself.
+``lookup_timeout`` and counted, ``book_parameters`` answers of no REST book
+among them, and whether the default lookup is available (spec/client.md,
+Market lookup and Statistics; D4 and D6). ``test_lookup_sdk.py`` tests the
+default lookup itself.
 """
 
 import asyncio
 import sys
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -31,22 +33,25 @@ INFO_A = MarketInfo(
 
 
 class Scripted:
-    """A lookup that answers ``market`` with what ``answer`` gives or
-    raises."""
+    """A lookup that answers ``market`` and ``book_parameters`` with what
+    ``answer`` gives or raises for the slug or token."""
 
     def __init__(self, answer: Callable[[str], Any]) -> None:
         self.answer = answer
 
     async def market(self, *, slug: str) -> MarketInfo | None:
-        result = self.answer(slug)
+        return await self._answer(slug)  # type: ignore[no-any-return]
+
+    async def book_parameters(self, token_id: str) -> BookParameters | None:
+        return await self._answer(token_id)  # type: ignore[no-any-return]
+
+    async def _answer(self, key: str) -> Any:
+        result = self.answer(key)
         if isinstance(result, BaseException):
             raise result
         if asyncio.iscoroutine(result):
-            return await result  # type: ignore[no-any-return]
-        return result  # type: ignore[no-any-return]
-
-    async def book_parameters(self, token_id: str) -> BookParameters | None:
-        raise AssertionError("not called")
+            return await result
+        return result
 
 
 # The calls the client makes.
@@ -89,6 +94,42 @@ def test_a_lookup_past_lookup_timeout_fails_with_the_timeout_as_the_cause() -> N
         return loop.time() - start
 
     assert asyncio.run(main()) < 1.0
+
+
+def test_book_parameters_are_counted_as_lookup_calls() -> None:
+    found = BookParameters(Decimal("5"), False)
+    lookups = Lookups(Scripted(lambda token: found), timeout=1.0)
+    assert asyncio.run(lookups.book_parameters(A1)) == found
+    assert (lookups.calls, lookups.failures, lookups.rest_book_not_found) == (
+        1,
+        0,
+        0,
+    )
+
+
+def test_no_rest_book_is_counted_and_is_not_a_failure() -> None:
+    # The default lookup's answer for the REST book's HTTP 404 (D6).
+    lookups = Lookups(Scripted(lambda token: None), timeout=1.0)
+    assert asyncio.run(lookups.book_parameters(A1)) is None
+    assert asyncio.run(lookups.book_parameters(A2)) is None
+    assert (lookups.calls, lookups.failures, lookups.rest_book_not_found) == (
+        2,
+        0,
+        2,
+    )
+
+
+def test_book_parameters_that_raise_fail_with_the_exception_as_the_cause() -> None:
+    error = RuntimeError("scripted")
+    lookups = Lookups(Scripted(lambda token: error), timeout=1.0)
+    with pytest.raises(LookupFailed) as info:
+        asyncio.run(lookups.book_parameters(A1))
+    assert info.value.__cause__ is error
+    assert (lookups.calls, lookups.failures, lookups.rest_book_not_found) == (
+        1,
+        1,
+        0,
+    )
 
 
 def test_a_cancelled_call_is_no_failure() -> None:
