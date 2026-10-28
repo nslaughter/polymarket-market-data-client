@@ -4,11 +4,17 @@ Record order).
 
 Pure: no I/O and no timers. The client feeds the machine what happened, in
 the order it happened: changes to the desired set, each step of a
-connection, each decoded frame, timers that fired, lookup answers, and hash
-check results. The machine produces every record, in the contract's record
-order, and the effects the client must carry out: starting and ending a
-market's settlement confirmation. The connection's own decisions, such as
-attempt numbers and delays, come in as inputs.
+connection, each decoded frame, timers that fired, and lookup answers. The
+machine produces every record, in the contract's record order, and the
+effects the client must carry out: starting and ending a market's settlement
+confirmation, and a token's fetch of its hash inputs. The connection's own
+decisions, such as attempt numbers and delays, come in as inputs.
+
+With ``verify_hash`` on, the machine hands the hash checks to a
+``Verifier``, at the points D4 sets: before an entry or a book changes the
+book it checks, and when ``burst_quiet`` has passed. Each check's result
+then feeds T7 and T9, which take a result as an input, so that they can
+also be driven directly.
 
 A token takes part only once a subscription frame has named it: until then
 it has no state, holds no book, and no transition applies to it.
@@ -21,16 +27,19 @@ from datetime import datetime
 
 from ._book import Book
 from ._decode import Decoded, DecodedEvent, EventRecord, RepeatDetector, Undecodable
-from ._lookup import MarketInfo
+from ._hash import Check, Outcome, Position, Verifier
+from ._lookup import BookParameters, MarketInfo
 from ._records import (
     BookEvent,
     CaptureGap,
     ConnectionState,
     ConnectionStateChange,
+    LastTradePriceEvent,
     Market,
     MarketResolvedEvent,
     NewMarketEvent,
     PriceChangeEvent,
+    TickSizeChangeEvent,
     TokenState,
     TokenStateChange,
     UndecodableFrame,
@@ -45,11 +54,6 @@ Record = (
     | ConnectionStateChange
     | CaptureGap
 )
-
-# Where an item arrived: its connection's generation, its frame's number on
-# that connection, and its position in the frame, 0 for a frame holding one
-# object or none. Positions compare in arrival order.
-Position = tuple[int, int, int]
 
 ALL_RESOLVED = "all subscribed assets resolved"
 
@@ -75,7 +79,22 @@ class EndConfirmation:
     condition_id: str
 
 
-Effect = StartConfirmation | EndConfirmation
+@dataclass(frozen=True, slots=True)
+class StartFetch:
+    """Fetch a token's hash inputs through lookup: ask now, and while the
+    call fails, again every ``settlement_poll_interval`` (D4)."""
+
+    token_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class EndFetch:
+    """Stop fetching a token's hash inputs: it has left the desired set."""
+
+    token_id: str
+
+
+Effect = StartConfirmation | EndConfirmation | StartFetch | EndFetch
 
 
 @dataclass(slots=True)
@@ -134,10 +153,13 @@ class StateMachine:
         deliver_new_market: bool,
         can_look_up: bool,
         markets: Iterable[Market] = (),
+        verifier: Verifier | None = None,
     ) -> None:
         self._repeat_window = repeat_window
         self._deliver_new_market = deliver_new_market
         self._can_look_up = can_look_up
+        # With verify_hash on, the hash checks (D4).
+        self._verifier = verifier
         # The desired set, in the order the markets were added.
         self._markets: dict[str, Market] = {}
         self._tokens: dict[str, _Token] = {}
@@ -245,6 +267,11 @@ class StateMachine:
                     # subscription frame names it.
                     token.market = condition_id
                     self._forget(token)
+                if self._verifier is not None:
+                    # Its hash inputs are fetched as it enters the desired
+                    # set, even before a subscription frame names it (D4).
+                    self._verifier.want(token_id, condition_id)
+                    self._effects.append(StartFetch(token_id))
         return bool(added)
 
     def unsubscribe(self, condition_ids: Iterable[str], at: datetime) -> None:
@@ -519,7 +546,39 @@ class StateMachine:
         for token in self._no_book(condition_id):
             self._move(token, TokenState.UNCERTAIN, "settlement_unconfirmed", at)
 
-    # Hash checks, whose results step 10 supplies (D4).
+    # Hash checks (D4).
+
+    def parameters(self, token_id: str, parameters: BookParameters | None) -> None:
+        """Lookup answered for a token's hash inputs. ``None``, no REST book
+        for it, is counted by the lookup and trusted alone for nothing: the
+        token's hashes are never checked, and it settles nothing (D6)."""
+        if self._verifier is not None:
+            self._verifier.parameters(token_id, parameters)
+
+    def burst_deadline(self) -> float | None:
+        """When the first pending burst's ``burst_quiet`` passes, on the
+        monotonic clock frames arrive by, if a burst is pending."""
+        return None if self._verifier is None else self._verifier.deadline()
+
+    def bursts_quiet(self, clock: float, at: datetime) -> None:
+        """Check each burst whose ``burst_quiet`` has passed by ``clock``
+        with no entry applied to its token (D4), in desired-set order
+        (spec/client.md, Record order, rule 2)."""
+        verifier = self._verifier
+        if verifier is None:
+            return
+        due = set(verifier.due(clock))
+        for market in self._markets.values():
+            for token_id in market.token_ids:
+                if token_id in due:
+                    due.discard(token_id)
+                    check = verifier.quiet(token_id, self._tokens[token_id].book)
+                    if check is not None:
+                        self._hash_result(check, at)
+        # Only desired tokens have bursts, but a burst left due would hold
+        # the timer at its deadline.
+        for token_id in due:
+            verifier.quiet(token_id, None)
 
     def hash_diverged(self, token_id: str, at: datetime) -> None:
         """Hash verification reports divergence for a token (T7)."""
@@ -567,9 +626,9 @@ class StateMachine:
         if repeat:
             self.counts.repeats += 1
         if isinstance(record, BookEvent):
-            self._book(record, repeat, received_at)
+            self._book(record, repeat, received_at, clock)
         elif isinstance(record, PriceChangeEvent):
-            self._price_change(record, repeat)
+            self._price_change(record, repeat, received_at, clock)
         elif isinstance(record, MarketResolvedEvent):
             self._records.append(replace(record, repeat=repeat))
             if not repeat:
@@ -582,6 +641,13 @@ class StateMachine:
                 self._idle_if_empty(received_at)
         else:
             self._records.append(replace(record, repeat=repeat))
+            if self._verifier is not None and not repeat:
+                # The hash inputs the stream announces (spec/client.md,
+                # Decoding).
+                if isinstance(record, LastTradePriceEvent):
+                    self._verifier.announced(record.market, record.price)
+                elif isinstance(record, TickSizeChangeEvent):
+                    self._verifier.tick_size(record.asset_id, record.new_tick_size)
 
     def _outside(self, record: EventRecord) -> bool:
         """Whether an event names only tokens outside the desired set, or a
@@ -604,13 +670,23 @@ class StateMachine:
             tokens = (record.asset_id,)
         return not any(self._takes_part(token) for token in tokens)
 
-    def _book(self, record: BookEvent, repeat: bool, received_at: datetime) -> None:
+    def _book(
+        self, record: BookEvent, repeat: bool, received_at: datetime, clock: float
+    ) -> None:
         token = self._tokens[record.asset_id]
         fresh = Book.from_event(record)
         matched = None if token.book is None else token.book.matches(fresh)
         self._records.append(replace(record, repeat=repeat, held_book_matched=matched))
         if repeat:
             return
+        if self._verifier is not None:
+            # The book ends the token's pending burst, checked with the book
+            # as it stood, so its result comes before the book's own
+            # transitions; then the book's own check, which changes no state
+            # (D4).
+            checks = self._verifier.book(token.id, record, token.book, fresh, clock)
+            for check in checks:
+                self._hash_result(check, received_at)
         token.book = fresh
         if not token.booked:
             token.booked = True
@@ -631,8 +707,16 @@ class StateMachine:
             )
             self._move(token, TokenState.READY, "book", received_at)
 
-    def _price_change(self, record: PriceChangeEvent, repeat: bool) -> None:
+    def _price_change(
+        self,
+        record: PriceChangeEvent,
+        repeat: bool,
+        received_at: datetime,
+        clock: float,
+    ) -> None:
         changes = []
+        checks: list[Check] = []
+        position = (record.connection, record.frame, record.index)
         for change in record.changes:
             token = self._tokens.get(change.asset_id)
             booked = (
@@ -651,9 +735,39 @@ class StateMachine:
             # no book on this connection has nothing to apply it to.
             applied = booked and not repeat
             if applied and token is not None and token.book is not None:
+                if self._verifier is not None:
+                    # Before the entry changes the book that the check of the
+                    # burst it may end needs (D4).
+                    check = self._verifier.entry(
+                        token.id,
+                        change,
+                        record.source_timestamp_ms,
+                        token.book,
+                        position,
+                        clock,
+                    )
+                    if check is not None:
+                        checks.append(check)
                 token.book.apply(change, record.source_timestamp_ms)
             changes.append(replace(change, applied=applied, before_book=before_book))
         self._records.append(replace(record, repeat=repeat, changes=tuple(changes)))
+        if len(checks) > 1:
+            # One event's checks, for several tokens, follow the desired
+            # set's order (spec/client.md, Record order, rule 2); a token's
+            # own stay in the order they were made.
+            order = {token: i for i, token in enumerate(self.subscription())}
+            checks.sort(key=lambda check: order.get(check.token_id, len(order)))
+        for check in checks:
+            self._hash_result(check, received_at)
+
+    def _hash_result(self, check: Check, at: datetime) -> None:
+        """A check's result: T7 once failures count as divergence, and T9
+        for a burst's check that verified (D4). Either comes after the
+        record of the event that ended the burst, if one did."""
+        if check.diverged:
+            self.hash_diverged(check.token_id, at)
+        elif check.outcome is not Outcome.FAILED and check.burst_end is not None:
+            self.hash_verified(check.token_id, check.burst_end, at)
 
     def _undecodable(self, item: Undecodable, received_at: datetime) -> None:
         record = item.record
@@ -770,9 +884,13 @@ class StateMachine:
         self._leave(condition_id)
 
     def _leave(self, condition_id: str) -> None:
-        del self._markets[condition_id]
+        market = self._markets.pop(condition_id)
         if condition_id in self._confirming:
             self._end_confirmation(condition_id)
+        if self._verifier is not None:
+            for token_id in market.token_ids:
+                self._verifier.forget(token_id)
+                self._effects.append(EndFetch(token_id))
 
     def _end_confirmation(self, condition_id: str) -> None:
         self._confirming.discard(condition_id)

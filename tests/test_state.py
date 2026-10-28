@@ -1,11 +1,13 @@
 """The token state machine: each transition, T1 to T18, each case that
-changes nothing, and the order of the records (spec/client.md, Per-token
-state machine, Recovery contract, Settlement, and Record order).
+changes nothing, the order of the records, and the hash checks it hands the
+verifier (spec/client.md, Per-token state machine, Recovery contract,
+Settlement, and Record order; D4).
 
 Frames are decoded from JSON in the shapes of spec/conformance.md's frame
 notation, so the machine sees what the client will give it.
 """
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -16,6 +18,7 @@ import pytest
 from polymarket_market_data import (
     BestBidAskEvent,
     BookEvent,
+    BookParameters,
     CaptureGap,
     ConnectionState,
     ConnectionStateChange,
@@ -25,18 +28,24 @@ from polymarket_market_data import (
     MarketInfo,
     MarketResolvedEvent,
     NewMarketEvent,
+    PriceChange,
     PriceChangeEvent,
+    Side,
     TickSizeChangeEvent,
     TokenState,
     TokenStateChange,
     UndecodableFrame,
     UnknownEvent,
 )
+from polymarket_market_data._book import Book
 from polymarket_market_data._decode import decode_frame
+from polymarket_market_data._hash import HashCounts, Verifier, hashed_text
 from polymarket_market_data._state import (
     EndConfirmation,
+    EndFetch,
     Record,
     StartConfirmation,
+    StartFetch,
     StateMachine,
 )
 
@@ -257,12 +266,15 @@ class Run:
         *markets: Market,
         deliver_new_market: bool = False,
         can_look_up: bool = True,
+        verifier: Verifier | None = None,
     ) -> None:
+        self.verifier = verifier
         self.machine = StateMachine(
             repeat_window=1.0,
             deliver_new_market=deliver_new_market,
             can_look_up=can_look_up,
             markets=markets,
+            verifier=verifier,
         )
         self.seconds = 0.0
         self.generation = 0
@@ -308,6 +320,10 @@ class Run:
 
     def book_timeout(self) -> None:
         self.machine.book_timeout(self.generation, self.now)
+
+    def quiet(self) -> None:
+        """The client's burst_quiet timer fires."""
+        self.machine.bursts_quiet(self.seconds, self.now)
 
     def take(self) -> list[Record]:
         return self.machine.take()
@@ -1860,3 +1876,263 @@ def test_the_book_held_while_uncertain_is_the_one_compared() -> None:
         Level(Decimal("0.47"), Decimal("250")),
         Level(Decimal("0.48"), Decimal("100")),
     )
+
+
+# Hash checks (D4). The machine hands them to a verifier, whose own rules
+# test_hash.py tests; these check what the machine does with them.
+
+PARAMETERS = BookParameters(Decimal("5"), False)
+
+
+def true_hash(
+    token: str,
+    held: Book,
+    timestamp: int,
+    *,
+    tick_size: str = "0.01",
+    trade_price: str = "0.500",
+) -> str:
+    """The hash the source sends for a token's book, with the inputs these
+    tests' opening books give."""
+    text = hashed_text(
+        market=OWNER[token],
+        asset_id=token,
+        timestamp=timestamp,
+        bids=held.bids,
+        asks=held.asks,
+        parameters=PARAMETERS,
+        tick_size=Decimal(tick_size),
+        trade_price=trade_price,
+    )
+    return hashlib.sha1(text.encode()).hexdigest()
+
+
+def true_opening(*tokens: str) -> str:
+    """Opening books that carry their true hashes."""
+    books = []
+    for token in tokens:
+        item = opening_book(token)
+        held = Book.from_event(decode_book(text(item)))
+        item["hash"] = true_hash(token, held, T0 - 30000)
+        books.append(item)
+    return text(books) + "\n"
+
+
+def decode_book(data: str) -> BookEvent:
+    (item,) = decode_frame(
+        data, received_at=START, connection=1, frame=1, keep_raw=False
+    )
+    record = getattr(item, "record", None)
+    assert isinstance(record, BookEvent)
+    return record
+
+
+def true_pc(
+    run: Run,
+    market: str,
+    t: int,
+    *entries: tuple[str, str, str, str],
+    **inputs: str,
+) -> str:
+    """A ``price_change`` whose entries carry the hash of their token's book,
+    as the machine holds it, after all of the message's entries for it."""
+    item = pc_object(market, t, *entries)
+    after: dict[str, str] = {}
+    for token in {entry[0] for entry in entries}:
+        held = run.machine.book(token)
+        assert held is not None
+        changed = held.copy()
+        for asset_id, side, price, size in entries:
+            if asset_id == token:
+                changed.apply(entry_of(asset_id, side, price, size), T0 + t)
+        after[token] = true_hash(token, changed, T0 + t, **inputs)
+    for change in item["price_changes"]:
+        change["hash"] = after[change["asset_id"]]
+    return text(item)
+
+
+def entry_of(token: str, side: str, price: str, size: str) -> PriceChange:
+    return PriceChange(
+        asset_id=token,
+        side=Side(side),
+        price=Decimal(price),
+        size=Decimal(size),
+        hash="",
+        best_bid=None,
+        best_ask=None,
+        applied=True,
+        before_book=False,
+    )
+
+
+def verifying(*markets: Market) -> Run:
+    """A run that verifies hashes (D4), with ``hash_grace`` 0.5 and
+    ``burst_quiet`` 0.1: lookup has found every token's hash inputs, and
+    the opening books, which carry their true hashes, have arrived."""
+    run = Run(*markets, verifier=Verifier(hash_grace=0.5, burst_quiet=0.1))
+    for token in run.machine.subscription():
+        run.machine.parameters(token, PARAMETERS)
+    run.connect()
+    run.send(true_opening(*run.machine.subscription()))
+    run.take()
+    return run
+
+
+def wrong(frame: str, n: int) -> str:
+    """A frame whose hashes are wrong, a different one for each ``n``. Only
+    the hashes: the IDs hold runs of zeros too."""
+    return frame.replace(f'"hash":"{ZEROS}"', f'"hash":"{str(n) * 40}"')
+
+
+def test_tokens_entering_the_desired_set_fetch_their_hash_inputs() -> None:
+    run = Run(MARKET_A, verifier=Verifier(hash_grace=0.5, burst_quiet=0.1))
+    assert run.machine.take_effects() == [StartFetch(A1), StartFetch(A2)]
+    run.machine.subscribe([MARKET_B])
+    assert run.machine.take_effects() == [StartFetch(B1), StartFetch(B2)]
+    run.machine.unsubscribe([A], run.now)
+    assert run.machine.take_effects() == [EndFetch(A1), EndFetch(A2)]
+    run.start()
+    run.send(resolved(B, 100, B2))
+    assert run.machine.take_effects() == [EndFetch(B1), EndFetch(B2)]
+    # Added again, a market's tokens fetch them again.
+    run.machine.subscribe([MARKET_A])
+    assert run.machine.take_effects() == [StartFetch(A1), StartFetch(A2)]
+
+
+def test_without_verify_hash_no_hash_input_is_fetched() -> None:
+    run = Run(MARKET_A)
+    run.machine.unsubscribe([A], run.now)
+    assert run.machine.take_effects() == []
+    assert run.machine.burst_deadline() is None
+
+
+def test_a_token_with_no_rest_book_is_never_checked_and_settles_nothing() -> None:
+    verifier = Verifier(hash_grace=0.5, burst_quiet=0.1)
+    run = Run(MARKET_A, verifier=verifier)
+    run.machine.take_effects()
+    # The default lookup's answer for the REST book's HTTP 404 (D6).
+    run.machine.parameters(A1, None)
+    run.machine.parameters(A2, None)
+    assert run.take() == []
+    assert run.machine.take_effects() == []
+    run.start()
+    run.take()
+    run.send(wrong(pc(A, 100, (A1, "BUY", "0.49", "50")), 1))
+    run.wait(1.0)
+    run.quiet()
+    assert run.summary() == [("price_change", "A")]
+    assert run.machine.state(A1) is TokenState.READY
+    assert run.machine.take_effects() == []
+    assert verifier.counts == HashCounts()
+
+
+def test_t7_from_failed_checks_follows_the_event_that_ended_the_burst() -> None:
+    # hash-divergence
+    run = verifying(MARKET_A)
+    run.send(wrong(pc(A, 100, (A1, "BUY", "0.49", "50")), 1))
+    run.wait(0.2)
+    run.quiet()  # the first failed check
+    run.wait(0.4)
+    run.send(wrong(pc(A, 200, (A1, "BUY", "0.49", "60")), 2))
+    run.wait(0.05)
+    # Ends the burst that came 0.6 s after the first: the second failure.
+    run.send(wrong(pc(A, 300, (A1, "BUY", "0.49", "70")), 3))
+    assert run.summary() == [
+        ("price_change", "A"),
+        ("price_change", "A"),
+        ("price_change", "A"),
+        ("token", "A1", "uncertain", "hash_mismatch"),
+    ]
+
+
+def test_t9_from_a_check_of_a_burst_after_the_undecodable_frame() -> None:
+    # hash-check-predates-undecodable
+    run = verifying(MARKET_A)
+    run.send(true_pc(run, A, 100, (A1, "BUY", "0.49", "50")))
+    run.send("not json")
+    run.take()
+    run.wait(0.2)
+    run.quiet()  # the check verifies, but its hash came before the frame
+    assert run.take() == []
+    run.send(true_pc(run, A, 200, (A1, "BUY", "0.49", "60")))
+    run.take()
+    run.wait(0.2)
+    run.quiet()
+    records = run.take()
+    assert [describe(r) for r in records] == [("token", "A1", "ready", "hash_verified")]
+    assert isinstance(records[0], TokenStateChange)
+    assert records[0].at == run.now
+
+
+def test_checks_an_event_ends_for_several_tokens_follow_the_desired_set() -> None:
+    run = verifying(MARKET_A)
+    run.send(
+        wrong(pc(A, 100, (A1, "BUY", "0.49", "50"), (A2, "SELL", "0.51", "50")), 1)
+    )
+    run.wait(0.2)
+    run.quiet()
+    run.wait(0.4)
+    run.send(
+        wrong(pc(A, 200, (A1, "BUY", "0.49", "60"), (A2, "SELL", "0.51", "60")), 2)
+    )
+    run.wait(0.05)
+    # A2's entry comes first, and its check is made first.
+    run.send(
+        wrong(pc(A, 300, (A2, "SELL", "0.51", "70"), (A1, "BUY", "0.49", "70")), 3)
+    )
+    assert run.summary()[-3:] == [
+        ("price_change", "A"),
+        ("token", "A1", "uncertain", "hash_mismatch"),
+        ("token", "A2", "uncertain", "hash_mismatch"),
+    ]
+
+
+def test_a_book_ends_the_burst_whose_check_comes_before_its_own_change() -> None:
+    run = verifying(MARKET_A)
+    run.send("not json")
+    run.take()
+    run.send(true_pc(run, A, 200, (A1, "BUY", "0.49", "60")))
+    run.take()
+    # The burst is checked with the book it replaces, and verifies (T9); for
+    # a token ready again, the book changes nothing more (T5).
+    run.send(book(A1, 200))
+    assert run.summary() == [("book", "A1"), ("token", "A1", "ready", "hash_verified")]
+
+
+def test_announced_trade_prices_and_tick_sizes_enter_the_checks() -> None:
+    run = verifying(MARKET_A)
+    run.send(ltp(A1, 100))
+    run.send(tsc(A1, 110))
+    run.send(
+        true_pc(
+            run,
+            A,
+            120,
+            (A1, "BUY", "0.49", "50"),
+            tick_size="0.001",
+            trade_price="0.510",
+        )
+    )
+    run.wait(0.2)
+    run.quiet()
+    assert run.verifier is not None
+    # The two opening books, and the burst, at once.
+    assert run.verifier.counts == HashCounts(verified=3)
+
+
+def test_repeats_are_not_checked() -> None:
+    run = verifying(MARKET_A)
+    held = run.machine.book(A1)
+    assert held is not None
+    later = json.loads(book(A1))
+    later["hash"] = true_hash(A1, held, T0 - 30000)
+    run.send(text(later))
+    run.send(text(later))  # a repeat
+    change = true_pc(run, A, 100, (A1, "BUY", "0.49", "50"))
+    run.send(change)
+    run.send(change)  # a repeat, not applied
+    run.wait(0.2)
+    run.quiet()
+    assert run.verifier is not None
+    # The opening books, the later book, and the burst.
+    assert run.verifier.counts == HashCounts(verified=4)
