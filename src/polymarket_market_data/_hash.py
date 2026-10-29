@@ -15,7 +15,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from enum import Enum
 
 from ._book import Book
@@ -32,10 +32,28 @@ GRID = tuple(f"{k // 1000}.{k % 1000:03d}" for k in range(1001))
 writes it."""
 
 
-def trade_price_text(price: Decimal) -> str:
+_THOUSANDTH = Decimal("0.001")
+
+_ROUNDING = Context(prec=28, rounding=ROUND_HALF_EVEN, traps=[InvalidOperation])
+"""Rounds as the investigation's helper did, in Python's default context,
+whatever context the consumer's code has set, and signals a result of more
+than 28 digits."""
+
+
+def trade_price_text(price: Decimal) -> str | None:
     """A trade price as the hash writes it, with three decimals
-    (spec/client.md, Order-book hash)."""
-    return f"{price:.3f}"
+    (spec/client.md, Order-book hash); ``None`` if that takes more than 28
+    digits, for a price of 10**25 or more.
+
+    A large finite price is decodable (spec/client.md, Values), but its
+    text with three decimals can be far longer than the value as sent, or
+    beyond what ``Decimal`` can format at all. The bound keeps a single
+    value from ending the client or filling its memory."""
+    try:
+        rounded = price.quantize(_THOUSANDTH, context=_ROUNDING)
+    except InvalidOperation:
+        return None
+    return f"{rounded:f}"
 
 
 def hashed_text(
@@ -204,7 +222,13 @@ class Verifier:
     def announced(self, market: str, price: Decimal) -> None:
         """A ``last_trade_price`` event, or an opening book, gave the market's
         trade price (spec/client.md, Decoding)."""
-        self._announced[market] = trade_price_text(price)
+        text = trade_price_text(price)
+        if text is None:
+            # The price announced before it is no longer current, so the
+            # market has none to try, and its checks search the grid alone.
+            self._announced.pop(market, None)
+        else:
+            self._announced[market] = text
 
     def tick_size(self, token_id: str, tick_size: Decimal) -> None:
         """A ``tick_size_change`` event, or an opening book, gave the token's

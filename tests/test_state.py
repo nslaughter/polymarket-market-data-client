@@ -2120,6 +2120,22 @@ def test_announced_trade_prices_and_tick_sizes_enter_the_checks() -> None:
     assert run.verifier.counts == HashCounts(verified=3)
 
 
+def test_a_trade_price_too_large_to_write_stops_nothing() -> None:
+    run = verifying(MARKET_A)
+    item = json.loads(ltp(A1, 100))
+    # Decodable (spec/client.md, Values), but too large for the hash to
+    # write with three decimals.
+    item["price"] = "1e999999999999999999"
+    run.send(text(item))
+    run.send(true_pc(run, A, 110, (A1, "BUY", "0.49", "50")))
+    run.wait(0.2)
+    run.quiet()
+    assert run.summary() == [("last_trade_price", "A1"), ("price_change", "A")]
+    assert run.verifier is not None
+    # The search finds the price the hash holds.
+    assert run.verifier.counts == HashCounts(verified=2, retried=1)
+
+
 def test_repeats_are_not_checked() -> None:
     run = verifying(MARKET_A)
     held = run.machine.book(A1)

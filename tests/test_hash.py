@@ -144,6 +144,16 @@ def test_a_trade_price_is_written_with_three_decimals() -> None:
     assert trade_price_text(Decimal("0.500")) == "0.500"
 
 
+def test_a_trade_price_too_large_to_write_has_no_text() -> None:
+    # Decodable (spec/client.md, Values), but beyond what Decimal can write
+    # with three decimals, or a million digits long once written.
+    assert trade_price_text(Decimal("1e999999999999999999")) is None
+    assert trade_price_text(Decimal("1e1000000")) is None
+    assert trade_price_text(Decimal("1e25")) is None
+    assert trade_price_text(Decimal("-1e25")) is None
+    assert trade_price_text(Decimal("1e24")) == "1" + "0" * 24 + ".000"
+
+
 def test_the_grid_holds_every_price_from_0_to_1_by_0_001() -> None:
     assert len(GRID) == 1001
     assert (GRID[0], GRID[1], GRID[530], GRID[-1]) == (
@@ -389,6 +399,17 @@ def test_a_failed_check_is_retried_with_the_current_announced_trade_price() -> N
     run.wait(0.2)
     assert [check.outcome for check in run.quiet()] == [Outcome.VERIFIED]
     assert run.counts() == (2, 1, 0)
+
+
+def test_a_trade_price_with_no_text_leaves_the_grid_alone_to_try() -> None:
+    run = started()
+    run.verifier.announced(A, Decimal("1e999999999999999999"))
+    run.entry(100, "0.49", "50")
+    run.wait(0.2)
+    # The price announced before it, which the hash holds, is no longer
+    # current, so only the search finds it.
+    assert [check.outcome for check in run.quiet()] == [Outcome.RETRIED]
+    assert run.counts() == (1, 1, 0)
 
 
 def test_a_trade_price_found_by_search_verifies_after_a_retry() -> None:
