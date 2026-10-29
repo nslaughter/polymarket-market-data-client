@@ -354,6 +354,12 @@ class Verifier:
     def _check_burst(
         self, token_id: str, token: _Token, burst: _Burst, held: Book
     ) -> Check:
+        # The trade price is the burst's, retried with the current one, but
+        # the tick size is the token's at the check, a tick_size_change
+        # while the burst was pending included. The one change observed
+        # seemed to enter the hash before its event announced it, and the
+        # investigation's replay checked with the new tick size too
+        # (docs/source-behavior.md, §4; spec/client.md, Decoding).
         outcome = self._check(
             token_id, token, held, burst.timestamp, burst.hash, burst.trade_price
         )
