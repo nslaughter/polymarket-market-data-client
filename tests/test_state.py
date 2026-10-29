@@ -2099,6 +2099,26 @@ def test_a_book_ends_the_burst_whose_check_comes_before_its_own_change() -> None
     assert run.summary() == [("book", "A1"), ("token", "A1", "ready", "hash_verified")]
 
 
+def test_a_book_ends_the_burst_whose_check_diverges_before_its_own_change() -> None:
+    run = verifying(MARKET_A)
+    run.send(wrong(pc(A, 100, (A1, "BUY", "0.49", "50")), 1))
+    run.wait(0.2)
+    run.quiet()  # the first failed check
+    run.wait(0.4)
+    run.send(wrong(pc(A, 200, (A1, "BUY", "0.49", "60")), 2))
+    run.take()
+    # Ends the burst that came 0.6 s after the first: the second failure
+    # makes the ready token diverge (T7), and then the book makes it ready
+    # (T10).
+    run.send(book(A1, 200))
+    assert run.summary() == [
+        ("book", "A1"),
+        ("token", "A1", "uncertain", "hash_mismatch"),
+        ("token", "A1", "ready", "book"),
+    ]
+    assert run.machine.state(A1) is TokenState.READY
+
+
 def test_announced_trade_prices_and_tick_sizes_enter_the_checks() -> None:
     run = verifying(MARKET_A)
     run.send(ltp(A1, 100))
@@ -2147,8 +2167,16 @@ def test_repeats_are_not_checked() -> None:
     change = true_pc(run, A, 100, (A1, "BUY", "0.49", "50"))
     run.send(change)
     run.send(change)  # a repeat, not applied
+    run.wait(0.1)
+    # Ends the first burst, which is checked.
+    run.send(true_pc(run, A, 200, (A1, "BUY", "0.49", "60")))
+    # A repeat after its burst was checked, while a burst with another hash
+    # is pending (spec/client.md, Repeated messages). Checked, it would end
+    # that burst and start one with its stale hash, whose check would fail.
+    run.send(change)
     run.wait(0.2)
     run.quiet()
     assert run.verifier is not None
-    # The opening books, the later book, and the burst.
-    assert run.verifier.counts == HashCounts(verified=4)
+    # The opening books, the later book, and the two bursts.
+    assert run.verifier.counts == HashCounts(verified=5)
+    assert run.machine.state(A1) is TokenState.READY
