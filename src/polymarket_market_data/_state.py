@@ -26,7 +26,14 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from ._book import Book
-from ._decode import Decoded, DecodedEvent, EventRecord, RepeatDetector, Undecodable
+from ._decode import (
+    Decoded,
+    DecodedEvent,
+    EventRecord,
+    RepeatDetector,
+    Sent,
+    Undecodable,
+)
 from ._hash import Check, Outcome, Position, Verifier
 from ._lookup import BookParameters, MarketInfo
 from ._records import (
@@ -626,9 +633,9 @@ class StateMachine:
         if repeat:
             self.counts.repeats += 1
         if isinstance(record, BookEvent):
-            self._book(record, repeat, received_at, clock)
+            self._book(record, item.sent, repeat, received_at, clock)
         elif isinstance(record, PriceChangeEvent):
-            self._price_change(record, repeat, received_at, clock)
+            self._price_change(record, item.sent, repeat, received_at, clock)
         elif isinstance(record, MarketResolvedEvent):
             self._records.append(replace(record, repeat=repeat))
             if not repeat:
@@ -646,8 +653,13 @@ class StateMachine:
                 # Decoding).
                 if isinstance(record, LastTradePriceEvent):
                     self._verifier.announced(record.market, record.price)
-                elif isinstance(record, TickSizeChangeEvent):
-                    self._verifier.tick_size(record.asset_id, record.new_tick_size)
+                elif (
+                    isinstance(record, TickSizeChangeEvent)
+                    and item.sent.tick_size is not None
+                ):
+                    # Its new tick size, as the source sent it, which every
+                    # tick_size_change has.
+                    self._verifier.tick_size(record.asset_id, item.sent.tick_size)
 
     def _outside(self, record: EventRecord) -> bool:
         """Whether an event names only tokens outside the desired set, or a
@@ -671,10 +683,15 @@ class StateMachine:
         return not any(self._takes_part(token) for token in tokens)
 
     def _book(
-        self, record: BookEvent, repeat: bool, received_at: datetime, clock: float
+        self,
+        record: BookEvent,
+        sent: Sent,
+        repeat: bool,
+        received_at: datetime,
+        clock: float,
     ) -> None:
         token = self._tokens[record.asset_id]
-        fresh = Book.from_event(record)
+        fresh = Book.from_event(record, sent.bids, sent.asks)
         matched = None if token.book is None else token.book.matches(fresh)
         self._records.append(replace(record, repeat=repeat, held_book_matched=matched))
         if repeat:
@@ -684,7 +701,9 @@ class StateMachine:
             # as it stood, so its result comes before the book's own
             # transitions; then the book's own check, which changes no state
             # (D4).
-            checks = self._verifier.book(token.id, record, token.book, fresh, clock)
+            checks = self._verifier.book(
+                token.id, record, sent, token.book, fresh, clock
+            )
             for check in checks:
                 self._hash_result(check, received_at)
         token.book = fresh
@@ -710,6 +729,7 @@ class StateMachine:
     def _price_change(
         self,
         record: PriceChangeEvent,
+        sent: Sent,
         repeat: bool,
         received_at: datetime,
         clock: float,
@@ -717,7 +737,7 @@ class StateMachine:
         changes = []
         checks: list[Check] = []
         position = (record.connection, record.frame, record.index)
-        for change in record.changes:
+        for change, text in zip(record.changes, sent.changes, strict=True):
             token = self._tokens.get(change.asset_id)
             booked = (
                 token is not None
@@ -741,14 +761,14 @@ class StateMachine:
                     check = self._verifier.entry(
                         token.id,
                         change,
-                        record.source_timestamp_ms,
+                        sent.timestamp,
                         token.book,
                         position,
                         clock,
                     )
                     if check is not None:
                         checks.append(check)
-                token.book.apply(change, record.source_timestamp_ms)
+                token.book.apply(change, text, record.source_timestamp_ms)
             changes.append(replace(change, applied=applied, before_book=before_book))
         self._records.append(replace(record, repeat=repeat, changes=tuple(changes)))
         if len(checks) > 1:

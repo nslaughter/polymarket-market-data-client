@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 
 from polymarket_market_data import BookEvent, BookParameters, Level, PriceChange, Side
-from polymarket_market_data._book import Book
+from polymarket_market_data._book import Book, LevelText
+from polymarket_market_data._decode import Sent
 from polymarket_market_data._hash import (
     GRID,
     Check,
@@ -40,7 +41,7 @@ TOKENS = {"A1": (A, A1), "A2": (A, A2), "B1": (B, B1), "B2": (B, B2)}
 TRADE_PRICES = {A: "0.500", B: "0.400"}
 T0 = 1791200000000
 PARAMETERS = BookParameters(Decimal("5"), False)
-TICK = Decimal("0.01")
+TICK = "0.01"
 NOW = datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC)
 BAD = "0" * 40
 
@@ -58,10 +59,16 @@ A1_ASKS = (("0.52", "120"), ("0.53", "300"))
 
 def book(bids: tuple[tuple[str, str], ...], asks: tuple[tuple[str, str], ...]) -> Book:
     return Book(
-        [Level(Decimal(p), Decimal(s)) for p, s in bids],
-        [Level(Decimal(p), Decimal(s)) for p, s in asks],
+        [(Level(Decimal(p), Decimal(s)), LevelText(p, s)) for p, s in bids],
+        [(Level(Decimal(p), Decimal(s)), LevelText(p, s)) for p, s in asks],
         timestamp=T0 - 30000,
     )
+
+
+def apply(held: Book, change: PriceChange, timestamp: int) -> None:
+    """Apply an entry, sent with the text str() gives its values: these
+    tests spell every value as str() does."""
+    held.apply(change, LevelText(str(change.price), str(change.size)), timestamp)
 
 
 def digest(
@@ -71,15 +78,15 @@ def digest(
     token: str = A1,
     market: str = A,
     trade_price: str = "0.500",
-    tick_size: Decimal = TICK,
+    tick_size: str = TICK,
 ) -> str:
     """The hash the source sends for this book."""
     text = hashed_text(
         market=market,
         asset_id=token,
-        timestamp=timestamp,
-        bids=held.bids,
-        asks=held.asks,
+        timestamp=str(timestamp),
+        bids=held.bid_texts,
+        asks=held.ask_texts,
         parameters=PARAMETERS,
         tick_size=tick_size,
         trade_price=trade_price,
@@ -101,9 +108,9 @@ def test_the_recipe_reproduces_the_contract_test_vector() -> None:
     assert hashed_text(
         market=A,
         asset_id=A1,
-        timestamp=1791199970000,
-        bids=held.bids,
-        asks=held.asks,
+        timestamp="1791199970000",
+        bids=held.bid_texts,
+        asks=held.ask_texts,
         parameters=PARAMETERS,
         tick_size=TICK,
         trade_price="0.500",
@@ -191,6 +198,12 @@ class Run:
         self.frame += 1
         bids, asks = self.source.bids, self.source.asks
         timestamp = self.source.timestamp
+        sent = Sent(
+            timestamp=str(timestamp),
+            bids=self.source.bid_texts,
+            asks=self.source.ask_texts,
+            tick_size=TICK,
+        )
         event = BookEvent(
             event_type="book",
             market=A,
@@ -205,13 +218,13 @@ class Run:
             hash=self.hash(timestamp) if hash is None else hash,
             bids=bids,
             asks=asks,
-            tick_size=TICK,
+            tick_size=Decimal(TICK),
             last_trade_price=Decimal("0.500"),
             opening=True,
             held_book_matched=None,
         )
-        fresh = Book.from_event(event)
-        checks = self.verifier.book(A1, event, self.held, fresh, self.clock)
+        fresh = Book.from_event(event, sent.bids, sent.asks)
+        checks = self.verifier.book(A1, event, sent, self.held, fresh, self.clock)
         self.held = fresh
         return checks
 
@@ -227,7 +240,7 @@ class Run:
         """The source changes a bid and sends the entry, unless ``silent``:
         a change the stream omits."""
         change = self.change(price, size, BAD)
-        self.source.apply(change, T0 + t)
+        apply(self.source, change, T0 + t)
         if silent:
             return None
         sent = self.change(price, size, self.hash(T0 + t) if hash is None else hash)
@@ -238,9 +251,9 @@ class Run:
         self.frame += 1
         position: Position = (1, self.frame, 0)
         check = self.verifier.entry(
-            A1, change, timestamp, self.held, position, self.clock
+            A1, change, str(timestamp), self.held, position, self.clock
         )
-        self.held.apply(change, timestamp)
+        apply(self.held, change, timestamp)
         return check
 
     def hash(self, timestamp: int) -> str:
@@ -310,8 +323,8 @@ def test_a_burst_is_checked_once_when_the_next_entry_carries_another_hash() -> N
     run = started()
     # Two entries of one burst, in separate frames: each carries the hash of
     # the book after both.
-    run.source.apply(Run.change("0.49", "50", BAD), T0 + 100)
-    run.source.apply(Run.change("0.47", "0", BAD), T0 + 100)
+    apply(run.source, Run.change("0.49", "50", BAD), T0 + 100)
+    apply(run.source, Run.change("0.47", "0", BAD), T0 + 100)
     shared = run.hash(T0 + 100)
     assert run.receive(Run.change("0.49", "50", shared), T0 + 100) is None
     run.wait(0.05)
@@ -336,8 +349,8 @@ def test_a_book_ends_the_pending_burst_before_its_own_check() -> None:
 
 def test_a_burst_is_checked_burst_quiet_after_its_last_entry() -> None:
     run = started(burst_quiet=0.5)
-    run.source.apply(Run.change("0.49", "50", BAD), T0 + 100)
-    run.source.apply(Run.change("0.47", "0", BAD), T0 + 100)
+    apply(run.source, Run.change("0.49", "50", BAD), T0 + 100)
+    apply(run.source, Run.change("0.47", "0", BAD), T0 + 100)
     shared = run.hash(T0 + 100)
     run.receive(Run.change("0.49", "50", shared), T0 + 100)
     assert run.verifier.deadline() == pytest.approx(0.5)
@@ -375,7 +388,7 @@ def test_bursts_are_due_in_the_order_of_their_last_entries() -> None:
 
     def entry(token: str, hash: str, clock: float) -> None:
         change = Run.change("0.49", "50", hash)
-        verifier.entry(token, change, T0 + 100, held, (1, 1, 0), clock)
+        verifier.entry(token, change, str(T0 + 100), held, (1, 1, 0), clock)
 
     entry(A1, "1" * 40, 0.0)
     entry(A2, "2" * 40, 0.05)

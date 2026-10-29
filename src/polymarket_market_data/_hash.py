@@ -9,6 +9,10 @@ stream announces, each entry about to be applied and each book, with the
 held book as it stood before the entry or book changed it, and the clock
 times at which ``burst_quiet`` may have passed. Each check comes back as a
 ``Check``, which the state machine turns into T7 and T9.
+
+The recipe writes the timestamp, each level, and the tick size with the text
+the source sent for them, which the decoder and the book keep beside their
+values, since ``str()`` of a ``Decimal`` can spell a value otherwise.
 """
 
 import hashlib
@@ -18,9 +22,10 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from enum import Enum
 
-from ._book import Book
+from ._book import Book, LevelText
+from ._decode import Sent
 from ._lookup import BookParameters
-from ._records import BookEvent, Level, PriceChange
+from ._records import BookEvent, PriceChange
 
 Position = tuple[int, int, int]
 """Where an item arrived: its connection's generation, its frame's number on
@@ -60,27 +65,29 @@ def hashed_text(
     *,
     market: str,
     asset_id: str,
-    timestamp: int,
-    bids: Sequence[Level],
-    asks: Sequence[Level],
+    timestamp: str,
+    bids: Sequence[LevelText],
+    asks: Sequence[LevelText],
     parameters: BookParameters,
-    tick_size: Decimal,
+    tick_size: str,
     trade_price: str,
 ) -> str:
     """The text a token's hash covers: its book as compact JSON, in the REST
     book's key order, with ``hash`` empty (spec/client.md, Order-book hash).
-    ``bids`` are in ascending price order and ``asks`` in descending, as
-    ``Book`` gives them."""
+    ``timestamp``, the levels, and ``tick_size`` are the text the source sent
+    for them. ``bids`` are in ascending price order and ``asks`` in
+    descending, as ``Book`` gives them."""
     return json.dumps(
         {
             "market": market,
             "asset_id": asset_id,
-            "timestamp": str(timestamp),
+            "timestamp": timestamp,
             "hash": "",
             "bids": [_level(level) for level in bids],
             "asks": [_level(level) for level in asks],
+            # From lookup, which has no text as sent.
             "min_order_size": str(parameters.min_order_size),
-            "tick_size": str(tick_size),
+            "tick_size": tick_size,
             "neg_risk": parameters.neg_risk,
             "last_trade_price": trade_price,
         },
@@ -88,9 +95,8 @@ def hashed_text(
     )
 
 
-def _level(level: Level) -> dict[str, str]:
-    # Decimal keeps the source's digits, so str() gives the text it sent.
-    return {"price": str(level.price), "size": str(level.size)}
+def _level(level: LevelText) -> dict[str, str]:
+    return {"price": level.price, "size": level.size}
 
 
 class _Hashed:
@@ -151,8 +157,9 @@ class _Burst:
     book after the last of them (spec/client.md, Order-book hash)."""
 
     hash: str
-    timestamp: int
-    """The source timestamp of the event that carried its last entry."""
+    timestamp: str
+    """The source timestamp of the event that carried its last entry, as the
+    source sent it."""
     end: Position
     arrived: float
     """When its last entry arrived, on the event loop's clock."""
@@ -165,7 +172,8 @@ class _Token:
     market: str
     parameters: BookParameters | None = None
     """``min_order_size`` and ``neg_risk``, once lookup has found them."""
-    tick_size: Decimal | None = None
+    tick_size: str | None = None
+    """The tick size last announced, as the source sent it."""
     checking: bool = True
     """False after a book failed its own check, until a later one verifies."""
     first_failure: float | None = None
@@ -230,9 +238,9 @@ class Verifier:
         else:
             self._announced[market] = text
 
-    def tick_size(self, token_id: str, tick_size: Decimal) -> None:
-        """A ``tick_size_change`` event, or an opening book, gave the token's
-        tick size (spec/client.md, Decoding)."""
+    def tick_size(self, token_id: str, tick_size: str) -> None:
+        """A ``tick_size_change`` event gave the token's tick size, as the
+        source sent it (spec/client.md, Decoding)."""
         token = self._tokens.get(token_id)
         if token is not None:
             token.tick_size = tick_size
@@ -241,15 +249,16 @@ class Verifier:
         self,
         token_id: str,
         change: PriceChange,
-        timestamp: int,
+        timestamp: str,
         held: Book,
         end: Position,
         clock: float,
     ) -> Check | None:
-        """An entry is about to be applied to the token's ``held`` book. If
-        it carries another hash than the pending burst, that burst has ended
-        and is checked first, with the book as it stood. Then the entry
-        starts a burst, or extends the pending one (D4)."""
+        """An entry is about to be applied to the token's ``held`` book, from
+        an event whose ``timestamp`` is as the source sent it. If it carries
+        another hash than the pending burst, that burst has ended and is
+        checked first, with the book as it stood. Then the entry starts a
+        burst, or extends the pending one (D4)."""
         token = self._checkable(token_id)
         if token is None:
             return None
@@ -272,16 +281,18 @@ class Verifier:
         self,
         token_id: str,
         event: BookEvent,
+        sent: Sent,
         held: Book | None,
         fresh: Book,
         clock: float,
     ) -> list[Check]:
-        """A book arrived for the token. It ends the pending burst, which is
-        checked with the ``held`` book as it stood before the book replaced
-        it; then the book's own hash is checked, with ``fresh``, the book it
-        brings (D4). A book that fails its own check stops the token's
-        checks until a later book verifies, and is no divergence: the recipe
-        or its inputs, not the source's book, are then wrong."""
+        """A book arrived for the token, with ``sent``, the text the source
+        sent for its timestamp and tick size. It ends the pending burst,
+        which is checked with the ``held`` book as it stood before the book
+        replaced it; then the book's own hash is checked, with ``fresh``,
+        the book it brings (D4). A book that fails its own check stops the
+        token's checks until a later book verifies, and is no divergence:
+        the recipe or its inputs, not the source's book, are then wrong."""
         token = self._tokens.get(token_id)
         if token is None:
             return []
@@ -290,8 +301,8 @@ class Verifier:
         if burst is not None and held is not None:
             checks.append(self._check_burst(token_id, token, burst, held))
         # Only a subscription's opening books carry these.
-        if event.tick_size is not None:
-            token.tick_size = event.tick_size
+        if sent.tick_size is not None:
+            token.tick_size = sent.tick_size
         if event.last_trade_price is not None:
             self.announced(token.market, event.last_trade_price)
         if token.parameters is None or token.tick_size is None:
@@ -300,7 +311,7 @@ class Verifier:
             token_id,
             token,
             fresh,
-            event.source_timestamp_ms,
+            sent.timestamp,
             event.hash,
             self._announced.get(token.market),
         )
@@ -372,7 +383,7 @@ class Verifier:
         token_id: str,
         token: _Token,
         book: Book,
-        timestamp: int,
+        timestamp: str,
         want: str,
         trade_price: str | None,
     ) -> Outcome:
@@ -388,8 +399,8 @@ class Verifier:
                 market=token.market,
                 asset_id=token_id,
                 timestamp=timestamp,
-                bids=book.bids,
-                asks=book.asks,
+                bids=book.bid_texts,
+                asks=book.ask_texts,
                 parameters=token.parameters,
                 tick_size=token.tick_size,
                 trade_price="",

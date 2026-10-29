@@ -37,8 +37,8 @@ from polymarket_market_data import (
     UndecodableFrame,
     UnknownEvent,
 )
-from polymarket_market_data._book import Book
-from polymarket_market_data._decode import decode_frame
+from polymarket_market_data._book import Book, LevelText
+from polymarket_market_data._decode import DecodedEvent, decode_frame
 from polymarket_market_data._hash import HashCounts, Verifier, hashed_text
 from polymarket_market_data._state import (
     EndConfirmation,
@@ -1897,11 +1897,11 @@ def true_hash(
     text = hashed_text(
         market=OWNER[token],
         asset_id=token,
-        timestamp=timestamp,
-        bids=held.bids,
-        asks=held.asks,
+        timestamp=str(timestamp),
+        bids=held.bid_texts,
+        asks=held.ask_texts,
         parameters=PARAMETERS,
-        tick_size=Decimal(tick_size),
+        tick_size=tick_size,
         trade_price=trade_price,
     )
     return hashlib.sha1(text.encode()).hexdigest()
@@ -1912,19 +1912,20 @@ def true_opening(*tokens: str) -> str:
     books = []
     for token in tokens:
         item = opening_book(token)
-        held = Book.from_event(decode_book(text(item)))
+        held = decode_book(text(item))
         item["hash"] = true_hash(token, held, T0 - 30000)
         books.append(item)
     return text(books) + "\n"
 
 
-def decode_book(data: str) -> BookEvent:
+def decode_book(data: str) -> Book:
+    """The book that a frame holding one ``book`` event brings."""
     (item,) = decode_frame(
         data, received_at=START, connection=1, frame=1, keep_raw=False
     )
-    record = getattr(item, "record", None)
-    assert isinstance(record, BookEvent)
-    return record
+    assert isinstance(item, DecodedEvent)
+    assert isinstance(item.record, BookEvent)
+    return Book.from_event(item.record, item.sent.bids, item.sent.asks)
 
 
 def true_pc(
@@ -1944,7 +1945,8 @@ def true_pc(
         changed = held.copy()
         for asset_id, side, price, size in entries:
             if asset_id == token:
-                changed.apply(entry_of(asset_id, side, price, size), T0 + t)
+                entry = entry_of(asset_id, side, price, size)
+                changed.apply(entry, LevelText(price, size), T0 + t)
         after[token] = true_hash(token, changed, T0 + t, **inputs)
     for change in item["price_changes"]:
         change["hash"] = after[change["asset_id"]]
@@ -2180,3 +2182,144 @@ def test_repeats_are_not_checked() -> None:
     # The opening books, the later book, and the two bursts.
     assert run.verifier.counts == HashCounts(verified=5)
     assert run.machine.state(A1) is TokenState.READY
+
+
+# The source's strings in the hash (spec/client.md, Order-book hash). These
+# tests build their hashes from the strings the frames send, not with the
+# client's recipe, and spell values in ways str() of a Decimal does not.
+
+
+def source_hash(
+    token: str, timestamp: str, bids: Pairs, asks: Pairs, *, tick_size: str = "0.01"
+) -> str:
+    """The hash the source sends for a token's book, written with the
+    strings it sent, as the investigation's helper writes it: bids in
+    ascending price order, asks in descending, and the inputs these tests'
+    opening books and lookup give."""
+    hashed = {
+        "market": OWNER[token],
+        "asset_id": token,
+        "timestamp": timestamp,
+        "hash": "",
+        "bids": levels(sorted(bids, key=lambda level: Decimal(level[0]))),
+        "asks": levels(sorted(asks, key=lambda level: -Decimal(level[0]))),
+        "min_order_size": "5",
+        "tick_size": tick_size,
+        "neg_risk": False,
+        "last_trade_price": "0.500",
+    }
+    return hashlib.sha1(text(hashed).encode()).hexdigest()
+
+
+def opening_a1(bids: Pairs, asks: Pairs, *, tick_size: str = "0.01") -> Run:
+    """A run that verifies hashes, as ``verifying`` does, for market A, whose
+    only opening book is A1's, with these levels and tick size and the hash
+    of the source's strings."""
+    run = Run(MARKET_A, verifier=Verifier(hash_grace=0.5, burst_quiet=0.1))
+    for token in run.machine.subscription():
+        run.machine.parameters(token, PARAMETERS)
+    run.connect()
+    item = opening_book(A1, bids=bids, asks=asks)
+    item["tick_size"] = tick_size
+    item["hash"] = source_hash(A1, item["timestamp"], bids, asks, tick_size=tick_size)
+    run.send(text([item]))
+    run.take()
+    return run
+
+
+def source_pc(
+    t: int,
+    entry: tuple[str, str],
+    bids: Pairs,
+    asks: Pairs,
+    *,
+    timestamp: str | None = None,
+    tick_size: str = "0.01",
+) -> str:
+    """A ``price_change`` that bids ``entry``'s size at its price for A1, at
+    ``timestamp`` as sent, T0 plus ``t`` unless given, with the hash of the
+    source's book after it, ``bids`` and ``asks``."""
+    item = pc_object(A, t, (A1, "BUY", *entry))
+    if timestamp is not None:
+        item["timestamp"] = timestamp
+    item["price_changes"][0]["hash"] = source_hash(
+        A1, item["timestamp"], bids, asks, tick_size=tick_size
+    )
+    return text(item)
+
+
+def test_a_book_s_own_check_writes_its_levels_as_the_source_sent_them() -> None:
+    # str() of their Decimals gives 1E-7, 1E+2, 0.53, 0.52, and 1.0E-7.
+    bids = [("0.47", "0.0000001"), ("0.48", "1e2")]
+    asks = [(".53", "300"), ("+0.52", "0.00000010")]
+    run = opening_a1(bids, asks)
+    # Had the book failed its own check, the burst would not be checked.
+    run.send(source_pc(100, ("0.49", "50"), [*bids, ("0.49", "50")], asks))
+    run.wait(0.2)
+    run.quiet()
+    assert run.verifier is not None
+    assert run.verifier.counts == HashCounts(verified=2)
+
+
+def test_a_burst_s_check_writes_its_entries_as_the_source_sent_them() -> None:
+    run = verifying(MARKET_A)
+    # A new level, and one set again: str() of their Decimals gives 0.49,
+    # 1E-7, and 1E+2. The level at 0.48 keeps the text it was last set with.
+    item = pc_object(
+        A, 100, (A1, "BUY", ".49", "0.0000001"), (A1, "BUY", "0.480", "1e2")
+    )
+    bids = [("0.47", "250"), ("0.480", "1e2"), (".49", "0.0000001")]
+    hashed = source_hash(A1, item["timestamp"], bids, STANDARD[A1][1])
+    for change in item["price_changes"]:
+        change["hash"] = hashed
+    run.send(text(item))
+    run.wait(0.2)
+    run.quiet()
+    assert run.verifier is not None
+    # The two opening books, and the burst.
+    assert run.verifier.counts == HashCounts(verified=3)
+
+
+def test_a_book_s_tick_size_is_written_as_the_source_sent_it() -> None:
+    bids, asks = STANDARD[A1]
+    after = [*bids, ("0.49", "50")]
+    # str() of its Decimal gives 0.01.
+    run = opening_a1(bids, asks, tick_size="1e-2")
+    run.send(source_pc(100, ("0.49", "50"), after, asks, tick_size="1e-2"))
+    run.wait(0.2)
+    run.quiet()
+    assert run.verifier is not None
+    assert run.verifier.counts == HashCounts(verified=2)
+
+
+def test_an_announced_tick_size_is_written_as_the_source_sent_it() -> None:
+    run = verifying(MARKET_A)
+    bids, asks = STANDARD[A1]
+    after = [*bids, ("0.49", "50")]
+    announced = json.loads(tsc(A1, 100))
+    # str() of its Decimal gives 0.001.
+    announced["new_tick_size"] = ".001"
+    run.send(text(announced))
+    run.send(source_pc(110, ("0.49", "50"), after, asks, tick_size=".001"))
+    run.wait(0.2)
+    run.quiet()
+    assert run.verifier is not None
+    # The two opening books, and the burst.
+    assert run.verifier.counts == HashCounts(verified=3)
+
+
+def test_checks_write_the_timestamp_as_the_source_sent_it() -> None:
+    run = verifying(MARKET_A)
+    bids, asks = STANDARD[A1]
+    after = [*bids, ("0.49", "50")]
+    # Strings of digits whose integers str() writes without the leading zero.
+    sent = "0" + str(T0 + 100)
+    run.send(source_pc(100, ("0.49", "50"), after, asks, timestamp=sent))
+    later = json.loads(book(A1, 200, bids=after))
+    later["timestamp"] = "0" + later["timestamp"]
+    later["hash"] = source_hash(A1, later["timestamp"], after, asks)
+    # Ends the burst, which is checked first; then the book's own check.
+    run.send(text(later))
+    assert run.verifier is not None
+    # The two opening books, the burst, and the later book.
+    assert run.verifier.counts == HashCounts(verified=4)
