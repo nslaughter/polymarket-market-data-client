@@ -320,9 +320,23 @@ reject the others. Validating the frame's text directly, with
 ignore the rest; a validation error makes the event undecodable, never an
 exception. A value that is not a finite decimal, such as `NaN` or
 `Infinity`, makes its event undecodable; a large finite one, such as
-`1e400`, does not. `Decimal` keeps the source's digits, so
-`str(level.price)` returns the text that was sent. Timestamps are integers
-of milliseconds, also exactly as sent.
+`1e400`, does not. `Decimal` keeps the source's digits, but `str()` does
+not always spell them as the source did: it writes `0.0000001` as `1E-7`,
+`1e2` as `1E+2`, and `.5` and `+0.5` as `0.5`. Timestamps are integers of
+milliseconds, with the value that was sent.
+
+**The source's text in the hash: decided by the owner on 2026-10-29,**
+when plan step 10's review found that the
+[order-book hash](#order-book-hash), which writes each level with the
+source's strings, failed for a value that `str()` spells differently. The
+client keeps the text the source sent beside each value the hash takes
+from the stream: each level's price and size, the tick size of an opening
+book or a `tick_size_change`, and the timestamp of a `book` or a
+`price_change`. The hash writes that text. A value sent as a JSON number,
+not a string, has no text as sent, and the hash writes `str()` of its
+value. Writing `str()` of every value, which makes a book holding such a
+value fail its own check, and writing plain notation, which misses other
+spellings and needs a bound on a value's size, were the options not taken.
 
 ### Record order
 
