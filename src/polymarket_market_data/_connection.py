@@ -38,6 +38,12 @@ never a failed attempt, emits ``recovering`` at once, closes it, and starts
 the next attempt as soon as it has ended. An addition before then, during a
 backoff or an attempt, is in the next subscription frame.
 
+With ``verify_hash`` on, the connector fetches each token's hash inputs
+through lookup as it enters the desired set, and retries a failed fetch every
+``settlement_poll_interval``; and once ``burst_quiet`` has passed after a
+burst's last entry, it tells the state machine, which checks the burst (D4).
+Both outlive connections, so they too run in the connector's task group.
+
 A frame that reaches the queue's limit gets D3's ``disconnect`` response:
 the client interrupts the connection (``consumer_overflow``), emits
 ``recovering`` at once, closes it, and once it has ended waits for the
@@ -67,7 +73,14 @@ from ._decode import decode_frame
 from ._errors import LookupFailed, RecoveryFailed
 from ._lookup import Lookups
 from ._queue import RecordQueue
-from ._state import ALL_RESOLVED, EndConfirmation, StartConfirmation, StateMachine
+from ._state import (
+    ALL_RESOLVED,
+    EndConfirmation,
+    EndFetch,
+    StartConfirmation,
+    StartFetch,
+    StateMachine,
+)
 
 CLIENT_EXIT = "client exit"
 """The reason of the close frame the client sends when it shuts down."""
@@ -306,6 +319,16 @@ class Connector:
         # market; they belong to the group run() holds.
         self._tasks: asyncio.TaskGroup | None = None
         self._confirmations: dict[str, asyncio.Task[None]] = {}
+        # The fetches of hash inputs: those still to start, in order, which
+        # the fetching task starts in its own group, so that no fetch is
+        # started from outside the client's tasks; and those under way, by
+        # token.
+        self._to_fetch: dict[str, None] = {}
+        self._fetch_wanted = asyncio.Event()
+        self._fetches: dict[str, asyncio.Task[None]] = {}
+        # Set while a burst is pending, for the task that waits for its
+        # burst_quiet.
+        self._bursts = asyncio.Event()
         # A market was added to an empty desired set.
         self._wanted = asyncio.Event()
         # The wait before a subscription frame, if one is under way, and the
@@ -323,6 +346,9 @@ class Connector:
         why it ended before closing it."""
         async with asyncio.TaskGroup() as tasks:
             self._tasks = tasks
+            if self._config.verify_hash:
+                tasks.create_task(self._fetch_parameters(), name="fetch-parameters")
+                tasks.create_task(self._check_quiet_bursts(), name="burst-quiet")
             while True:
                 while not self._state.desired:
                     # Idle: no connection is needed until a market is added
@@ -340,6 +366,7 @@ class Connector:
         live = self._live
         if live is not None:
             live.change.set()
+        self._carry_out()  # their hash inputs are fetched at once (D4)
 
     async def close(self) -> None:
         """Close the open connection, if any, as the client shuts down."""
@@ -352,6 +379,14 @@ class Connector:
         effects it asked for, and, once no desired market is left, let go of
         the connection (spec/client.md, Connection states)."""
         self._queue.put(self._state.take())
+        self._carry_out()
+        if self._state.burst_deadline() is not None:
+            self._bursts.set()
+        if not self._state.desired:
+            self._emptied()
+
+    def _carry_out(self) -> None:
+        """Carry out the effects the state machine asked for."""
         for effect in self._state.take_effects():
             match effect:
                 case StartConfirmation(condition_id=condition_id, slug=slug):
@@ -366,8 +401,14 @@ class Connector:
                     # A confirmation that ended itself returns on its own.
                     if task is not None and task is not asyncio.current_task():
                         task.cancel()
-        if not self._state.desired:
-            self._emptied()
+                case StartFetch(token_id=token_id):
+                    self._to_fetch[token_id] = None
+                    self._fetch_wanted.set()
+                case EndFetch(token_id=token_id):
+                    self._to_fetch.pop(token_id, None)
+                    fetch = self._fetches.pop(token_id, None)
+                    if fetch is not None:
+                        fetch.cancel()
 
     # Connections.
 
@@ -919,6 +960,62 @@ class Connector:
                 await socket.wait_closed()
         except TimeoutError:
             socket.transport.abort()
+
+    # Hash checks (D4).
+
+    async def _fetch_parameters(self) -> None:
+        """Start a fetch of each token's hash inputs as it enters the desired
+        set. They run in this task's own group, which shutdown cancels with
+        it."""
+        async with asyncio.TaskGroup() as fetches:
+            while True:
+                await self._fetch_wanted.wait()
+                self._fetch_wanted.clear()
+                while self._to_fetch:
+                    token_id = next(iter(self._to_fetch))
+                    del self._to_fetch[token_id]
+                    self._fetches[token_id] = fetches.create_task(
+                        self._fetch(token_id), name=f"fetch-parameters-{token_id}"
+                    )
+
+    async def _fetch(self, token_id: str) -> None:
+        """Fetch a token's hash inputs through lookup: at once, and while the
+        call fails, by raising or timing out, again every
+        ``settlement_poll_interval``, until it succeeds or the token leaves
+        the desired set, which cancels it (D4). ``None``, no REST book, is
+        an answer, so it is not asked again (spec/client.md, Market
+        lookup)."""
+        lookups = self._lookups
+        assert lookups is not None  # verify_hash needs a lookup (D4)
+        loop = asyncio.get_running_loop()
+        due = loop.time()
+        while True:
+            await asyncio.sleep(due - loop.time())
+            due = max(due + self._config.settlement_poll_interval, loop.time())
+            try:
+                parameters = await lookups.book_parameters(token_id)
+            except LookupFailed:
+                continue
+            break
+        if self._fetches.get(token_id) is asyncio.current_task():
+            del self._fetches[token_id]
+        self._state.parameters(token_id, parameters)
+
+    async def _check_quiet_bursts(self) -> None:
+        """Once ``burst_quiet`` has passed after the last entry of a token's
+        pending burst, have the state machine check it (D4). A burst
+        extended meanwhile is due later, so the wait is measured again after
+        each wake."""
+        loop = asyncio.get_running_loop()
+        while True:
+            deadline = self._state.burst_deadline()
+            if deadline is None:
+                self._bursts.clear()
+                await self._bursts.wait()
+                continue
+            await asyncio.sleep(deadline - loop.time())
+            self._state.bursts_quiet(loop.time(), now())
+            self.publish()
 
     # Settlement confirmation.
 

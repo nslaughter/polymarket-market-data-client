@@ -13,7 +13,9 @@ The decoder copies the fields it uses from a model into the record and sets
 the client's own fields itself. Those that need the client's state are left
 for the state machine to set: ``repeat``, ``PriceChange.applied`` and
 ``before_book`` are false, ``BookEvent.held_book_matched`` is ``None``, and
-``UndecodableFrame.affected`` is empty.
+``UndecodableFrame.affected`` is empty. Beside the record, it keeps the text
+the source sent for the values the hash writes as sent, which the record
+holds as numbers (spec/client.md, Order-book hash).
 """
 
 import json
@@ -26,8 +28,16 @@ from decimal import Decimal, InvalidOperation
 from functools import partial
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, PlainValidator, ValidationError
+from pydantic import (
+    AliasPath,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainValidator,
+    ValidationError,
+)
 
+from ._book import LevelText
 from ._records import (
     BestBidAskEvent,
     BookEvent,
@@ -87,11 +97,38 @@ EVERY_TOKEN = Impact(connection=True)
 
 
 @dataclass(frozen=True, slots=True)
+class Sent:
+    """The text the source sent for an event's values that the hash writes
+    as sent, where its record holds a number (spec/client.md, Order-book
+    hash): ``str()`` can spell a value otherwise, as ``1E-7`` for
+    ``0.0000001``.
+
+    ``timestamp`` is a ``book``'s or ``price_change``'s. ``bids``, ``asks``,
+    and ``changes`` follow the record's levels and entries, in order.
+    ``tick_size`` is a book's, if it has one, or a ``tick_size_change``'s
+    new tick size. Fields an event lacks, or the hash takes nothing from,
+    are empty. A value sent as a JSON number, not a string, has no text as
+    sent, and is written as ``str()`` of the number.
+    """
+
+    timestamp: str = ""
+    bids: tuple[LevelText, ...] = ()
+    asks: tuple[LevelText, ...] = ()
+    changes: tuple[LevelText, ...] = ()
+    tick_size: str | None = None
+
+
+NOTHING_SENT = Sent()
+
+
+@dataclass(frozen=True, slots=True)
 class DecodedEvent:
-    """A decoded event, with its content for repeat detection."""
+    """A decoded event, with its content for repeat detection and the text
+    the source sent for the values the hash writes as sent."""
 
     record: EventRecord
     content: Hashable
+    sent: Sent
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,7 +357,7 @@ def _decode_item(context: _Frame, item: object, index: int | None) -> Decoded:
             model.impact(item, _failed(error)),
         )
     record = wire.to_record(context, 0 if index is None else index, item)
-    return DecodedEvent(record, content_key(item))
+    return DecodedEvent(record, content_key(item), wire.sent())
 
 
 def _describe(error: ValidationError) -> str:
@@ -369,6 +406,19 @@ _MetadataList = Annotated[list[str] | None, PlainValidator(_texts_or_absent)]
 # A finite decimal; NaN and infinities are refused, as strings or literals.
 _Decimal = Annotated[Decimal, Field(allow_inf_nan=False)]
 _Side = Literal["BUY", "SELL"]
+# The string the source sent for a value that the hash writes as sent, or
+# None for a JSON number (spec/client.md, Order-book hash). Each is declared
+# beside its value and read from the same member, through an AliasPath: the
+# mypy plugin takes a string alias for the name of an __init__ parameter,
+# which the value's own field already has. It never fails, so a value
+# missing or invalid is reported once, by its own field.
+_SentText = Annotated[str | None, PlainValidator(_text_or_absent)]
+
+
+def _written(text: str | None, value: Decimal | int) -> str:
+    """A value as the hash writes it: the string the source sent, or, for a
+    JSON number, ``str()`` of the number."""
+    return str(value) if text is None else text
 
 
 class _Wire(BaseModel):
@@ -411,6 +461,11 @@ class _EventWire(_Wire):
     ) -> EventRecord:
         raise NotImplementedError
 
+    def sent(self) -> Sent:
+        """The text the source sent for the values the hash writes as sent.
+        Only the types that change a book or its tick size have any."""
+        return NOTHING_SENT
+
     @classmethod
     def impact(cls, item: dict[str, Any], failed: set[tuple[int | str, ...]]) -> Impact:
         """What the event may have changed when it fails validation. Only
@@ -440,7 +495,14 @@ class _OneTokenWire(_EventWire):
 
 class _LevelWire(_Wire):
     price: _Decimal
+    price_text: _SentText = Field(default=None, validation_alias=AliasPath("price"))
     size: _Decimal
+    size_text: _SentText = Field(default=None, validation_alias=AliasPath("size"))
+
+    def text(self) -> LevelText:
+        return LevelText(
+            _written(self.price_text, self.price), _written(self.size_text, self.size)
+        )
 
 
 def _levels(levels: list[_LevelWire]) -> tuple[Level, ...]:
@@ -453,10 +515,16 @@ class _BookWire(_OneTokenWire):
     market: str
     asset_id: str
     timestamp: _Timestamp
+    timestamp_text: _SentText = Field(
+        default=None, validation_alias=AliasPath("timestamp")
+    )
     hash: str
     bids: list[_LevelWire]
     asks: list[_LevelWire]
     tick_size: _Decimal | None = None
+    tick_size_text: _SentText = Field(
+        default=None, validation_alias=AliasPath("tick_size")
+    )
     last_trade_price: _Decimal | None = None
 
     def to_record(self, context: _Frame, index: int, item: dict[str, Any]) -> BookEvent:
@@ -472,15 +540,34 @@ class _BookWire(_OneTokenWire):
             held_book_matched=None,
         )
 
+    def sent(self) -> Sent:
+        return Sent(
+            timestamp=_written(self.timestamp_text, self.timestamp),
+            bids=tuple(level.text() for level in self.bids),
+            asks=tuple(level.text() for level in self.asks),
+            tick_size=(
+                None
+                if self.tick_size is None
+                else _written(self.tick_size_text, self.tick_size)
+            ),
+        )
+
 
 class _ChangeWire(_Wire):
     asset_id: str
     price: _Decimal
+    price_text: _SentText = Field(default=None, validation_alias=AliasPath("price"))
     size: _Decimal
+    size_text: _SentText = Field(default=None, validation_alias=AliasPath("size"))
     side: _Side
     hash: str
     best_bid: _Decimal | None = None
     best_ask: _Decimal | None = None
+
+    def text(self) -> LevelText:
+        return LevelText(
+            _written(self.price_text, self.price), _written(self.size_text, self.size)
+        )
 
 
 class _PriceChangeWire(_EventWire):
@@ -488,6 +575,9 @@ class _PriceChangeWire(_EventWire):
 
     market: str
     timestamp: _Timestamp
+    timestamp_text: _SentText = Field(
+        default=None, validation_alias=AliasPath("timestamp")
+    )
     price_changes: list[_ChangeWire]
 
     def to_record(
@@ -509,6 +599,12 @@ class _PriceChangeWire(_EventWire):
                 )
                 for change in self.price_changes
             ),
+        )
+
+    def sent(self) -> Sent:
+        return Sent(
+            timestamp=_written(self.timestamp_text, self.timestamp),
+            changes=tuple(change.text() for change in self.price_changes),
         )
 
     @classmethod
@@ -588,6 +684,9 @@ class _TickSizeChangeWire(_OneTokenWire):
     timestamp: _Timestamp
     old_tick_size: _Decimal
     new_tick_size: _Decimal
+    new_tick_size_text: _SentText = Field(
+        default=None, validation_alias=AliasPath("new_tick_size")
+    )
 
     def to_record(
         self, context: _Frame, index: int, item: dict[str, Any]
@@ -598,6 +697,9 @@ class _TickSizeChangeWire(_OneTokenWire):
             old_tick_size=self.old_tick_size,
             new_tick_size=self.new_tick_size,
         )
+
+    def sent(self) -> Sent:
+        return Sent(tick_size=_written(self.new_tick_size_text, self.new_tick_size))
 
 
 class _MarketResolvedWire(_EventWire):

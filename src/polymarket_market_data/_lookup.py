@@ -48,14 +48,16 @@ class MarketLookup(Protocol):
 
 class Lookups:
     """The lookup calls the client makes, each limited to ``lookup_timeout``,
-    with the counts of calls and of those that failed (spec/client.md,
-    Market lookup and Statistics)."""
+    with the counts of calls, of those that failed, and of ``book_parameters``
+    calls that found no REST book (spec/client.md, Market lookup and
+    Statistics)."""
 
     def __init__(self, lookup: MarketLookup, timeout: float) -> None:
         self._lookup = lookup
         self._timeout = timeout
         self.calls = 0
         self.failures = 0
+        self.rest_book_not_found = 0
 
     async def market(self, slug: str) -> MarketInfo | None:
         """The market with this slug, or ``None`` if lookup found none.
@@ -73,6 +75,23 @@ class Lookups:
             raise LookupFailed(
                 f"looking up the market {slug!r} failed: {error!r}"
             ) from error
+
+    async def book_parameters(self, token_id: str) -> BookParameters | None:
+        """The token's hash inputs, or ``None`` if lookup found no REST book
+        for it, which is counted, as D6 specifies. Raises ``LookupFailed`` as
+        ``market`` does."""
+        self.calls += 1
+        try:
+            async with asyncio.timeout(self._timeout):
+                parameters = await self._lookup.book_parameters(token_id)
+        except Exception as error:
+            self.failures += 1
+            raise LookupFailed(
+                f"looking up the book parameters of token {token_id} failed: {error!r}"
+            ) from error
+        if parameters is None:
+            self.rest_book_not_found += 1
+        return parameters
 
 
 def default_lookup() -> MarketLookup | None:

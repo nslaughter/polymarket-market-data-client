@@ -78,6 +78,21 @@ def test_the_client_refuses_a_configuration_of_another_type() -> None:
         MarketDataClient({"queue_size": 5})  # type: ignore[arg-type]
 
 
+def test_verify_hash_without_a_lookup_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No lookup is passed, and the SDK, which provides the default lookup, is
+    # not installed, so no hash could be checked (D4). No scenario can show
+    # this: the harness always passes its scripted lookup.
+    monkeypatch.setitem(sys.modules, "polymarket", None)
+    with pytest.raises(ConfigError, match="verify_hash"):
+        MarketDataClient(ClientConfig(url="ws://127.0.0.1:9"), markets=[MARKET_A])
+    MarketDataClient(config(), markets=[MARKET_A])
+    MarketDataClient(
+        ClientConfig(url="ws://127.0.0.1:9"), markets=[MARKET_A], lookup=OneMarket()
+    )
+
+
 def test_building_a_client_does_no_io() -> None:
     # Outside any event loop: the constructor starts nothing.
     client = MarketDataClient(config(), markets=[MARKET_A, MARKET_B])

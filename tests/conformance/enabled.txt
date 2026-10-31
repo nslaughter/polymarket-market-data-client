@@ -47,3 +47,11 @@ consumer-stops-reading
 frame-larger-than-queue
 status-records-bounded
 consumer-pause-outlasts-recovery-time
+hash-checks-pass
+hash-burst-across-frames
+hash-single-failure
+hash-divergence
+hash-book-fails-own-check
+hash-trade-before-announcement
+hash-check-predates-undecodable
+hash-parameters-retried

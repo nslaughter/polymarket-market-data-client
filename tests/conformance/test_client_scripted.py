@@ -7,10 +7,12 @@ market left, subscription changes on a connection opened during a recovery
 or while an interrupted one closes, settlement with no lookup available, a
 defect in the client's own code, waits for the consumer before a
 subscription change's attempt, a first one, or one its own recovering record
-holds back, and after the queue's limit, and the limit reached on a
-connection closing with no subscriptions (spec/client.md, Cancellation and
-shutdown, Heartbeat, Detecting an interruption, Reconnecting, Connection
-states, Settlement, Errors, and Consumer handoff).
+holds back, and after the queue's limit, the limit reached on a connection
+closing with no subscriptions, and the fetches of hash inputs: one that finds
+no REST book, one that fails and stops when its token leaves, and none with
+``verify_hash`` off (spec/client.md, Cancellation and shutdown, Heartbeat,
+Detecting an interruption, Reconnecting, Connection states, Settlement,
+Errors, Consumer handoff, and Market lookup; D4).
 
 Most are scenarios in the conformance notation, which the runner runs as it
 runs those in spec/conformance.md; a test that needs the client itself
@@ -489,6 +491,51 @@ expect conn open connection=2
 expect conn subscribed connection=2
 expect token A1 synchronizing previous=uncertain
 expect token A2 synchronizing previous=uncertain
+""",
+    # Lookup finds no REST book for A's tokens, as the default lookup answers
+    # the REST book's HTTP 404. The answers are counted, no hash of those
+    # tokens is checked, and nothing settles on them, though lookup would
+    # show A closed if the client asked (D4, D6).
+    "a-token-with-no-rest-book-is-counted-and-settles-nothing": """
+markets A
+config verify_hash=true
+lookup A closed winner=A1
+start A
+expect-nothing 0.1
+expect-stats rest_book_not_found=2 lookups=2 lookup_failures=0
+send pc A t=100 A1:BUY:0.49:50 hash=bad
+expect price_change A t=100 applied=true
+send book A1 hash=bad
+expect book A1 held_book_matched=true
+expect-nothing 1.0
+expect-stats rest_book_not_found=2 lookups=2 hash_verified=0 hash_failed=0
+""",
+    # A fetch that fails is retried every settlement_poll_interval until the
+    # token leaves the desired set, which ends it (D4).
+    "a-failed-fetch-stops-when-its-token-leaves": """
+markets A
+config verify_hash=true settlement_poll_interval=1.0
+lookup A error
+start A
+expect-nothing 0.1
+expect-stats lookups=2 lookup_failures=2
+unsubscribe A
+expect token A1 removed reason=removed
+expect token A2 removed reason=removed
+expect conn idle reason=no_subscriptions connection=1
+expect-client-close 1000 "no subscriptions"
+expect-nothing 1.5
+expect-stats lookups=2 lookup_failures=2
+""",
+    # With verify_hash off, the client never asks for hash inputs
+    # (spec/client.md, Market lookup).
+    "without-verify-hash-no-hash-input-is-fetched": """
+markets A
+start A
+send pc A t=100 A1:BUY:0.49:50 hash=bad
+expect price_change A t=100 applied=true
+expect-nothing 0.3
+expect-stats lookups=0 rest_book_not_found=0 hash_verified=0 hash_failed=0
 """,
 }
 
