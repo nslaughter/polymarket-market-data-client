@@ -373,6 +373,65 @@ like the others, with SHA-256
 from them. Only `silent-reconnect` was rerun; the parser drops and the
 other runs above were not rechecked on 0.13.0.
 
+### Rechecked October 31, 2026
+
+`polymarket-client` 0.15.0, released October 29 and the latest release on
+October 31, still reconnects without telling its consumer. It no longer
+drops `new_market` events on `game_start_time`: 0.14.0, released October 21,
+fixed that. Its release notes list "Accept new-market `game_start_time`
+datetime strings" ([py-sdk #341](https://github.com/Polymarket/py-sdk/pull/341)),
+and the owner's report of the drops,
+[py-sdk #325](https://github.com/Polymarket/py-sdk/issues/325), was closed as
+completed on October 15, when #341 merged. Between 0.13.0 and 0.15.0, nothing under
+`polymarket/_internal/streams/` changed except `realtime/protocol.py`, so the
+reconnect path is still the one described above.
+[`repro_sdk_0_15.py`](../spikes/repro_sdk_0_15.py), a copy of
+[`repro_sdk.py`](../spikes/repro_sdk.py) pinned to 0.15.0 with its own
+lockfile, ran each check, with the 0.13.0 copy from the October 16 recheck
+as the control. Times are UTC.
+
+`silent-reconnect` ran on the current 15-minute Bitcoin market,
+`btc-updown-15m-1793457000`. Both versions reported REPRODUCED.
+
+| Version | Checked | After the kill | With `PONG` withheld |
+| --- | --- | --- | --- |
+| 0.15.0 | 14:34:23 | at 22.7 s; resubscribed after 0.6 s; 106 source book states never delivered; nothing logged above DEBUG | from 52.7 s; resubscribed after 26.9 s; 254 book states never delivered; `WARNING WebSocket heartbeat stale; closing` |
+| 0.13.0 | 14:36:23 | at 22.6 s; resubscribed after 0.6 s; 84 source book states never delivered; nothing logged above DEBUG | from 52.6 s; resubscribed after 26.8 s; 168 book states never delivered; the same `WARNING` |
+
+`drops-events --capture` ran every event in two October 4 captures through
+each version's parser. The captures were recorded with 0.12.0; only their
+frames were parsed again.
+
+| Capture | `new_market` events | Rejected by 0.13.0 | Rejected by 0.15.0 |
+| --- | --- | --- | --- |
+| `drops-events-20261004T170236Z.jsonl`, the 17:02 review run | 388 | 380, on `game_start_time` | 0 |
+| `drops-events-live-20261004T184444Z.jsonl`, the side-by-side drops run | 704 | 680, on `game_start_time` | 0 |
+
+A live `drops-events` run on 0.15.0 at 14:38:39, on
+`will-christine-lagarde-win-the-2027-french-presidential-election` for
+180 s, received 52 `new_market` events and rejected none. Every one carried
+an empty `game_start_time`, which 0.13.0 also accepts when given that
+capture, so the run does not test the fix.
+
+The lockfiles resolved `pydantic` 2.14.2 for 0.15.0 and 2.14.1 for 0.13.0,
+with `websockets` 15.0.1 and CPython 3.12.13 under uv 0.12.23. The live
+handshakes were answered with `Server: istio-envoy`, not Cloudflare as on
+October 4 and 16, so there are no ray IDs. Their `Date` headers read
+14:34:24, 14:36:23, and 14:38:39 GMT. The captures stayed on the machine that
+ran them, with SHA-256
+`e9d3159f6e7085bbed6d4645b4d619d98527671e99599b536d90a037497aa35f` for
+`silent-reconnect-20261031T143423Z.jsonl` (0.15.0),
+`cee8399f08ad3a9a71b968b1b73286e1bc9dea872df773764af1c48f061af534` for
+`silent-reconnect-20261031T143623Z.jsonl` (0.13.0), and
+`eaa74993a9c898eb7af65902398e542048fcc70c399b25c8c9ae6291c9f42454` for
+`drops-events-20261031T143838Z.jsonl`. The October 4 captures parsed again
+have SHA-256
+`7acbf153df06a0b6e0da1168a36039607245a2c284b12722258c54b0675f508a` and
+`2791f5429c6d7e1a5d7980e8c07678f7ab974c7b0fa8c70ca949e54674978a77`, in the
+order above. No excerpt was cut from any of them. The other runs above, and
+the source finding that a non-`TransportError` failure ends reconnecting,
+were not rechecked on 0.15.0.
+
 ## 2. Heartbeat
 
 **Checked** October 4, 2026, with a raw socket (`websockets` 15.0.1).
