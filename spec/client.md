@@ -1563,6 +1563,35 @@ failed check and a search over 1,001 trade prices. The check of the burst's
 later entries then verifies, and the divergence rule needs at least two
 failed checks with none verifying between them.
 
+**The trade price a check tries first: decided by the owner on
+2026-10-28,** when plan step 10 found that D4 retries a failed check "with
+the market's current announced trade price, then with every price on the
+0.001 grid" but does not say which price the first try uses. The owner
+confirmed this reading of D4: the first try uses the market's announced
+trade price as it stood when the hash arrived, the retry the price
+announced by the time of the check, and the grid search starts from the
+price the last search found. The search's order changes only how long a
+search takes, never what it finds. On busy markets, where the price in the
+hash did not follow announced trades ([§4]), most checks then verify after
+a retry and count in `hash_retried`; the investigation's replay counted
+them as verified at once, since it carried a found price forward.
+Carrying a found price forward as the market's current price, as the
+replay did (`check_hashes.py`), was the option not taken; D4 does not say
+it.
+
+**An announced trade price too large to write: decided by the owner on
+2026-10-29,** when plan step 10's review found that the hash's
+`last_trade_price`, written with three decimals, could not always be
+written for a large finite price, which [Values](#values) lets through:
+`1e999999999999999999` made the formatting raise out of the reader, which
+ended the client, and `1e1000000` made a string of a million characters.
+A price whose text with three decimals would take more than 28 digits,
+10**25 or more, is not tried; the market's checks then search the grid
+alone, and the event is still delivered. Trying only prices from 0 to 1,
+the grid's range, which would also skip harmless prices such as 1.5 that
+D4 says to try, and making such an event undecodable, which Values rules
+out, were the options not taken.
+
 ### D5. Supported Python versions, and the package and import names
 
 **Owner specification:** the recommended default, adopted by the owner
