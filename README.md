@@ -342,7 +342,9 @@ environment, the `sdk` extra included. Then:
 
 A timeline from the live service holds Polymarket's market data, which its
 Terms of Use give no right to redistribute, so keep it out of git, as the
-investigation's captures are.
+investigation's captures are. The repository's `.gitignore` leaves out JSON
+Lines files at the checkout's root, such as `timeline.jsonl`, but not a
+timeline written anywhere else.
 
 ## Scope
 
