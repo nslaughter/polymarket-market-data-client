@@ -329,6 +329,21 @@ Polymarket's terms govern what it receives:
 python quickstart.py <slug>
 ```
 
+## Examples
+
+From a checkout of this repository, `uv sync` installs the development
+environment, the `sdk` extra included. Then:
+
+| Command | What it does |
+| --- | --- |
+| `uv run python examples/research.py --controlled` | Runs the research example against the scripted server and lookup, in a built-in scenario with a dropped connection and two settlements, and writes its recovery timeline. It needs no access to the live service. |
+| `uv run python examples/research.py --output timeline.jsonl` | Chooses the two open markets ending at least 30 days from now with the most 24-hour volume, and the two `btc-updown-5m-` markets ending soonest, which settle within minutes. It writes every record for them as one JSON line, for 15 minutes or until they have all settled. `--help` lists the options. |
+| `uv run python examples/quickstart.py <slug>` | The quickstart above. |
+
+A timeline from the live service holds Polymarket's market data, which its
+Terms of Use give no right to redistribute, so keep it out of git, as the
+investigation's captures are.
+
 ## Scope
 
 In scope: a limited, explicit set of markets and event types; Python;
