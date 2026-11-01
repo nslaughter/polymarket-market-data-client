@@ -245,6 +245,107 @@ capture gap, and the client records it as one.
   the built wheel in a clean virtual environment and runs the fixture checks
   on each supported Python version.
 
+## Quickstart
+
+The client needs Python 3.12 or later. It isn't published on PyPI, so install
+it from this repository, with the `sdk` extra, which provides the market
+lookup that resolves a slug and confirms settlements:
+
+```shell
+pip install "polymarket-market-data-client[sdk] @ git+https://github.com/nslaughter/polymarket-market-data-client"
+```
+
+This program, [`examples/quickstart.py`](examples/quickstart.py), resolves the
+market whose slug it's given, subscribes to it, and prints each record. It
+ends when the client reports `idle`, which follows the market's settlement:
+
+```python
+import asyncio
+import sys
+
+from polymarket_market_data import (
+    BookEvent,
+    CaptureGap,
+    ClientConfig,
+    ConnectionState,
+    ConnectionStateChange,
+    MarketDataClient,
+    MarketLookup,
+    PriceChangeEvent,
+    TokenState,
+    TokenStateChange,
+)
+
+
+async def main(
+    slug: str, config: ClientConfig | None = None, lookup: MarketLookup | None = None
+) -> None:
+    config = ClientConfig() if config is None else config
+    async with MarketDataClient(config, lookup=lookup) as client:
+        client.subscribe(await client.resolve(slug))
+        async for record in client.records():
+            match record:
+                case TokenStateChange(state=TokenState.READY):
+                    print(f"token {record.token_id} ready: its book can be used")
+                case TokenStateChange(state=TokenState.SETTLED):
+                    print(
+                        f"token {record.token_id} settled, "
+                        f"winner {record.winning_asset_id}"
+                    )
+                case TokenStateChange():
+                    print(f"token {record.token_id} {record.state}: {record.reason}")
+                case BookEvent():
+                    print(
+                        f"book {record.asset_id}: {len(record.bids)} bid "
+                        f"and {len(record.asks)} ask levels"
+                    )
+                case PriceChangeEvent():
+                    entries = (f"{c.side} {c.price} x {c.size}" for c in record.changes)
+                    print("price change:", ", ".join(entries))
+                case CaptureGap():
+                    print(
+                        f"gap {record.token_id}: events since "
+                        f"{record.last_confirmed_at} may be missing"
+                    )
+                case ConnectionStateChange(state=ConnectionState.IDLE):
+                    print("idle: no unsettled market is left")
+                    return
+                case ConnectionStateChange():
+                    print(f"connection {record.state}")
+                case _:
+                    print(type(record).__name__)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage: python examples/quickstart.py <slug>")
+    asyncio.run(main(sys.argv[1]))
+```
+
+Run it with a market's slug. It connects to Polymarket's market WebSocket, so
+Polymarket's terms govern what it receives:
+
+```shell
+python quickstart.py <slug>
+```
+
+## Examples
+
+From a checkout of this repository, `uv sync` installs the development
+environment, the `sdk` extra included. Then:
+
+| Command | What it does |
+| --- | --- |
+| `uv run python examples/research.py --controlled` | Runs the research example against the scripted server and lookup, in a built-in scenario with a dropped connection and two settlements, and writes its recovery timeline. It needs no access to the live service. |
+| `uv run python examples/research.py --output timeline.jsonl` | Chooses the two open markets ending at least 30 days from now with the most 24-hour volume, and the two `btc-updown-5m-` markets ending soonest, which settle within minutes. It writes every record for them as one JSON line, for 15 minutes or until they have all settled. `--help` lists the options. |
+| `uv run python examples/quickstart.py <slug>` | The quickstart above. |
+
+A timeline from the live service holds Polymarket's market data, which its
+Terms of Use give no right to redistribute, so keep it out of git, as the
+investigation's captures are. The repository's `.gitignore` leaves out JSON
+Lines files at the checkout's root, such as `timeline.jsonl`, but not a
+timeline written anywhere else.
+
 ## Scope
 
 In scope: a limited, explicit set of markets and event types; Python;

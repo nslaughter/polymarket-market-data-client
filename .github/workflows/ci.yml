@@ -43,9 +43,22 @@ jobs:
         run: |
           wheel=$(ls "$PWD"/dist/*.whl)
           uv venv "$RUNNER_TEMP/wheel"
-          uv pip install --python "$RUNNER_TEMP/wheel/bin/python" "$wheel"
+          uv pip install --python "$RUNNER_TEMP/wheel/bin/python" "$wheel" "pytest>=8"
           cd "$RUNNER_TEMP"
           wheel/bin/python -c "import polymarket_market_data as p; print(p.__file__)"
+      # These two run outside the checkout, so the package comes from the
+      # wheel and not from src (docs/implementation-plan.md, 11. Add the
+      # research example and check the built wheel). The examples' tests are
+      # in the conformance suite.
+      - name: Run the conformance suite against the installed wheel
+        run: |
+          cd "$RUNNER_TEMP"
+          wheel/bin/python -m pytest -p no:cacheprovider --rootdir="$GITHUB_WORKSPACE" -c "$GITHUB_WORKSPACE/pyproject.toml" "$GITHUB_WORKSPACE/tests/conformance"
+      - name: Run the controlled example against the installed wheel
+        run: |
+          cd "$RUNNER_TEMP"
+          wheel/bin/python "$GITHUB_WORKSPACE/examples/research.py" --controlled --output timeline.jsonl
+          tail -n 1 timeline.jsonl
       - name: Install the wheel with the sdk extra and import both
         run: |
           wheel=$(ls "$PWD"/dist/*.whl)

@@ -6,6 +6,10 @@ spikes/evidence/*.jsonl
 spikes/evidence/*.jsonl.gz
 __pycache__/
 
+# The research example's timelines, as the README's command writes them at
+# the checkout's root: from the live service, they are Polymarket's data too.
+/*.jsonl
+
 # The development environment, build outputs, and tool caches.
 .venv/
 dist/

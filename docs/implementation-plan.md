@@ -52,7 +52,7 @@ decision the owner deferred on 2026-10-08 until step 16 is merged.
 | 8. Apply subscription changes | D7 | Done | [#24](https://github.com/nslaughter/polymarket-market-data-client/pull/24) |
 | 9. Bound the consumer handoff | D3 | Done | [#25](https://github.com/nslaughter/polymarket-market-data-client/pull/25) |
 | 10. Verify order-book hashes | D4 | Done | [#28](https://github.com/nslaughter/polymarket-market-data-client/pull/28) |
-| 11. Add the research example and check the built wheel | | Not started | |
+| 11. Add the research example and check the built wheel | | Done | [#31](https://github.com/nslaughter/polymarket-market-data-client/pull/31) |
 | 12. Record a limited live run | live-run period and markets | Needs owner decision | |
 | 13. Release a tagged wheel | release name | Not started | |
 | 14. Add the price-alert example | | Not started | |
@@ -317,6 +317,19 @@ Follows D4: verification with the recipe, and its burst rule.
   live service. The live mode needs the SDK extra, which provides the
   lookup that market selection and, with `verify_hash` on, hash checks
   need.
+
+  A market lookup finds a market only by its slug
+  ([Market lookup](../spec/client.md#market-lookup)), so the owner
+  decided on 2026-11-01 that the live mode lists open markets with the
+  pinned SDK's `list_markets`, as
+  [`spikes/select_markets.py`](../spikes/select_markets.py) did, and
+  resolves each through the client's lookup. The SDK is called outside
+  `MarketLookup` only in the example. The owner also decided that by
+  default it chooses the two open markets ending at least 30 days from now
+  with the most 24-hour volume, and the two `btc-updown-5m-` markets ending
+  soonest, which resolve on their own a few minutes after they end
+  ([findings, Markets](source-behavior.md#markets)), so that a run can see
+  a settlement. The counts and the prefix are options.
 - `examples/quickstart.py`: the shortest useful program. It resolves the
   market whose slug it is given, subscribes to it, and handles each record
   type with `match`, as the contract's
