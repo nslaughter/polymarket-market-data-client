@@ -301,16 +301,27 @@ async def controlled(out: TextIO) -> None:
             reconnect=ReconnectPolicy(**PROFILE_RECONNECT),
             **{**PROFILE, "verify_hash": True},
         )
-        async with asyncio.timeout(CONTROLLED_LIMIT), asyncio.TaskGroup() as tasks:
-            tasks.create_task(_play(server, timeline))
-            await research(
-                CONTROLLED_MARKETS,
-                config,
-                lookup,
-                timeline,
-                mode="controlled",
-                duration=None,
-            )
+        try:
+            async with (
+                asyncio.timeout(CONTROLLED_LIMIT),
+                asyncio.TaskGroup() as tasks,
+            ):
+                tasks.create_task(_play(server, timeline))
+                await research(
+                    CONTROLLED_MARKETS,
+                    config,
+                    lookup,
+                    timeline,
+                    mode="controlled",
+                    duration=None,
+                )
+        except BaseExceptionGroup as group:
+            # The task group wraps what research raised, so main would not
+            # see the two it reports as the exit status.
+            match group.exceptions:
+                case [CannotRun() | RecoveryFailed() as error]:
+                    raise error from None
+            raise
         violations = [*await server.call(server.finish()), *lookup.violations]
     if violations:
         raise RuntimeError("the built-in scenario failed: " + "; ".join(violations))

@@ -213,6 +213,39 @@ def test_each_line_of_the_timeline_reads_back_as_its_record(
         assert adapter.dump_json(adapter.validate_json(record)) == record
 
 
+def test_the_controlled_mode_exits_2_if_no_market_resolves(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    research = load("research")
+    # The scripted lookup finds no synthetic-u (spec/conformance.md, The
+    # scripted lookup).
+    monkeypatch.setattr(research, "CONTROLLED_MARKETS", ("synthetic-u",))
+    output = tmp_path / "timeline.jsonl"
+    assert research.main(["--controlled", "--output", str(output)]) == 2
+    err = capsys.readouterr().err.splitlines()
+    assert err[0].startswith("skipped synthetic-u: ")
+    assert err[1:] == ["none of the markets chosen could be resolved"]
+    assert output.read_text() == ""
+
+
+def test_the_controlled_mode_exits_1_if_recovery_fails(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    research = load("research")
+
+    async def fails(*args: object, **kwargs: object) -> None:
+        raise polymarket_market_data.RecoveryFailed("its bounds are exhausted")
+
+    monkeypatch.setattr(research, "research", fails)
+    output = tmp_path / "timeline.jsonl"
+    assert research.main(["--controlled", "--output", str(output)]) == 1
+    assert capsys.readouterr().err == "recovery failed: its bounds are exhausted\n"
+
+
 def test_a_market_lookup_does_not_find_is_skipped(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
