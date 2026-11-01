@@ -13,6 +13,8 @@ import asyncio
 import importlib.util
 import json
 import re
+import time
+from collections.abc import Callable, Coroutine, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
@@ -249,29 +251,90 @@ def test_the_controlled_mode_exits_1_if_recovery_fails(
     assert capsys.readouterr().err == "recovery failed: its bounds are exhausted\n"
 
 
-def test_a_market_lookup_does_not_find_is_skipped(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
+def run_research(
+    slugs: Sequence[str],
+    play: Callable[[ScriptedServer], Coroutine[Any, Any, None]],
+    output: Path,
+    *,
+    duration: float | None,
+) -> list[dict[str, Any]]:
+    """The timeline's lines from the research example's ``research``, run
+    against the scripted server, which ``play`` drives, and the scripted
+    lookup."""
     research = load("research")
+    lookup = ScriptedLookup()
 
     async def run(server: ScriptedServer) -> None:
         config = ClientConfig(url=server.url, verify_hash=False)
-        with (tmp_path / "timeline.jsonl").open("w") as out:
-            # The scripted lookup finds no synthetic-u (spec/conformance.md,
-            # The scripted lookup).
-            await research.research(
-                ["synthetic-u"],
-                config,
-                ScriptedLookup(),
-                research.Timeline(out),
-                mode="controlled",
-                duration=1.0,
-            )
+        with output.open("w") as out:
+            async with asyncio.timeout(10), asyncio.TaskGroup() as tasks:
+                tasks.create_task(play(server))
+                await research.research(
+                    slugs,
+                    config,
+                    lookup,
+                    research.Timeline(out),
+                    mode="controlled",
+                    duration=duration,
+                )
 
-    with ScriptedServer() as server, pytest.raises(research.CannotRun):
+    with ScriptedServer() as server:
         asyncio.run(run(server))
-    assert "skipped synthetic-u" in capsys.readouterr().err
-    assert (tmp_path / "timeline.jsonl").read_text() == ""
+        assert asyncio.run(server.call(server.finish())) == []
+    assert lookup.violations == []
+    return [json.loads(line) for line in output.read_text().splitlines()]
+
+
+def test_a_market_lookup_does_not_find_is_skipped(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    async def play(server: ScriptedServer) -> None:
+        await server.call(server.accept())
+        await server.call(server.recv_subscribe(("A1", "A2")))
+        await server.call(server.send(Opening(("A1", "A2"))))
+        await server.call(server.send(ResolvedFrame("A", 101, "A1")))
+        await server.call(server.expect_client_close(1000, "no subscriptions"))
+
+    # The scripted lookup finds no synthetic-u (spec/conformance.md, The
+    # scripted lookup), and the run goes on with the market it found.
+    run, *records, stats = run_research(
+        ["synthetic-u", "synthetic-a"],
+        play,
+        tmp_path / "timeline.jsonl",
+        duration=None,
+    )
+    assert capsys.readouterr().err.startswith("skipped synthetic-u: ")
+    assert [market["slug"] for market in run["markets"]] == ["synthetic-a"]
+    assert [summary(line) for line in records] == [
+        ("conn", "connecting", None),
+        *connected(1, dict.fromkeys(("A1", "A2"))),
+        ("resolved", "A", "A1"),
+        ("token", "A1", "settled", "market_resolved"),
+        ("token", "A2", "settled", "market_resolved"),
+        ("conn", "idle", 1),
+    ]
+    assert stats["type"] == "stats"
+
+
+def test_the_research_example_ends_at_its_duration(tmp_path: Path) -> None:
+    async def play(server: ScriptedServer) -> None:
+        await server.call(server.accept())
+        await server.call(server.recv_subscribe(("A1", "A2")))
+        await server.call(server.send(Opening(("A1", "A2"))))
+        # The market stays open, so only the duration ends the run, and the
+        # client closes as the example leaves its block.
+        await server.call(server.expect_client_close(1000, "client exit"))
+
+    started = time.monotonic()
+    _, *records, stats = run_research(
+        ["synthetic-a"], play, tmp_path / "timeline.jsonl", duration=1.0
+    )
+    assert time.monotonic() - started >= 1.0
+    assert [summary(line) for line in records] == [
+        ("conn", "connecting", None),
+        *connected(1, dict.fromkeys(("A1", "A2"))),
+    ]
+    assert stats["type"] == "stats"
 
 
 # The live mode's choice of markets.
