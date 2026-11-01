@@ -334,9 +334,11 @@ async def _play(server: "ScriptedServer", timeline: ScenarioTimeline) -> None:
     drop-without-close). Then each market's book empties and
     ``market_resolved`` names its winner, and the server closes once no
     market is left (spec/conformance.md, settle-announced-others-open and
-    settle-all-resolved-close)."""
+    settle-all-resolved-close). Each emptied book is checked before its
+    market settles, so the count of hash checks does not depend on how
+    soon the client reads the next frame (D4)."""
     from conformance.frames import Entry, Opening, PriceChangeFrame, ResolvedFrame
-    from conformance.synthetic import T0
+    from conformance.synthetic import PROFILE, T0
 
     tokens = ("A1", "A2", "B1", "B2")
 
@@ -350,16 +352,28 @@ async def _play(server: "ScriptedServer", timeline: ScenarioTimeline) -> None:
             f"{token}:SELL:{price}:0" for price in asks
         ]
 
+    async def applied(t: int) -> None:
+        """Wait for the client's record of the change at ``t``."""
+        await timeline.until(
+            lambda record: (
+                isinstance(record, PriceChangeEvent)
+                and record.source_timestamp_ms == T0 + t
+            )
+        )
+
+    async def checked(t: int) -> None:
+        """Wait until the bursts of the change at ``t`` have been checked:
+        this task runs on the client's loop, whose timers fire in the order
+        of their deadlines, and each burst is due ``burst_quiet`` after the
+        client applied its change, which came before the change's record."""
+        await applied(t)
+        await asyncio.sleep(2 * PROFILE["burst_quiet"])
+
     await server.call(server.accept())
     await server.call(server.recv_subscribe(tokens))
     await server.call(server.send(Opening(tokens)))
     await server.call(server.send(change("A", 100, "A1:BUY:0.49:50")))
-    await timeline.until(
-        lambda record: (
-            isinstance(record, PriceChangeEvent)
-            and record.source_timestamp_ms == T0 + 100
-        )
-    )
+    await applied(100)
     await server.call(server.drop())
     await server.call(server.silent("A1", 2000, Entry("A1", "BUY", "0.46", "500")))
 
@@ -369,12 +383,14 @@ async def _play(server: "ScriptedServer", timeline: ScenarioTimeline) -> None:
     a1 = emptied("A1", ("0.49", "0.48", "0.47", "0.46"), ("0.52", "0.53"))
     a2 = emptied("A2", ("0.48", "0.47"), ("0.52", "0.53"))
     await server.call(server.send(change("A", 3000, *a1, *a2)))
+    await checked(3000)
     await server.call(server.send(ResolvedFrame("A", 3001, "A1")))
 
     await server.call(server.send(change("B", 3100, "B1:BUY:0.39:90")))
     b1 = emptied("B1", ("0.39", "0.38"), ("0.41", "0.42"))
     b2 = emptied("B2", ("0.59", "0.58"), ("0.61", "0.62"))
     await server.call(server.send(change("B", 4000, *b1, *b2)))
+    await checked(4000)
     await server.call(server.send(ResolvedFrame("B", 4001, "B2")))
     await server.call(server.close(1000, "all subscribed assets resolved"))
 

@@ -198,7 +198,10 @@ def test_the_research_example_records_a_drop_and_two_settlements(
     assert stats["type"] == "stats"
     counts = stats["record"]
     assert (counts["connections"], counts["interruptions"]) == (2, {"dropped": 1})
-    assert (counts["hash_verified"], counts["hash_failed"]) == (10, 0)
+    # Each connection's four opening books; the bursts of A1's change at 100
+    # and B1's at 3100; and the four emptied books, each checked burst_quiet
+    # after it was applied, before its market settled (D4).
+    assert (counts["hash_verified"], counts["hash_failed"]) == (14, 0)
 
 
 def test_each_line_of_the_timeline_reads_back_as_its_record(
