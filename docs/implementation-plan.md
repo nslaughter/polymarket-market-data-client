@@ -35,10 +35,9 @@ start until the owner records the decision and changes the status here.
 The contract's design decisions, D1 to D8, are all
 [owner specifications](../spec/client.md#owner-specifications), decided on
 2026-10-05; the **Owner specifications** column names those each step
-follows. Step 12 still waits on the owner for the live run's period, to be
-agreed once step 11 is merged. Step 17 waits on the owner to decide whether
-the scripted server becomes a supported way to test applications, a
-decision the owner deferred on 2026-10-08 until step 16 is merged.
+follows. Step 17 waits on the owner to decide whether the scripted server
+becomes a supported way to test applications, a decision the owner deferred
+on 2026-10-08 until step 16 is merged.
 
 | Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
@@ -53,7 +52,7 @@ decision the owner deferred on 2026-10-08 until step 16 is merged.
 | 9. Bound the consumer handoff | D3 | Done | [#25](https://github.com/nslaughter/polymarket-market-data-client/pull/25) |
 | 10. Verify order-book hashes | D4 | Done | [#28](https://github.com/nslaughter/polymarket-market-data-client/pull/28) |
 | 11. Add the research example and check the built wheel | | Done | [#31](https://github.com/nslaughter/polymarket-market-data-client/pull/31) |
-| 12. Record a limited live run | live-run period and markets | Needs owner decision | |
+| 12. Record a limited live run | live-run period and markets | Not started | |
 | 13. Release a tagged wheel | release name | Not started | |
 | 14. Add the price-alert example | | Not started | |
 | 15. Stream synthetic markets | | Not started | |
@@ -353,13 +352,14 @@ Follows D4: verification with the recipe, and its burst rule.
 
 ### 12. Record a limited live run
 
-Needs the owner to agree the run's period, once step 11 is merged. The
-owner decided on 2026-10-08 that the run watches the markets the research
-example chooses when it runs, rather than a list fixed in advance. Only
-this step contacts the live service.
+The owner decided on 2026-10-08 that the run watches the markets the
+research example chooses when it runs, rather than a list fixed in
+advance, and on 2026-11-02 that the run lasts 60 minutes, as long as the
+investigation's run long ([findings, Runs](source-behavior.md#runs)).
+Only this step contacts the live service.
 
-- Run the example against the live service for a limited period chosen
-  with the owner, with the client's configuration recorded.
+- Run the example against the live service for 60 minutes
+  (`--duration 3600`), with the client's configuration recorded.
 - Add `docs/live-run.md`: the client version and commit, the configuration,
   the markets and the observation period, every interruption and settlement
   observed with its records, and the source behavior left unresolved,
