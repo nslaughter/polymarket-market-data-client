@@ -52,7 +52,7 @@ on 2026-10-08 until step 16 is merged.
 | 9. Bound the consumer handoff | D3 | Done | [#25](https://github.com/nslaughter/polymarket-market-data-client/pull/25) |
 | 10. Verify order-book hashes | D4 | Done | [#28](https://github.com/nslaughter/polymarket-market-data-client/pull/28) |
 | 11. Add the research example and check the built wheel | | Done | [#31](https://github.com/nslaughter/polymarket-market-data-client/pull/31) |
-| 12. Record a limited live run | live-run period and markets | Not started | |
+| 12. Record a limited live run | live-run period and markets | Done | |
 | 13. Release a tagged wheel | release name | Not started | |
 | 14. Add the price-alert example | | Not started | |
 | 15. Stream synthetic markets | | Not started | |
