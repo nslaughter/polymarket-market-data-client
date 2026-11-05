@@ -175,6 +175,182 @@ The 201,211 `price_change` events held 402,422 entries. Every entry was
 applied but the 398 in the 199 events flagged as repeats, and none was
 flagged `before_book`.
 
+### The failed hash checks, replayed November 5, 2026
+
+[Plan step 13](implementation-plan.md#13-investigate-the-live-runs-failed-hash-checks)
+replayed the run's timeline, the one whose SHA-256 is given above, with
+[`tools/replay_hash_checks.py`](../tools/replay_hash_checks.py), to find
+which checks failed and what explains them. This section adds to the one
+before it, which stays as it stands. Like the rest of the document, it gives
+counts, times, and IDs only.
+
+**How the replay ran.** The script fed the timeline's events, in order, to
+the client's own `Verifier`, with each record's `received_at` in place of
+the event loop's clock. It applied each entry the records say the client
+applied, skipped the events the client flagged as repeats, and checked a
+burst whose `burst_quiet` had passed before the next frame was read. The
+package's code is unchanged since the run's commit, `3af1b85`, so the
+verifier is the one the run used. The timeline does not hold
+`min_order_size` and `neg_risk`, which the client fetched through lookup,
+so the script inferred both for each of the eight tokens from its opening
+book's hash. It ran under CPython 3.12.13 and uv 0.12.23, in about two and
+a half minutes.
+
+**The counts reproduce.** The replay counted 108,440 checks verified at
+once, 280,796 verified after a retry, and 1,012 failed, as the client did,
+with no difference in any. Its clock and its inferred inputs changed no
+check's outcome. Four of its checks were of bursts still pending when the
+timeline ends, which the client checked in the seconds it ran after the
+last record.
+
+**Where they fell.** Every failed check was on a Bitcoin market: 937 on
+`btc-updown-5m-1793654700`, 470 for token `52647215…` and 467 for
+`69595738…`, and 75 on `btc-updown-5m-1793654400`, 38 for `63083213…` and
+37 for `42289448…`. They came between 21:22:01.024 and 21:30:05.772: 833
+within their market's five-minute window, 175 before it, and 4 after it
+ended. All but 5 checked a burst that the token's next entry ended; those 5
+checked bursts that a book ended. No book failed its own check.
+
+**Episodes.** The failed checks came in 56 episodes, each a token's failed
+checks with no verifying check between them, as D4's rule for divergence
+counts them. They began at 30 moments: 26 on both tokens of a market at
+once, and 4 on one token. They held from 1 to 106 failed checks, and each
+ended with a check that verified: 51 with a burst's check, 5 with a book's
+own. The longest lasted 0.206 s from its first failed check to that check,
+and the median 0.012 s. The nearest to D4's rule was 70 failed checks of
+`52647215…` from 21:27:21.847, whose hashes arrived 0.204 s apart, against
+`hash_grace`'s 2 s. None came nearer, so no token became `uncertain`, as the
+records show.
+
+**At the start of a second.** 537 of the failed checks, 53.1%, checked a
+hash stamped in the first 100 ms of a second of the source's clock, against
+41,121, 10.8%, of the 382,038 other burst checks of the same four tokens.
+Books and trades came in the 2 s before a failed check less often than
+before the others: a book before 81.0% of failed checks and 92.9% of the
+others, a trade before 80.8% and 92.8%. A repeat came before 68.4% and
+59.7%, and a `tick_size_change` before 0.4% and 0.1%.
+
+**What explains them.** For each failed check, the script tried what the
+timeline and the findings suggest, none of which the client tries, and put
+the check down to the first of these that applies:
+
+| Put down to | Failed checks |
+| --- | ---: |
+| Repeats the client did not apply | 380 |
+| A hash ahead of its entries | 199 |
+| A book stamped before the held book's last change | 132 |
+| A book holding changes no entry had brought | 64 |
+| The tick size before a change | 4 |
+| Another event's timestamp | 4 |
+| Nothing tried | 229 |
+
+- **Repeats the client did not apply: 380.** The client flagged 199
+  `price_change` events as repeats and applied none, as
+  [Repeated messages](../spec/client.md#repeated-messages) says. Applying
+  192 of them would have changed nothing. Each of the other 7, received at
+  21:22:17.486, 21:22:39.829, 21:26:22.750, 21:26:43.851, 21:26:58.108,
+  21:27:21.847, and 21:27:52.073, named both tokens of a Bitcoin market and
+  arrived 0.2 to 1.1 ms after its first copy. Between the two copies came an
+  event, stamped the same millisecond, that set the same level to another
+  size. Five of the 7 began episodes, on both tokens, within 1 ms of their
+  arrival: 380 failed checks in all, each of which verifies with the held
+  book as it would have stood had the client applied the repeat. Replayed with the 7
+  applied, 632 checks fail: those 380 pass, and the count for every other
+  cause stays as it is. So the source's later hashes held the sizes the
+  second copies set. The findings saw repeats as one message received twice
+  ([findings, §3](source-behavior.md#3-event-order-and-replay)). Whether
+  these second copies were that, or a second change with the same content,
+  the timeline cannot show.
+- **A hash ahead of its entries: 199.** Each verifies with the held book
+  after the token's next 1 to 159 applied entries, with the checked hash's
+  own timestamp. The last of those entries arrived at most 0.102 s after the
+  check. 15 verify with the next entry alone, which the findings saw as one
+  change late ([findings, §4](source-behavior.md#4-revealing-a-missed-event));
+  the findings record no hash ahead by more than one change. All 199
+  checked hashes stamped in the first 100 ms of a second.
+- **A book stamped before the held book's last change: 132.** At
+  21:27:07.355 and 21:27:07.357 a book arrived for each token of
+  `btc-updown-5m-1793654700`, stamped 5 ms before the held book's last
+  change, and replaced the held book, as rule 3 of the
+  [recovery contract](../spec/client.md#recovery-contract) and T5 say. Each
+  verified its own hash. Each differed from the held book at 2 levels, and
+  an entry stamped after the book had last set both. Then 63 checks of each
+  token failed, until entries set both levels again at 21:27:07.481; the
+  next check, at 21:27:07.482, verified.
+  At 21:27:37.008 the same happened to `52647215…`, with a book stamped 3 ms
+  before the held book's last change and differing at 1 level: 6 checks
+  failed until its next book, at 21:27:37.035. The recovery contract
+  replaces the held book with any later book, and does not consider one
+  stamped before changes already applied.
+- **A book holding changes no entry had brought: 64.** At 21:23:31.122 and
+  21:23:31.123 books for both tokens of `btc-updown-5m-1793654400` differed
+  from the held book at 22 levels, and at 21:27:36.064 and 21:27:36.065
+  books for both tokens of `btc-updown-5m-1793654700` at 3. Each was stamped
+  at the held book's last change and verified its own hash. The failed
+  checks began 34 and 41 ms before them, and their episodes ended with
+  them. Entries next set every level that differed 0.53 s and 0.80 s after
+  the books. Of the other 2 books that differed from the held
+  book, each at 1 level, one is the book at 21:27:37.035 above, and the
+  other, at 21:27:37.008 for `69595738…`, came with no failed check.
+- **The tick size before a change: 4.** Bursts that arrived at 21:26:00.073
+  for both tokens of `btc-updown-5m-1793654400`, and at 21:30:05.376 for both
+  tokens of `btc-updown-5m-1793654700`, were still pending when the token's
+  `tick_size_change` arrived, 0.290 s and 0.393 s later. The client checked
+  them with the new tick size, and they verify with the old. The
+  specification does not say which tick size checks a burst pending across
+  a tick-size change. The client uses the tick size at the check, since the
+  one change the findings observed seemed to enter the hash before its event
+  ([findings, §4](source-behavior.md#4-revealing-a-missed-event)).
+- **Another event's timestamp: 4.** Three bursts, checked at 21:23:26.610,
+  21:24:01.049, and 21:26:48.890, spanned two events stamped 1 ms apart, and
+  verify with the first event's timestamp. The client used the last's. The
+  fourth, checked at 21:28:31.879, verifies with a timestamp 1 ms before its
+  event's. D4 checks a burst with "the event's timestamp", and does not say
+  which event's when a burst spans two.
+- **Nothing tried: 229.** These made up the episodes at 21:23:51.019,
+  21:26:01.031, and 21:27:30.032, each on both tokens of a market, and parts
+  of those at 21:24:00.038, 21:24:21.031, and 21:26:06.023. Every one
+  checked a hash stamped in the first 100 ms of a second. None verifies with
+  the held book after any of the token's next entries within `burst_quiet`,
+  with a skipped repeat applied, with the tick size before a change, or with
+  the timestamp of another event or 1 ms off. Each of their episodes ended
+  with a burst's check that verified, with no book replacing the held book.
+
+**What the replay shows about the client.** The replay found no place where
+the client's code departs from the specification. On its own, a replay with
+the client's verifier could not show a fault in that verifier, but the
+causes above were tested with the recipe alone. The client's held book
+matched 3,685 of the 3,694 books sent during the connection, and the 9 that
+differed are those above. Each failed check the replay explains comes from
+the source's hashes or books holding changes whose entries came later, or
+from a rule the specification sets, applied as written: a repeat is not
+applied; a later book replaces the held one; and a burst is checked with the
+book as it stood before the entry that ended it (D4), which fails a hash
+that already holds later changes. For the tick size and the timestamp, the
+specification does not say, and the client's choices are those above. The
+step reported these to the owner, and changed nothing in the client or the
+specification.
+
+**Against the D4 evidence.** D4's evidence, 52 failures in 444,131 checks on
+busy markets, came from the investigation's replay
+([findings, §4](source-behavior.md#4-revealing-a-missed-event)). That
+replay applied every entry, repeats included, and counted as verified a
+check that verified after the token's next change. Counted more nearly that
+way, with the 7 repeats applied and the 15 checks one change late verified, 617 of
+this run's 390,262 checks fail: 0.16%, against 0.012% then. The timeline
+cannot say whether that difference lies in the markets or the period.
+
+**What would settle the rest.** The timeline holds one connection's records,
+not its frames. Two connections recorded over the same period, as runs
+hb-none and hb-stop were
+([findings, §4](source-behavior.md#4-revealing-a-missed-event)), would
+show whether the failures at the start of a second, the repeats, and the
+early books came at the same moments on both, and so from the source rather
+than from what one connection received. Keeping each frame's text
+(`keep_raw`) would show whether a repeat's two copies are the same text.
+Both need another run against the live service, which is the owner's to
+decide.
+
 ### Decoding and other events
 
 All 212,077 frames decoded: there was no `UndecodableFrame` and no
