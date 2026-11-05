@@ -64,7 +64,7 @@ allowed-confusables = ["×", "−"]
 
 [tool.mypy]
 strict = true
-files = ["src", "tests", "examples"]
+files = ["src", "tests", "examples", "tools"]
 plugins = ["pydantic.mypy"]
 
 [tool.pydantic-mypy]

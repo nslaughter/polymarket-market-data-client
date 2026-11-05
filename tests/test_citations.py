@@ -35,8 +35,9 @@ DOCUMENTS = (
 
 
 def modules(root: Path) -> list[Path]:
-    """The Python modules of the package, its tests, and its examples."""
-    directories = ("src", "tests", "examples")
+    """The Python modules of the package, its tests, its examples, and the
+    scripts in tools."""
+    directories = ("src", "tests", "examples", "tools")
     return sorted(path for name in directories for path in (root / name).rglob("*.py"))
 
 
@@ -327,6 +328,7 @@ def test_the_check_reads_every_module_and_build_file(tmp_path: Path) -> None:
         "pyproject.toml",
         "src/package/module.py",
         "tests/test_module.py",
+        "tools/script.py",
     ]
     for name in names:
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
