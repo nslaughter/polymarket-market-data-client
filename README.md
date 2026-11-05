@@ -20,10 +20,15 @@ data systems with attention to how they behave in operation. My work includes
 observability integrations, financial systems, and operating data pipelines.
 This project will apply that experience to a focused third-party API workflow.
 
-**Status:** In development. The client's package, records, configuration,
-frame decoding, order books, token states, and conformance harness are
-implemented in Python and tested, and the
-[Progress table](docs/implementation-plan.md#progress) of the
+**Status:** Version 0.1.0 is the first release. Its tag is `v0.1.0`, and its
+wheel is attached to the
+[GitHub release](https://github.com/nslaughter/polymarket-market-data-client/releases).
+The client is implemented and passes every
+[conformance scenario](spec/conformance.md). The research example and the
+quickstart run against the scripted server, and a
+[limited live run](docs/live-run.md) is recorded, with a replay of its failed
+hash checks. The examples that build on the client come after the release,
+and the [Progress table](docs/implementation-plan.md#progress) of the
 [implementation plan](docs/implementation-plan.md) shows each step's status.
 This repository also contains the findings of a short investigation of
 source behavior in [`docs/source-behavior.md`](docs/source-behavior.md), the
