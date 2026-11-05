@@ -54,7 +54,7 @@ on 2026-10-08 until the dashboard example, now step 17, is merged.
 | 10. Verify order-book hashes | D4 | Done | [#28](https://github.com/nslaughter/polymarket-market-data-client/pull/28) |
 | 11. Add the research example and check the built wheel | | Done | [#31](https://github.com/nslaughter/polymarket-market-data-client/pull/31) |
 | 12. Record a limited live run | live-run period and markets | Done | [#34](https://github.com/nslaughter/polymarket-market-data-client/pull/34) |
-| 13. Investigate the live run's failed hash checks | D4 | Not started | |
+| 13. Investigate the live run's failed hash checks | D4 | Done | |
 | 14. Release a tagged wheel | release name | Not started | |
 | 15. Add the price-alert example | | Not started | |
 | 16. Stream synthetic markets | | Not started | |
