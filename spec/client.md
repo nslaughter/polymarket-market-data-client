@@ -1,9 +1,10 @@
 # Client contract: Polymarket market-data client
 
-**Status:** Draft 0.1.0, for the owner's review; not tagged. Its eight
+**Status:** Draft 0.1.0, for the owner's review. The client's first
+release, version 0.1.0, tagged `v0.1.0`, implements this draft. Its eight
 design decisions, D1 to D8, are [owner specifications](#owner-specifications):
 the owner decided each on 2026-10-05, and an implementation follows them
-as written. None of the client exists yet.
+as written.
 
 This document governs the client's code: its public interface, the records
 it delivers, the per-token state machine, the recovery contract, and the
