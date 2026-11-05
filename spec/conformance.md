@@ -1,7 +1,8 @@
 # Conformance scenarios
 
 **Status:** Draft 0.1.0, for the owner's review, with the
-[client contract](client.md); not tagged. Scenarios that rest on one of the
+[client contract](client.md). The client's first release, version 0.1.0,
+tagged `v0.1.0`, passes every scenario. Scenarios that rest on one of the
 contract's owner specifications name it with an `owner-spec` line.
 
 These scenarios check a client against a scripted local WebSocket server.
