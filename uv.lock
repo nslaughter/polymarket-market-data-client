@@ -841,7 +841,7 @@ wheels = [
 
 [[package]]
 name = "polymarket-market-data-client"
-version = "0.0.0.dev0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },

@@ -1,0 +1,109 @@
+name: Release
+
+# A version tag releases the wheel: built once, tested on each supported
+# Python version, and attached to a GitHub release (D5;
+# docs/implementation-plan.md, 14. Release a tagged wheel). The owner pushes
+# the tag. A pull request that changes this workflow or pyproject.toml runs it
+# without the release.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - pyproject.toml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A tag's run is never cancelled, so a release isn't left half made.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The jobs are named apart from CI's, whose names main's ruleset requires as
+# status checks.
+jobs:
+  build:
+    name: Build the wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      # A pull request has no tag, so it only shows the tag its version needs.
+      - name: Check that the tag names the package's version
+        run: |
+          version=$(uv version --short)
+          echo "Version $version releases under the tag v$version."
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME does not name version $version."
+            exit 1
+          fi
+      - name: Build the wheel
+        run: uv build --wheel
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
+  test:
+    name: Test the wheel on Python ${{ matrix.python }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each supported release from 3.12 on (D5).
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel
+          path: dist
+      # The versions uv.lock pins, the sdk extra's included, which CI tests
+      # src with: the whole suite runs, and only the package's source differs.
+      - name: Install the wheel and the locked dependencies in a clean virtual environment
+        run: |
+          uv venv "$RUNNER_TEMP/wheel"
+          python="$RUNNER_TEMP/wheel/bin/python"
+          uv export --locked --no-emit-project --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --python "$python" --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --python "$python" --no-deps dist/*.whl
+          uv pip check --python "$python"
+      # Outside the checkout, so the package comes from the wheel and not from
+      # src.
+      - name: Check that the package comes from the wheel
+        run: |
+          cd "$RUNNER_TEMP"
+          wheel/bin/python -c 'import sys, polymarket_market_data as p; assert p.__file__.startswith(sys.prefix), p.__file__; print(p.__file__)'
+      - name: Run the full suite against the installed wheel
+        run: |
+          cd "$RUNNER_TEMP"
+          wheel/bin/python -m pytest -p no:cacheprovider --rootdir="$GITHUB_WORKSPACE" -c "$GITHUB_WORKSPACE/pyproject.toml" "$GITHUB_WORKSPACE/tests"
+
+  release:
+    name: Attach the wheel to a GitHub release
+    needs: test
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheel
+          path: dist
+      - name: Create the release with the wheel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.whl \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes "The wheel of $GITHUB_REF_NAME, built from this tag and tested on each supported Python version before it was attached."
