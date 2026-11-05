@@ -1,6 +1,6 @@
 [project]
 name = "polymarket-market-data-client"
-version = "0.0.0.dev0"
+version = "0.1.0"
 description = "A read-only client for Polymarket's market WebSocket that reports every interruption, recovery, and capture gap."
 readme = "README.md"
 # Source available under a custom license, not open source.
