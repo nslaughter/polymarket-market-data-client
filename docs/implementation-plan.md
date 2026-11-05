@@ -10,9 +10,10 @@ the checks that prove it done. The specifications are
 Steps 1 to 4 build the parts that need no network: the package, decoding,
 the state machine, and the conformance harness. Steps 5 to 10 build the
 client against the scripted server, one area of the contract at a time.
-Steps 11 to 13 add the example, the live run, and the release.
+Steps 11 to 14 add the example, the live run, a look into the run's failed
+hash checks, and the release.
 
-Steps 14 to 17 come after the release, so the client ships first. They add
+Steps 15 to 18 come after the release, so the client ships first. They add
 examples that show the client as a library to build on: an alert that acts
 correctly on state it knows is incomplete, a seeded synthetic streamer, a
 dashboard, and, if the owner chooses, a way for applications to test
@@ -35,9 +36,9 @@ start until the owner records the decision and changes the status here.
 The contract's design decisions, D1 to D8, are all
 [owner specifications](../spec/client.md#owner-specifications), decided on
 2026-10-05; the **Owner specifications** column names those each step
-follows. Step 17 waits on the owner to decide whether the scripted server
+follows. Step 18 waits on the owner to decide whether the scripted server
 becomes a supported way to test applications, a decision the owner deferred
-on 2026-10-08 until step 16 is merged.
+on 2026-10-08 until the dashboard example, now step 17, is merged.
 
 | Step | Owner specifications | Status | Pull request |
 | --- | --- | --- | --- |
@@ -53,11 +54,12 @@ on 2026-10-08 until step 16 is merged.
 | 10. Verify order-book hashes | D4 | Done | [#28](https://github.com/nslaughter/polymarket-market-data-client/pull/28) |
 | 11. Add the research example and check the built wheel | | Done | [#31](https://github.com/nslaughter/polymarket-market-data-client/pull/31) |
 | 12. Record a limited live run | live-run period and markets | Done | [#34](https://github.com/nslaughter/polymarket-market-data-client/pull/34) |
-| 13. Release a tagged wheel | release name | Not started | |
-| 14. Add the price-alert example | | Not started | |
-| 15. Stream synthetic markets | | Not started | |
-| 16. Add the dashboard example | | Not started | |
-| 17. Offer the scripted server for testing applications | public testing module | Needs owner decision | |
+| 13. Investigate the live run's failed hash checks | D4 | Not started | |
+| 14. Release a tagged wheel | release name | Not started | |
+| 15. Add the price-alert example | | Not started | |
+| 16. Stream synthetic markets | | Not started | |
+| 17. Add the dashboard example | | Not started | |
+| 18. Offer the scripted server for testing applications | public testing module | Needs owner decision | |
 
 If the owner changes an owner specification, the scenarios marked
 `owner-spec` for it may need to change. That change is a new version of the
@@ -94,8 +96,9 @@ the import name D5 specifies, `polymarket_market_data`.
 | `_lookup.py` | `MarketLookup` and the default lookup (D6). |
 | `tests/` | Unit tests. |
 | `tests/conformance/` | The scenario parser, the scripted server and lookup, the runner, and `enabled.txt`. It reads `spec/conformance.md` directly. |
-| `tests/streamer/` | The seeded synthetic streamer and its soak tests (step 15), built on the scripted server. |
-| `examples/` | The research example and the quickstart (step 11), the price alert (step 14), and the dashboard (step 16). |
+| `tests/streamer/` | The seeded synthetic streamer and its soak tests (step 16), built on the scripted server. |
+| `examples/` | The research example and the quickstart (step 11), the price alert (step 15), and the dashboard (step 17). |
+| `tools/` | Scripts run on the research example's timelines, outside the package: the hash-check replay (step 13). |
 
 ## Steps
 
@@ -369,7 +372,55 @@ Only this step contacts the live service.
   the run covers.
 - Raw output stays out of git, as the investigation's captures did.
 
-### 13. Release a tagged wheel
+### 13. Investigate the live run's failed hash checks
+
+The live run's client made 390,248 hash checks, and 1,012 of them failed:
+0.26%, against about 0.012% in the D4 evidence. No token diverged, and the
+run's statistics do not say which tokens or times the failures fell on
+([live run, Books and hash checks](live-run.md#books-and-hash-checks)). The
+owner decided on 2026-11-02 to look into them before the release, in a step
+of their own; a fault in the client's checks would otherwise ship in it. The step works from the run's timeline, which stays out of git, and
+contacts no live service.
+
+- `tools/replay_hash_checks.py` feeds a research timeline's records to
+  `_hash.py`'s `Verifier` in their order, with each record's `received_at`
+  in place of the event loop's clock. The timeline holds the events' hashes,
+  levels, tick sizes, and announced trade prices, but not the
+  `min_order_size` and `neg_risk` the client fetched through lookup: the
+  script infers each token's from the hashes of its `book` events, and says
+  for which tokens it could not. It prints counts, times, and IDs, never a
+  price, a size, or a hash. A unit test runs it on a synthetic timeline, and
+  the step adds `tools/` to the type check and the citation check.
+- Run on the live run's timeline, whose SHA-256 `docs/live-run.md` records,
+  the replay first reproduces the run's `hash_verified`, `hash_retried`, and
+  `hash_failed`. Its clock only approximates the client's, so where its
+  counts differ, the record says by how much and, as far as the timeline
+  shows, why.
+- For each failed check, the replay gives its token and market, when it
+  came, whether it was a `book`'s own check or a burst's, and what came
+  shortly before it, such as a `tick_size_change`, a `book` that differed
+  from the held book, a repeat, or the market's end date. It then says
+  whether the failures came in episodes, how each ended, and how near any
+  came to D4's rule for divergence.
+- `docs/live-run.md` gains a dated section with what the replay found,
+  after the section it answers, which stays as it stands. Like the rest of
+  the document, it gives counts, times, and IDs only.
+- What follows depends on the cause:
+  - a fault in the client, where its code departs from the specification:
+    the step fixes it, with unit tests on synthetic inputs, and replays the
+    timeline again to show which failures the fix removes;
+  - the specification's recipe or rules, or source behavior the findings
+    do not record: the step reports it to the owner, as
+    [`AGENTS.md`](../AGENTS.md) requires, and builds nothing observed into
+    the client;
+  - a cause the timeline cannot settle: the new section says what would
+    settle it. Another run against the live service is the owner's to
+    decide, since only step 12 contacts it.
+
+Out of scope: any change to `spec/` or to the client's defaults, and any
+contact with the live service.
+
+### 14. Release a tagged wheel
 
 The owner decided on 2026-10-08 that the first release is version `0.1.0`,
 tagged `v0.1.0`: a release's tag is `v` and its version.
@@ -382,7 +433,7 @@ tagged `v0.1.0`: a release's tag is `v` and its version.
 - Update the README's status line.
 - Done when the workflow passes on the pull request, without publishing.
 
-### 14. Add the price-alert example
+### 15. Add the price-alert example
 
 An application that acts correctly on state it knows is incomplete, which
 is what the client is for.
@@ -437,7 +488,7 @@ is what the client is for.
 Out of scope: placing orders, sending alerts anywhere but standard output,
 and any advice on what to do with one.
 
-### 15. Stream synthetic markets
+### 16. Stream synthetic markets
 
 A seeded streamer that makes the scripted server look like a live market:
 for people watching the examples, for anything published about them, and
@@ -473,7 +524,7 @@ live source beyond [`docs/source-behavior.md`](source-behavior.md).
   `open`, with the book parameters the hashes use, and then `closed`, with
   the winner, once the streamer has settled the market. Every client run
   against the streamer uses it: in the soak tests, in the examples'
-  controlled modes, and in the relay (step 16). So none falls back to the
+  controlled modes, and in the relay (step 17). So none falls back to the
   default lookup, which calls the live service, and a settlement the
   stream does not announce is confirmed
   ([Settlement](../spec/client.md#settlement)).
@@ -495,7 +546,7 @@ live source beyond [`docs/source-behavior.md`](source-behavior.md).
 Out of scope: realistic price models, any change to the client or to
 `spec/`, and new conformance scenarios.
 
-### 16. Add the dashboard example
+### 17. Add the dashboard example
 
 A browser view built on the client. It draws what only this client knows:
 where each token's book was uncertain, and where a capture gap leaves the
@@ -505,7 +556,7 @@ record incomplete.
   relays its records to the browser as JSON written with
   `TypeAdapter(...).dump_json` (D8), over a WebSocket or server-sent
   events, and serves the built page. It has three sources: the live
-  service, which needs the SDK extra; the streamer (step 15), run in the
+  service, which needs the SDK extra; the streamer (step 16), run in the
   same process, with the streamer's lookup passed to the client; and a
   JSON-lines timeline written by the research example (step 11), replayed.
   The relay's own code starts no threads. The streamer's scripted server
@@ -536,13 +587,13 @@ record incomplete.
 Out of scope: hosting, accounts, storage, which is the pipeline's, orders,
 and any UI framework.
 
-### 17. Offer the scripted server for testing applications
+### 18. Offer the scripted server for testing applications
 
 Needs the owner to decide whether the scripted server and the streamer
 become a supported way for applications to test their own handling of
 interruptions and settlements. The owner deferred this decision on
-2026-10-08 until step 16 is merged. Today they are test code in `tests/`,
-outside the wheel and the contract. The options:
+2026-10-08 until the dashboard example, now step 17, is merged. Today they
+are test code in `tests/`, outside the wheel and the contract. The options:
 
 - a public module in the distribution, such as
   `polymarket_market_data.testing`, which adds it to the
